@@ -79,3 +79,7 @@ Check it with `apksigner verify --print-certs cleanphotos.apk`.
 ## License
 
 Apache License 2.0, see [LICENSE](LICENSE). Third-party fonts, images and dependencies are listed in [NOTICE](NOTICE).
+
+## Community
+
+Thanks to the [LINUX DO](https://linux.do) community.

@@ -109,3 +109,7 @@ Compose → ViewModel → UseCase → Repository → MediaStore / DataStore
 ```
 
 可以用 `apksigner verify --print-certs cleanphotos.apk` 核对。
+
+## 社区
+
+感谢 [LINUX DO](https://linux.do) 社区。
