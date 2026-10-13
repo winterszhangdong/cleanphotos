@@ -26,11 +26,9 @@ Apache License 2.0，见 [LICENSE](LICENSE)。第三方字体、照片和依赖�
 
 ## 安装
 
-需要 Android 8.0（API 26）或更高版本。安装包在 [Releases](https://github.com/winterszhangdong/cleanphotos/releases)。打上 `v*` 标签后，GitHub Actions 用发布证书签名并挂到对应的 Release。证书 SHA-256：
+需要 Android 8.0 或更高版本。从 [GitHub Releases](https://github.com/winterszhangdong/cleanphotos/releases/latest) 下载最新 APK。
 
-```text
-78:A6:BD:4F:43:2A:F2:7A:D7:57:3B:95:1F:89:8D:7D:33:BC:7D:74:7C:2A:42:BF:EE:B2:93:04:D5:8F:49:80
-```
+[![下载 APK](https://img.shields.io/github/v/release/winterszhangdong/cleanphotos?label=%E4%B8%8B%E8%BD%BD%20APK)](https://github.com/winterszhangdong/cleanphotos/releases/latest)
 
 ## 权限
 
@@ -101,3 +99,13 @@ Compose → ViewModel → UseCase → Repository → MediaStore / DataStore
 ```
 
 详见 `docs/architecture.md`。
+
+## 校验 APK
+
+发布版 APK 由 GitHub Actions 在打 `v*` 标签时构建并签名。证书 SHA-256：
+
+```text
+78:A6:BD:4F:43:2A:F2:7A:D7:57:3B:95:1F:89:8D:7D:33:BC:7D:74:7C:2A:42:BF:EE:B2:93:04:D5:8F:49:80
+```
+
+可以用 `apksigner verify --print-certs cleanphotos.apk` 核对。

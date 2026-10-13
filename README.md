@@ -34,11 +34,9 @@ Swipe up to favorite, swipe down to trash, one photo at a time. CleanPhotos is a
 
 ## Download
 
-Requires Android 8.0 (API 26) or later. Signed APKs are attached to [GitHub Releases](https://github.com/winterszhangdong/cleanphotos/releases); each `v*` tag is built and signed by GitHub Actions. Signing certificate SHA-256:
+Requires Android 8.0 or later. Download the latest APK from [GitHub Releases](https://github.com/winterszhangdong/cleanphotos/releases/latest).
 
-```text
-78:A6:BD:4F:43:2A:F2:7A:D7:57:3B:95:1F:89:8D:7D:33:BC:7D:74:7C:2A:42:BF:EE:B2:93:04:D5:8F:49:80
-```
+[![Download APK](https://img.shields.io/github/v/release/winterszhangdong/cleanphotos?label=Download%20APK)](https://github.com/winterszhangdong/cleanphotos/releases/latest)
 
 ## Permissions and privacy
 
@@ -67,6 +65,16 @@ Tech stack: Kotlin, Jetpack Compose, MVVM + UseCase, Coroutines/Flow, Hilt, Navi
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues as described in [SECURITY.md](SECURITY.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Verify the APK
+
+Release APKs are built and signed by GitHub Actions from `v*` tags. Signing certificate SHA-256:
+
+```text
+78:A6:BD:4F:43:2A:F2:7A:D7:57:3B:95:1F:89:8D:7D:33:BC:7D:74:7C:2A:42:BF:EE:B2:93:04:D5:8F:49:80
+```
+
+Check it with `apksigner verify --print-certs cleanphotos.apk`.
 
 ## License
 
