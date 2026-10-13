@@ -1,0 +1,61 @@
+name: Bug report / 报告缺陷
+description: A step did not behave as expected / 某一步的结果和预期不一样
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. One issue per problem. Write the report yourself; do not paste model output verbatim. See CONTRIBUTING.md.
+        先搜索已有 issue。一个 issue 只写一件事。正文自己写，不要把模型输出原样贴上来。规则见 CONTRIBUTING.md。
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist / 确认
+      options:
+        - label: I searched existing issues and found no duplicate. / 我搜过已有 issue，没有找到相同的报告。
+          required: true
+        - label: This issue covers a single problem. / 这个 issue 只包含一个问题。
+          required: true
+        - label: I wrote this report myself. / 正文是我自己写的。
+          required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device / 机型
+      placeholder: e.g. Pixel 8 / 例如 Pixel 8
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version / Android 版本
+      placeholder: e.g. 15 / 例如 15
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version / App 版本
+      placeholder: e.g. 1.0.0
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result / 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result / 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context / 补充
+      description: Screenshots or screen recordings. Leave empty if none. / 截图或录屏。没有就留空。

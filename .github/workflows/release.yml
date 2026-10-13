@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v4.0.4
+        with:
+          packages: platforms;android-36
+      - name: 写入发布证书
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.keystore"
+            echo "storePassword=$RELEASE_STORE_PASSWORD"
+            echo "keyAlias=cleanphotos"
+            echo "keyPassword=$RELEASE_KEY_PASSWORD"
+          } > keystore.properties
+      - name: 构建 release APK
+        run: |
+          ./gradlew assembleRelease --stacktrace
+          version="${GITHUB_REF_NAME#v}"
+          mv app/build/outputs/apk/release/app-release.apk "CleanPhotos-$version.apk"
+      - uses: softprops/action-gh-release@v3.0.3
+        with:
+          files: CleanPhotos-*.apk
+          generate_release_notes: true

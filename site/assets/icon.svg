@@ -1,0 +1,37 @@
+<!-- 由 app/src/main/res/drawable/ic_launcher_{background,foreground}.xml 转成 SVG，裁到自适应图标可见区域 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFDF8"/><stop offset="1" stop-color="#EFE8DD"/></linearGradient>
+    <linearGradient id="sky" gradientUnits="userSpaceOnUse" x1="0" y1="4" x2="0" y2="32"><stop offset="0" stop-color="#A8DBFF"/><stop offset="1" stop-color="#5FB2F2"/></linearGradient>
+    <linearGradient id="dusk" gradientUnits="userSpaceOnUse" x1="0" y1="4" x2="0" y2="32"><stop offset="0" stop-color="#FFB86B"/><stop offset="1" stop-color="#FF8A5C"/></linearGradient>
+    <linearGradient id="trail" gradientUnits="userSpaceOnUse" x1="18" y1="-13" x2="18" y2="3"><stop offset="0" stop-color="#FFB86B" stop-opacity="0"/><stop offset="1" stop-color="#FFB07A" stop-opacity="0.85"/></linearGradient>
+    <clipPath id="win"><rect x="4" y="4" width="28" height="28" rx="2"/></clipPath>
+    <g id="shadow" fill="#3A2A10">
+      <rect x="-0.4" y="0.6" width="36.8" height="44.8" rx="5.4" opacity="0.078"/>
+      <rect x="-1.2" y="0.8" width="38.4" height="46.4" rx="6.2" opacity="0.059"/>
+      <rect x="-2.2" y="1" width="40.4" height="48.4" rx="7.2" opacity="0.039"/>
+    </g>
+  </defs>
+  <rect x="0" y="0" width="108" height="108" fill="url(#bg)"/>
+  <g transform="translate(35 23) scale(1.05)">
+    <use href="#shadow"/>
+    <rect width="36" height="44" rx="5" fill="#fff"/>
+    <g clip-path="url(#win)">
+      <rect x="4" y="4" width="28" height="28" fill="url(#sky)"/>
+      <circle cx="24" cy="11" r="3.4" fill="#FFD24A"/>
+      <path d="M4,32L4,24L9,20L17,32z" fill="#7CCB86"/>
+      <path d="M4,32L13,19L19,26L23,22L32,32z" fill="#3FA866"/>
+    </g>
+  </g>
+  <g transform="translate(42 54) scale(0.95) rotate(9 18 22)">
+    <rect x="0" y="-13" width="36" height="34" rx="5" fill="url(#trail)"/>
+    <use href="#shadow"/>
+    <rect width="36" height="44" rx="5" fill="#fff"/>
+    <g clip-path="url(#win)">
+      <rect x="4" y="4" width="28" height="28" fill="url(#dusk)"/>
+      <circle cx="24" cy="11" r="3.4" fill="#FFF1C9"/>
+      <path d="M4,32L4,24L9,20L17,32z" fill="#A06FA0"/>
+      <path d="M4,32L13,19L19,26L23,22L32,32z" fill="#6B4A8C"/>
+    </g>
+  </g>
+</svg>

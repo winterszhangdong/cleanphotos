@@ -1,0 +1,11 @@
+{
+  "name": "cleanphotos-promo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node video/render.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.0"
+  }
+}

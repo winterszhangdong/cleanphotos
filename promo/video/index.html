@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>理照 CleanPhotos · 宣传片</title>
+<!--
+  宣传片画面。所有画面都是时间 t 的纯函数：seek(t) 把舞台摆到第 t 秒，render.mjs 逐帧截图交给 ffmpeg。
+  直接用浏览器打开（经 http，见 README）：点一下画面播放 / 暂停，带配乐；?t=12.3 停在某一秒。
+  视觉与动效数值来自 docs/ui-design.md（暗房）。
+-->
+<style>
+  @font-face { font-family: "Noto Sans SC"; font-weight: 400; src: url(../../app/src/main/res/font/noto_sans_sc_400.ttf); }
+  @font-face { font-family: "Noto Sans SC"; font-weight: 500; src: url(../../app/src/main/res/font/noto_sans_sc_500.ttf); }
+  @font-face { font-family: "Noto Sans SC"; font-weight: 600; src: url(../../app/src/main/res/font/noto_sans_sc_600.ttf); }
+  @font-face { font-family: "Noto Sans SC"; font-weight: 700; src: url(../../app/src/main/res/font/noto_sans_sc_700.ttf); }
+  @font-face { font-family: "Schibsted Grotesk"; font-weight: 500; src: url(../../app/src/main/res/font/schibsted_grotesk_500.ttf); }
+  @font-face { font-family: "Schibsted Grotesk"; font-weight: 600; src: url(../../app/src/main/res/font/schibsted_grotesk_600.ttf); }
+  @font-face { font-family: "Schibsted Grotesk"; font-weight: 700; src: url(../../app/src/main/res/font/schibsted_grotesk_700.ttf); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(../../app/src/main/res/font/ibm_plex_mono_400.ttf); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url(../../app/src/main/res/font/ibm_plex_mono_500.ttf); }
+
+  :root {
+    --room: #0F0E0D; --tray: #1A1816; --tray-2: #24211E;
+    --rim: rgba(255, 240, 225, 0.09); --rim-2: rgba(255, 240, 225, 0.16);
+    --paper: #EEE9E2; --dim: #8C857D; --faint: #5B554F;
+    --fade: #6E6862; --fade-deep: #4A4541; --fade-text: #A39C94;
+    --delete: #C4553F; --amber: #F2A93B; --glass: rgba(20, 18, 16, 0.56);
+    --board: #070706;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { font-family: "Noto Sans SC", sans-serif; color: var(--paper); -webkit-font-smoothing: antialiased; line-height: 1.45; }
+  .num { font-family: "Schibsted Grotesk", "Noto Sans SC", sans-serif; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .mono { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--board); transform-origin: 0 0; }
+  .layer { position: absolute; inset: 0; }
+  .abs { position: absolute; }
+
+  /* ---------- 01 照片墙 ---------- */
+  #wall { position: absolute; left: 50%; top: 50%; width: 2142px; height: 1260px; margin: -630px 0 0 -1071px; display: grid; grid-template-columns: repeat(17, 120px); gap: 6px; }
+  .wt { position: relative; width: 120px; height: 120px; border-radius: 4px; overflow: hidden; background: #1c1a18; }
+  .wt img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .wt.shot { background: #E9E6E1; padding: 10px 9px; }
+  .wt.shot i { display: block; height: 7px; margin-bottom: 7px; border-radius: 4px; background: #CFCAC2; }
+  .wt.shot i:nth-child(1) { width: 40%; background: #3d6fd1; opacity: .7; }
+  .wt.shot i:nth-child(3) { width: 70%; margin-left: 30%; background: #7fc27b; }
+  .wt.shot i:nth-child(5) { width: 55%; }
+  .wt .tag { position: absolute; left: 6px; bottom: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(10, 9, 8, 0.72); color: var(--paper); font-size: 11px; font-family: "IBM Plex Mono", monospace; }
+  #wallShade { background: radial-gradient(60% 55% at 50% 50%, rgba(7, 7, 6, 0.86), rgba(7, 7, 6, 0.35) 70%, rgba(7, 7, 6, 0.6)); }
+  #counter { left: 0; right: 0; top: 330px; text-align: center; }
+  #counter .n { font-size: 210px; line-height: 1; letter-spacing: -0.03em; font-weight: 700; text-shadow: 0 8px 60px rgba(0, 0, 0, .6); }
+  #counter .l { margin-top: 18px; color: var(--paper); opacity: .72; font-size: 26px; letter-spacing: .3em; }
+  #safelight { background: radial-gradient(42% 46% at 50% -6%, rgba(242, 169, 59, .42), rgba(242, 169, 59, .08) 55%, transparent 80%); }
+  #bulb { left: 50%; top: 0; width: 120px; height: 10px; margin-left: -60px; border-radius: 0 0 8px 8px; background: #F2A93B; box-shadow: 0 0 40px 10px rgba(242, 169, 59, .55); }
+
+  /* ---------- 背景余光：当前照片的颜色洒在暗房里 ---------- */
+  /* 缩小后放大，省掉大半径模糊的开销 */
+  #bgGlow { position: absolute; left: 132px; top: 312px; width: 96px; height: 136px; transform: scale(9); filter: blur(9px); }
+  #bgGlow img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+
+  /* ---------- 手机 ---------- */
+  .rig { position: absolute; left: 0; top: 0; z-index: 1; width: 360px; height: 760px; transform-origin: 50% 50%; }
+  .bezel { position: absolute; inset: 0; border-radius: 46px; background: #000; box-shadow: 0 0 0 1px #2B2825, 0 40px 80px rgba(0, 0, 0, .55), 0 8px 24px rgba(0, 0, 0, .4); }
+  .screen { position: absolute; left: 6px; top: 6px; width: 348px; height: 748px; overflow: hidden; border-radius: 40px; background: var(--room); color: var(--paper); font-size: 14px; }
+  .scr { position: absolute; inset: 0; }
+  .status { position: absolute; top: 0; left: 0; right: 0; z-index: 30; height: 32px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+  .status .cam { position: absolute; left: 50%; top: 10px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #000; box-shadow: 0 0 0 1px #1d1b19; }
+  .status .sys { display: flex; align-items: center; gap: 6px; }
+  .bat { width: 20px; height: 10px; border: 1.25px solid currentColor; border-radius: 3px; position: relative; opacity: .9; }
+  .bat::after { content: ""; position: absolute; left: 1.5px; top: 1.5px; bottom: 1.5px; width: 11px; border-radius: 1px; background: currentColor; }
+  .wifi { width: 14px; height: 10px; background: currentColor; clip-path: polygon(50% 100%, 0 25%, 15% 8%, 50% 0, 85% 8%, 100% 25%); opacity: .9; }
+  .home-ind { position: absolute; left: 50%; bottom: 8px; z-index: 40; width: 108px; height: 4px; margin-left: -54px; border-radius: 2px; background: rgba(238, 233, 226, .55); }
+  .i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .i.sm { width: 16px; height: 16px; }
+  .i.solid { fill: currentColor; }
+
+  /* 清理页 */
+  .pg { position: absolute; inset: 0; display: none; }
+  .pg .amb { position: absolute; inset: 0; overflow: hidden; }
+  .pg .amb img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.2); filter: blur(36px) brightness(.4); }
+  .pg .ph { position: absolute; left: 0; }
+  .pg .ph img { width: 100%; height: 100%; display: block; }
+  .glowUp { position: absolute; inset: 0; z-index: 1; opacity: 0; background: radial-gradient(140% 55% at 50% 100%, rgba(242, 169, 59, .55), rgba(242, 169, 59, .12) 55%, rgba(242, 169, 59, 0) 75%); }
+  .vig { position: absolute; inset: 0; z-index: 1; opacity: 0; background: radial-gradient(120% 70% at 50% 62%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, .55) 100%); }
+  .scrim-top { position: absolute; left: 0; right: 0; top: 0; height: 160px; z-index: 2; background: linear-gradient(to bottom, rgba(10, 9, 8, .62), rgba(10, 9, 8, 0)); }
+  .scrim-bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 200px; z-index: 2; background: linear-gradient(to top, rgba(10, 9, 8, .7), rgba(10, 9, 8, 0)); }
+  .segs { position: absolute; top: 40px; left: 16px; right: 16px; z-index: 5; display: flex; gap: 3px; }
+  .segs i { flex: 1; height: 2px; border-radius: 1px; background: repeating-linear-gradient(to right, rgba(238, 233, 226, .34) 0 3px, transparent 3px 5px); }
+  .segs i.k { background: rgba(238, 233, 226, .78); }
+  .segs i.f { background: var(--amber); }
+  .segs i.t { background: var(--fade-deep); }
+  .segs i.c { background: var(--paper); box-shadow: 0 0 6px rgba(255, 246, 232, .8); }
+  .rv-top { position: absolute; top: 52px; left: 12px; right: 12px; z-index: 5; height: 40px; display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; }
+  .glass-btn { width: 40px; height: 40px; border-radius: 20px; background: var(--glass); box-shadow: inset 0 0 0 1px rgba(255, 240, 225, .14); color: var(--paper); display: grid; place-items: center; }
+  .rv-date { text-align: center; text-shadow: 0 1px 8px rgba(0, 0, 0, .4); height: 36px; overflow: hidden; position: relative; }
+  .rv-date .roll { position: absolute; left: 0; right: 0; top: 0; }
+  .rv-date b { display: block; font-size: 15px; font-weight: 500; line-height: 20px; }
+  .rv-date span { display: block; color: rgba(238, 233, 226, .66); font-size: 10.5px; line-height: 16px; letter-spacing: .04em; }
+  .rv-meta { position: absolute; left: 16px; right: 16px; bottom: 32px; z-index: 5; display: flex; justify-content: space-between; color: rgba(238, 233, 226, .62); font-size: 10.5px; letter-spacing: .02em; }
+  .rv-meta .hint { display: flex; gap: 12px; }
+  .rv-meta .hint span { display: flex; align-items: center; gap: 4px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .cue { position: absolute; left: 0; right: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 12px; opacity: 0; }
+  .cue .ring { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; }
+  .cue .ring .i { width: 24px; height: 24px; }
+  .cue b { font-size: 15px; font-weight: 600; letter-spacing: .04em; line-height: 20px; }
+  .cue small { display: block; margin-top: -8px; font-size: 11px; line-height: 16px; }
+  .cue.pre { flex-direction: row; justify-content: center; gap: 8px; }
+  .cue.pre .ring { width: 32px; height: 32px; }
+  .cue.pre .ring .i { width: 16px; height: 16px; }
+  .cue.pre b { font-size: 14px; font-weight: 500; }
+  .cue.pre small, .cue .pre-txt, .cue.pre .post-txt { display: none; }
+  .cue.pre .pre-txt { display: inline; }
+  #cueUp { bottom: 40px; color: var(--amber); }
+  #cueUp .ring { background: var(--amber); color: #2A1A04; box-shadow: 0 0 0 6px rgba(242, 169, 59, .18), 0 0 32px rgba(242, 169, 59, .6); }
+  #cueUp.pre { bottom: 28px; color: rgba(242, 169, 59, .8); }
+  #cueUp.pre .ring { background: transparent; color: var(--amber); box-shadow: inset 0 0 0 1.5px rgba(242, 169, 59, .6); }
+  #cueDown { top: 64px; color: var(--paper); }
+  #cueDown .ring { background: var(--paper); color: var(--room); box-shadow: 0 0 0 6px rgba(238, 233, 226, .08); }
+  #cueDown small { color: var(--dim); }
+  #cueDown.pre { top: 56px; color: rgba(238, 238, 226, .5); }
+  #cueDown.pre .ring { background: transparent; color: rgba(238, 238, 226, .5); box-shadow: inset 0 0 0 1.5px rgba(238, 238, 226, .32); }
+  .undo { position: absolute; left: 16px; right: 16px; bottom: 32px; z-index: 8; height: 56px; padding: 0 8px; border-radius: 28px; overflow: hidden; display: flex; align-items: center; gap: 12px; background: rgba(26, 24, 22, .86); box-shadow: inset 0 0 0 1px rgba(255, 240, 225, .12), 0 16px 40px rgba(0, 0, 0, .5); opacity: 0; }
+  .undo .thumb { position: relative; width: 40px; height: 40px; border-radius: 20px; overflow: hidden; flex: none; }
+  .undo .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+  .undo .thumb::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(238, 233, 226, .16); }
+  .undo.fav .thumb::after { box-shadow: inset 0 0 0 1.5px var(--amber); }
+  .undo:not(.fav) .thumb img { filter: grayscale(.6) brightness(.7); }
+  .undo .txt { flex: 1; font-size: 14px; font-weight: 500; }
+  .undo .txt small { display: block; color: var(--dim); font-size: 11px; font-weight: 400; }
+  .undo .act { height: 40px; padding: 0 16px; border-radius: 20px; background: var(--paper); color: var(--room); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+  .undo .timer { position: absolute; left: 28px; right: 28px; bottom: 0; height: 2px; border-radius: 1px; background: rgba(238, 233, 226, .12); overflow: hidden; }
+  .undo .timer i { position: absolute; inset: 0; background: var(--fade); transform-origin: left; }
+  .undo.fav .timer { background: rgba(242, 169, 59, .25); }
+  .undo.fav .timer i { background: var(--amber); }
+  .finger { position: absolute; z-index: 50; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255, 250, 242, .34); box-shadow: 0 0 0 1.5px rgba(255, 250, 242, .55), 0 6px 18px rgba(0, 0, 0, .35); opacity: 0; }
+
+  /* 小结 */
+  .sum-bg { position: absolute; inset: -40px; overflow: hidden; }
+  .sum-bg img { width: 100%; height: 100%; object-fit: cover; filter: blur(36px) brightness(.32) saturate(1.2); }
+  .sum { position: absolute; inset: 0; z-index: 3; padding: 96px 24px 0; }
+  .eyebrow { margin-bottom: 4px; color: var(--dim); font-size: 12px; line-height: 16px; letter-spacing: .12em; }
+  .sum h4 { margin: 0; font-size: 28px; font-weight: 600; line-height: 36px; letter-spacing: -.01em; }
+  .stack { display: flex; gap: 2px; height: 6px; margin: 32px 0 24px; }
+  .stack i { border-radius: 3px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats .v { font-size: 36px; line-height: 40px; letter-spacing: -.02em; }
+  .stats .l { margin-top: 4px; color: var(--dim); font-size: 12px; line-height: 16px; }
+  .stats .x { display: block; margin-top: 4px; color: var(--dim); font-size: 10.5px; }
+  .strip { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--rim); }
+  .mini { position: relative; aspect-ratio: 1; border-radius: 4px; overflow: hidden; }
+  .mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .mini.fav::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--amber); }
+  .mini.del img { filter: grayscale(1) brightness(.3); }
+  .month { margin-top: 32px; }
+  .month .hd { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; line-height: 16px; }
+  .month .hd b { color: var(--paper); font-weight: 500; }
+  .ticks { display: flex; align-items: flex-end; gap: 4px; height: 16px; margin-top: 12px; }
+  .ticks i { flex: 1; height: 16px; border-radius: 2px; background: rgba(238, 233, 226, .1); transform-origin: bottom; }
+  .ticks i.done { background: rgba(238, 233, 226, .6); }
+  .ticks i.now { background: var(--paper); box-shadow: 0 0 8px rgba(255, 246, 232, .8); }
+  .ticks i.todo { background: rgba(238, 233, 226, .2); }
+  .ticks i.nil { height: 4px; background: rgba(238, 233, 226, .12); }
+  .ticks i.future { height: 4px; background: rgba(238, 233, 226, .05); }
+  .next { position: absolute; left: 16px; right: 16px; bottom: 88px; z-index: 4; height: 64px; padding: 0 16px 0 8px; border-radius: 20px; display: flex; align-items: center; gap: 12px; background: var(--paper); color: var(--room); box-shadow: 0 16px 40px rgba(0, 0, 0, .4); }
+  .next .nt { width: 48px; height: 48px; border-radius: 12px; overflow: hidden; flex: none; }
+  .next .nt img { width: 100%; height: 100%; object-fit: cover; }
+  .next b { display: block; font-size: 15px; font-weight: 600; line-height: 20px; }
+  .next small { display: block; color: #6E675F; font-size: 12px; line-height: 16px; }
+  .next .i { margin-left: auto; }
+  .later { position: absolute; left: 0; right: 0; bottom: 40px; z-index: 4; text-align: center; color: var(--dim); font-size: 13px; }
+
+  /* 照片 / 收藏 / 垃圾桶 */
+  .bar { position: relative; z-index: 5; height: 84px; margin-top: 32px; padding: 0 16px 12px; display: flex; align-items: flex-end; justify-content: space-between; }
+  .count { display: flex; align-items: baseline; gap: 4px; height: 32px; }
+  .count .big { font-size: 30px; line-height: 32px; letter-spacing: -.02em; }
+  .count .unit { color: var(--dim); font-size: 13px; }
+  .count .sub { margin-left: 8px; color: var(--dim); font-size: 11px; }
+  .bar-r { display: flex; gap: 8px; }
+  .ib { width: 36px; height: 36px; border-radius: 18px; background: var(--tray); box-shadow: inset 0 0 0 1px var(--rim); display: grid; place-items: center; }
+  .ib .i { width: 18px; height: 18px; }
+  .tb { height: 36px; padding: 0 16px; border-radius: 18px; background: var(--tray); box-shadow: inset 0 0 0 1px var(--rim); font-size: 13px; font-weight: 500; display: grid; place-items: center; }
+  .year { height: 32px; padding: 0 16px; display: flex; align-items: center; gap: 12px; color: var(--dim); font-size: 11px; letter-spacing: .08em; }
+  .year i { flex: 1; height: 1px; background: var(--rim); }
+  .day { height: 50px; padding: 16px 16px 10px; display: flex; align-items: baseline; gap: 8px; }
+  .day .d { font-size: 24px; line-height: 24px; letter-spacing: -.01em; }
+  .day .md { color: var(--dim); font-size: 12px; }
+  .day .r { margin-left: auto; align-self: center; display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: 11px; }
+  .day .r b { font-weight: 500; color: var(--paper); }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+  .tile { position: relative; aspect-ratio: 1; overflow: hidden; background: #1c1a18; }
+  .tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .tile .new { position: absolute; left: 6px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: #FFFBF5; box-shadow: 0 0 0 1.5px rgba(15, 14, 13, .5), 0 0 8px 1px rgba(255, 246, 232, .7); }
+  .grid3 .tile img { filter: saturate(.7) brightness(.86); }
+  .grid3 .size { position: absolute; right: 6px; bottom: 6px; color: rgba(238, 233, 226, .88); font-size: 10px; text-shadow: 0 1px 4px rgba(0, 0, 0, .8); }
+  .list { position: absolute; left: 0; right: 0; top: 116px; }
+  .list-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 128px; z-index: 6; background: linear-gradient(to bottom, rgba(15, 14, 13, 0), rgba(15, 14, 13, .92) 70%, var(--room)); }
+  .nav { position: absolute; left: 50%; bottom: 24px; z-index: 10; transform: translateX(-50%); height: 44px; padding: 4px; border-radius: 22px; display: flex; background: rgba(30, 28, 25, .92); box-shadow: inset 0 0 0 1px rgba(255, 240, 225, .1), 0 12px 32px rgba(0, 0, 0, .5); }
+  .nav .ni { position: relative; width: 72px; height: 36px; padding-bottom: 2px; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--dim); font-size: 13px; }
+  .nav .ni.on { color: var(--paper); font-weight: 500; }
+  .nav .ni.on::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 16px; height: 2px; margin-left: -8px; border-radius: 1px; background: var(--paper); }
+  .nav .badge { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: rgba(238, 233, 226, .1); color: var(--dim); font-size: 10px; line-height: 16px; text-align: center; }
+  .free { margin: 4px 16px 16px; padding: 16px; border-radius: 20px; background: var(--tray); box-shadow: inset 0 0 0 1px var(--rim); display: flex; align-items: center; gap: 16px; }
+  .free .l { flex: 1; }
+  .free .lab { color: var(--dim); font-size: 12px; line-height: 16px; }
+  .free .v { display: flex; align-items: baseline; gap: 4px; margin-top: 4px; }
+  .free .v .num { font-size: 32px; line-height: 36px; letter-spacing: -.02em; }
+  .free .v .u { color: var(--dim); font-size: 14px; font-weight: 500; }
+  .free .sub { margin-top: 4px; color: var(--faint); font-size: 11px; line-height: 16px; }
+  .btn-clear { height: 40px; padding: 0 20px; border-radius: 20px; color: var(--delete); font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px rgba(196, 85, 63, .55); display: grid; place-items: center; }
+  .confirm-dim { position: absolute; inset: 0; z-index: 20; background: rgba(10, 9, 8, .64); opacity: 0; }
+  .dialog { position: absolute; z-index: 21; left: 24px; right: 24px; top: 50%; margin-top: -92px; padding: 24px; border-radius: 24px; background: var(--tray); box-shadow: inset 0 0 0 1px var(--rim), 0 24px 48px rgba(0, 0, 0, .5); opacity: 0; }
+  .dg-title { font-size: 17px; font-weight: 600; line-height: 24px; }
+  .dg-body { margin-top: 8px; color: var(--dim); font-size: 13px; line-height: 20px; }
+  .dg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+  .dg-actions span { height: 40px; padding: 0 20px; border-radius: 20px; font-size: 14px; font-weight: 600; display: grid; place-items: center; }
+  .dg-delete { background: var(--delete); color: #FFF4EF; }
+
+  /* ---------- 标题字 ---------- */
+  .title { left: 200px; top: 360px; width: 760px; }
+  .title .icon { width: 112px; height: 112px; border-radius: 28px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06); }
+  .title .icon img { width: 100%; height: 100%; display: block; }
+  .title h1 { margin: 36px 0 0; font-size: 132px; line-height: 1; font-weight: 700; letter-spacing: .02em; }
+  .title .en { margin-top: 18px; font-family: "Schibsted Grotesk", sans-serif; font-size: 44px; font-weight: 600; letter-spacing: -.01em; }
+  .title .tag { margin-top: 22px; color: var(--dim); font-size: 21px; letter-spacing: .08em; }
+  .hl { width: 620px; }
+  .hl .kick { font-family: "IBM Plex Mono", monospace; font-size: 18px; letter-spacing: .24em; }
+  .hl .line { overflow: hidden; padding-bottom: 8px; }
+  .hl .line > div { will-change: transform; }
+  .hl h2 { margin: 14px 0 0; font-size: 148px; line-height: 1.08; font-weight: 700; letter-spacing: .01em; }
+  .hl .en { margin-top: 10px; font-family: "Schibsted Grotesk", sans-serif; font-size: 34px; font-weight: 600; letter-spacing: .14em; color: var(--dim); }
+  .hl .arrow { display: inline-block; width: 120px; height: 120px; vertical-align: -6px; margin-right: 8px; }
+  .reveal { overflow: hidden; }
+
+  /* 连刷 */
+  #mCount { left: 180px; top: 300px; }
+  #mCount .row { display: flex; align-items: baseline; gap: 22px; height: 150px; }
+  #mCount .row .num { font-size: 128px; line-height: 1; font-weight: 700; letter-spacing: -.03em; width: 200px; text-align: right; }
+  #mCount .row span { font-size: 30px; color: var(--dim); }
+  #mCount .row span em { display: block; font-style: normal; font-family: "IBM Plex Mono", monospace; font-size: 15px; letter-spacing: .2em; color: var(--faint); }
+  #mWord { left: 1290px; top: 420px; width: 560px; font-size: 128px; font-weight: 700; line-height: 1; white-space: nowrap; }
+  #mWord small { display: block; margin-top: 18px; font-family: "Schibsted Grotesk", sans-serif; font-size: 30px; letter-spacing: .16em; font-weight: 600; }
+
+  /* 隐私 */
+  #privacy { left: 0; right: 0; top: 200px; display: flex; flex-direction: column; align-items: center; }
+  #privacy .row { display: flex; align-items: baseline; gap: 36px; height: 150px; width: 900px; }
+  #privacy .row b { font-size: 112px; font-weight: 700; line-height: 1; width: 400px; text-align: right; }
+  #privacy .row span { font-family: "Schibsted Grotesk", sans-serif; font-size: 38px; letter-spacing: .14em; color: var(--dim); font-weight: 600; }
+  #privacy .row i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 18px rgba(242, 169, 59, .8); margin-right: 18px; vertical-align: 6px; }
+  #manifest { left: 0; right: 0; top: 830px; text-align: center; color: var(--dim); font-size: 20px; letter-spacing: .04em; }
+
+  /* 开源 */
+  #term { left: 160px; top: 250px; width: 820px; height: 480px; border-radius: 22px; background: var(--tray); box-shadow: inset 0 0 0 1px var(--rim), 0 40px 80px rgba(0, 0, 0, .5); overflow: hidden; }
+  #term .tb { height: 48px; border-radius: 0; background: var(--tray-2); box-shadow: none; display: flex; align-items: center; gap: 8px; padding: 0 18px; justify-content: flex-start; }
+  #term .tb i { width: 12px; height: 12px; border-radius: 50%; background: #3a3632; }
+  #term .tb span { margin-left: 14px; color: var(--dim); font-size: 14px; font-weight: 400; }
+  #term pre { margin: 0; padding: 26px 30px; font-family: "IBM Plex Mono", monospace; font-size: 23px; line-height: 1.75; color: var(--paper); white-space: pre-wrap; }
+  #term pre .p { color: var(--amber); }
+  #term pre .d { color: var(--dim); }
+  #term pre .ok { color: #9BC79A; }
+  #oss { left: 1080px; top: 230px; width: 700px; }
+  #oss h2 { margin: 0; font-size: 150px; line-height: 1.05; font-weight: 700; }
+  #oss .en { margin-top: 8px; font-family: "Schibsted Grotesk", sans-serif; font-size: 36px; letter-spacing: .16em; color: var(--dim); font-weight: 600; }
+  #chips { margin-top: 44px; display: flex; flex-wrap: wrap; gap: 14px; }
+  #chips span { height: 52px; padding: 0 24px; border-radius: 26px; display: grid; place-items: center; background: var(--tray); box-shadow: inset 0 0 0 1px var(--rim-2); font-family: "Schibsted Grotesk", sans-serif; font-size: 24px; font-weight: 500; }
+
+  /* 片尾：晾片 */
+  #line { left: -40px; right: -40px; top: 120px; height: 2px; background: linear-gradient(to right, transparent, rgba(238, 233, 226, .25) 15%, rgba(238, 233, 226, .25) 85%, transparent); }
+  .print { position: absolute; top: 112px; width: 210px; padding: 10px 10px 34px; background: #EDE6DA; border-radius: 3px; transform-origin: 50% 0; box-shadow: 0 30px 60px rgba(0, 0, 0, .55); }
+  .print img { width: 190px; height: 190px; object-fit: cover; display: block; }
+  .print::before { content: ""; position: absolute; left: 50%; top: -14px; width: 16px; height: 30px; margin-left: -8px; border-radius: 3px; background: #2a2724; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
+  #outro { left: 0; right: 0; top: 480px; display: flex; flex-direction: column; align-items: center; }
+  #outro .icon { width: 120px; height: 120px; border-radius: 30px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, .6); }
+  #outro .icon img { width: 100%; height: 100%; display: block; }
+  #outro h1 { margin: 26px 0 0; font-size: 88px; line-height: 1; font-weight: 700; letter-spacing: .04em; }
+  #outro h1 span { font-family: "Schibsted Grotesk", sans-serif; font-weight: 600; font-size: 64px; letter-spacing: -.01em; margin-left: 24px; }
+  #outro .tag { margin-top: 22px; color: var(--dim); font-size: 22px; letter-spacing: .12em; }
+  #credit { left: 0; right: 0; top: 900px; text-align: center; color: var(--dim); font-size: 15px; }
+
+  /* 字幕 */
+  #subs { left: 0; right: 0; bottom: 34px; text-align: center; pointer-events: none; }
+  #subs .zh { font-size: 34px; font-weight: 500; line-height: 1.35; letter-spacing: .02em; text-shadow: 0 2px 14px rgba(0, 0, 0, .9), 0 0 3px rgba(0, 0, 0, .8); }
+  #subs .en { margin-top: 4px; font-family: "Schibsted Grotesk", sans-serif; font-size: 23px; font-weight: 500; color: #D9D2C8; text-shadow: 0 2px 12px rgba(0, 0, 0, .9), 0 0 3px rgba(0, 0, 0, .8); }
+
+  #grain { opacity: .07; mix-blend-mode: overlay; }
+  #vignette { background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, .55)); }
+  #black { background: #000; opacity: 0; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 5v14M8 5L5 8M8 5l3 3M16 19V5M16 19l-3-3M16 19l3-3"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 7h16M7 12h10M10 17h4"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.6l2.55 5.3 5.8.75-4.25 4.02 1.07 5.75L12 16.6l-5.17 2.82 1.07-5.75L3.650 9.65l5.8-.75z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M10 11v6M14 11v6M6.5 7l.8 11.2A2 2 0 009.3 20h5.4a2 2 0 002-1.8L17.5 7M9.5 7V4.5h5V7"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4.5 9.5 9 5M4.5 9.5H14a5.5 5.5 0 010 11h-3"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="2.6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+</svg>
+
+<div id="stage">
+  <div class="layer" id="wallL"><div id="wall"></div><div class="layer" id="wallShade"></div>
+    <div class="abs" id="counter"><div class="num n" id="cntN">0</div><div class="l">张照片 · PHOTOS</div></div>
+  </div>
+  <div class="layer" id="safelight"><div class="abs" id="bulb"></div></div>
+
+  <div class="abs title" id="title">
+    <div class="icon"><img src="../../site/assets/icon.svg" alt=""></div>
+    <div class="reveal"><h1>理照</h1></div>
+    <div class="reveal"><div class="en">CleanPhotos</div></div>
+    <div class="reveal"><div class="tag">开源 · 安卓相册清理 &nbsp;/&nbsp; OPEN-SOURCE PHOTO CLEANER</div></div>
+  </div>
+
+  <div class="abs hl" id="hlKeep" style="left:200px;top:330px">
+    <div class="line"><div class="kick" style="color:var(--amber)">01 · 收藏</div></div>
+    <div class="line"><div><h2><svg class="i arrow" style="color:var(--amber);stroke-width:1.4"><use href="#i-up"/></svg>收藏</h2></div></div>
+    <div class="line"><div class="en">SWIPE UP · KEEP</div></div>
+  </div>
+  <div class="abs hl" id="hlTrash" style="left:1120px;top:330px">
+    <div class="line"><div class="kick" style="color:var(--fade-text)">02 · 移到垃圾桶</div></div>
+    <div class="line"><div><h2><svg class="i arrow" style="color:var(--fade-text);stroke-width:1.4"><use href="#i-down"/></svg>移走</h2></div></div>
+    <div class="line"><div class="en">SWIPE DOWN · LET GO</div></div>
+  </div>
+  <div class="abs hl" id="hlUndo" style="left:150px;top:330px;width:520px">
+    <div class="line"><div class="kick" style="color:var(--paper)">03 · 撤回</div></div>
+    <div class="line"><div><h2 style="font-size:120px">撤回</h2></div></div>
+    <div class="line"><div class="en" style="font-size:28px">UNDO IN 4 SECONDS</div></div>
+  </div>
+  <div class="abs hl" id="hlSum" style="left:200px;top:330px">
+    <div class="line"><div class="kick" style="color:var(--paper)">04 · 一天小结</div></div>
+    <div class="line"><div><h2>小结</h2></div></div>
+    <div class="line"><div class="en">A RECAP FOR EVERY DAY</div></div>
+  </div>
+  <div class="abs hl" id="hlEmpty" style="left:200px;top:330px;width:760px">
+    <div class="line"><div class="kick" style="color:var(--paper)">05 · 垃圾桶</div></div>
+    <div class="line"><div><h2>只问一次</h2></div></div>
+    <div class="line"><div class="en">ONE CONFIRMATION, AT THE END</div></div>
+  </div>
+
+  <div class="abs" id="mCount">
+    <div class="row"><div class="num" id="mFav" style="color:var(--amber)">0</div><span>收藏<em>KEPT</em></span></div>
+    <div class="row"><div class="num" id="mTrash" style="color:var(--fade-text)">0</div><span>移走<em>TRASHED</em></span></div>
+    <div class="row"><div class="num" id="mSeen">0</div><span>看过<em>REVIEWED</em></span></div>
+  </div>
+  <div class="abs" id="mWord"></div>
+
+  <div id="rigs"></div>
+
+  <div class="abs" id="privacy"></div>
+  <div class="abs mono" id="manifest">AndroidManifest.xml — 未声明 android.permission.INTERNET</div>
+
+  <div class="abs" id="term"><div class="tb"><i></i><i></i><i></i><span class="mono">~/cleanphotos</span></div><pre id="termText"></pre></div>
+  <div class="abs" id="oss"><div class="reveal"><h2>开源</h2></div><div class="reveal"><div class="en">FREE &amp; OPEN SOURCE</div></div><div id="chips"></div></div>
+
+  <div class="layer" id="outroL">
+    <div class="abs" id="line"></div>
+    <div id="prints"></div>
+    <div class="abs" id="outro">
+      <div class="icon"><img src="../../site/assets/icon.svg" alt=""></div>
+      <h1>理照<span>CleanPhotos</span></h1>
+      <div class="tag">像冲洗照片一样，整理你的相册 &nbsp;·&nbsp; ANDROID 8.0+</div>
+    </div>
+    <div class="abs mono" id="credit">Music: “Ethernight Club” — Kevin MacLeod (incompetech.com), CC BY 4.0 &nbsp;·&nbsp; Photos: Unsplash</div>
+  </div>
+
+  <div class="layer" id="vignette"></div>
+  <div class="layer" id="grain"></div>
+  <div class="abs" id="subs"><div class="zh"></div><div class="en"></div></div>
+  <div class="layer" id="black"></div>
+</div>
+
+<script type="module">
+import { CUES, DURATION } from './cues.js';
+
+// ---------- 时间与曲线（docs/ui-design.md 2.4） ----------
+const BEAT = 60 / 117;
+const bt = n => n * BEAT;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, p) => a + (b - a) * p;
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = u => ((ax * u + bx) * u + cx) * u, sy = u => ((ay * u + by) * u + cy) * u;
+  return p => {
+    if (p <= 0) return 0; if (p >= 1) return 1;
+    let u = p;
+    for (let i = 0; i < 8; i++) { const d = (3 * ax * u + 2 * bx) * u + cx; if (Math.abs(d) < 1e-6) break; u -= (sx(u) - p) / d; }
+    return sy(clamp(u));
+  };
+}
+const E = { std: bezier(.2, 0, 0, 1), dec: bezier(.05, .7, .1, 1), acc: bezier(.3, 0, .8, .15), dev: bezier(.45, 0, .2, 1), inout: bezier(.6, 0, .3, 1) };
+// 弹簧阶跃响应（mass = 1）：settle 0.75/400、bouncy 0.5/400
+function spring(s, ratio = .75, stiff = 400) {
+  if (s <= 0) return 0;
+  const w = Math.sqrt(stiff), wd = w * Math.sqrt(1 - ratio * ratio);
+  return 1 - Math.exp(-ratio * w * s) * (Math.cos(wd * s) + ratio * w / wd * Math.sin(wd * s));
+}
+// 进场 / 退场窗口：0→1→0
+const win = (t, a, b, fin = .4, fout = .4) => Math.min(E.dec(prog(t, a, a + fin)), 1 - E.acc(prog(t, b - fout, b)));
+function rand(seed) { let s = seed; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+
+const $ = s => document.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const PH = '../../site/assets/photos/';
+const css = (el, props) => { for (const k in props) el.style[k] = props[k]; };
+const show = (el, o) => { el.style.opacity = o; el.style.visibility = o <= 0.001 ? 'hidden' : 'visible'; };
+
+// ---------- 素材 ----------
+const DAY_A = [
+  ['hero.jpg', 'IMG_2041', 3.1, '07:42'], ['p129.jpg', 'IMG_2043', 2.8, '08:15'], ['p186.jpg', 'IMG_2044', 2.4, '08:16'],
+  ['p219.jpg', 'IMG_2048', 4.6, '09:03'], ['p164.jpg', 'IMG_2051', 3.9, '10:27'], ['p141.jpg', 'IMG_2052', 1.9, '10:27'],
+  ['p102.jpg', 'IMG_2060', 3.4, '12:10'], ['p113.jpg', 'IMG_2061', 2.2, '12:11'], ['a.jpg', 'IMG_2066', 2.9, '14:38'],
+  ['p172.jpg', 'IMG_2067', 1.6, '14:39'], ['p123.jpg', 'IMG_2070', 2.7, '16:02'], ['p225.jpg', 'IMG_2074', 3.2, '17:45'],
+  ['g.jpg', 'IMG_2079', 3.8, '19:20'], ['p210.jpg', 'IMG_2081', 2.1, '21:06'],
+].map(([f, n, mb, tm]) => ({ f, n, mb, tm }));
+const N = DAY_A.length;
+
+// 清理页动作（拍）：s 开始拖，r 松手。蒙太奇段每拍落一次松手。
+const MONTAGE = ['left', 'down', 'up', 'down', 'left', 'down', 'down', 'up', 'left', 'down'];
+const ACTS = [
+  { k: 'up', s: 33, r: 35.5 }, { k: 'up', s: 40, r: 41.2 },
+  { k: 'down', s: 50, r: 52 }, { k: 'down', s: 58, r: 59 },
+  { k: 'undo', s: 66.5 }, { k: 'up', s: 68.8, r: 70.2 },
+  ...MONTAGE.map((k, i) => ({ k, s: 75 + i - .5, r: 75 + i })),
+];
+const EV = (() => {
+  let idx = 0; const ev = [], stack = [];
+  for (const a of ACTS) {
+    if (a.k === 'undo') { const p = stack.pop(); ev.push({ k: 'undo', s: bt(a.s), T: bt(a.s), idx: p.idx, from: p.k }); idx = p.idx; continue; }
+    const quick = a.r - a.s < .9;
+    const e = { k: a.k, s: bt(a.s), r: bt(a.r), T: bt(a.r), idx, D: a.k === 'left' ? 150 : quick ? 150 : 170 };
+    ev.push(e); if (a.k !== 'left') stack.push(e); idx++;
+  }
+  return ev;
+})();
+const DAY_END = EV[EV.length - 1].r; // 最后一张处理完，进入小结插页
+
+// ---------- 搭场景 ----------
+function buildWall() {
+  const r = rand(7), pics = DAY_A.map(d => d.f).concat(['b.jpg', 'c.jpg', 'd.jpg', 'e.jpg', 'f.jpg', 'p104.jpg', 'p106.jpg', 'p110.jpg', 'p111.jpg', 'p152.jpg', 'p167.jpg', 'p174.jpg', 'p175.jpg', 'p183.jpg', 'p195.jpg', 'p211.jpg', 'p237.jpg', 'p239.jpg', 'p247.jpg', 'p250.jpg', 'p259.jpg', 'p274.jpg', 'p283.jpg', 'p287.jpg', 'p292.jpg', 'p306.jpg', 'p312.jpg', 'p208.jpg', 'p223.jpg', 'p289.jpg', 'p149.jpg', 'p300.jpg', 'p120.jpg', 'p302.jpg']);
+  const tags = ['连拍 ×12', '截图', '拍糊了', '重复', '误触', '闭眼了', '连拍 ×7', '截图', '过曝'];
+  const cells = []; const cols = 17, rows = 10;
+  let burst = 0, burstPic = '';
+  for (let i = 0; i < cols * rows; i++) {
+    const x = i % cols - (cols - 1) / 2, y = Math.floor(i / cols) - (rows - 1) / 2;
+    const el = document.createElement('div'); el.className = 'wt';
+    let tag = '';
+    if (burst > 0) { burst--; el.innerHTML = `<img src="${PH + burstPic}" style="object-position:${30 + burst * 12}% 50%">`; }
+    else if (r() < .1) { el.classList.add('shot'); el.innerHTML = '<i></i><i></i><i></i><i></i><i></i><i></i>'; if (r() < .5) tag = '截图'; }
+    else {
+      const p = pics[Math.floor(r() * pics.length)];
+      el.innerHTML = `<img src="${PH + p}">`;
+      if (r() < .1) { burst = 2 + Math.floor(r() * 2); burstPic = p; tag = '连拍 ×' + (burst + 1 + Math.floor(r() * 9)); }
+      else if (r() < .12) tag = tags[Math.floor(r() * tags.length)];
+    }
+    if (tag) el.insertAdjacentHTML('beforeend', `<span class="tag">${tag}</span>`);
+    $('#wall').appendChild(el);
+    cells.push({ el, d: Math.hypot(x, y * 1.2) + r() * 1.6 });
+  }
+  const order = [...cells].sort((a, b) => a.d - b.d);
+  const maxD = order[order.length - 1].d;
+  order.forEach((c, k) => { c.tin = 5.4 * Math.sqrt(k / order.length); c.tout = 6.3 + (1 - c.d / maxD) * 1.5; });
+  return cells;
+}
+
+const statusBar = () => `<div class="status"><span class="num">9:41</span><span class="cam"></span><span class="sys"><span class="wifi"></span><span class="bat"></span></span></div>`;
+const nav = on => `<div class="nav">${['照片', '收藏', '垃圾桶'].map((n, i) => `<div class="ni ${i === on ? 'on' : ''}">${n}${i === 2 ? '<span class="badge num">28</span>' : ''}</div>`).join('')}</div>`;
+const svg = (id, cls = '') => `<svg class="i ${cls}"><use href="#i-${id}"/></svg>`;
+
+function reviewScreen() {
+  const pages = DAY_A.map((d, i) => `<div class="pg" data-i="${i}"><div class="amb"><img src="${PH + d.f}"></div><div class="ph"><img src="${PH + d.f}"></div></div>`).join('');
+  return `<div class="scr" id="scrReview">
+    <div class="pages">${pages}</div>
+    <div class="glowUp"></div><div class="vig"></div>
+    <div class="ui"><div class="scrim-top"></div><div class="scrim-bottom"></div>
+      <div class="segs">${'<i></i>'.repeat(N)}</div>
+      <div class="rv-top"><div class="glass-btn">${svg('back')}</div>
+        <div class="rv-date"><div class="roll"><b>9月21日</b><span class="mono" id="rvTime">周一 · 07:42</span><b>9月20日</b><span class="mono">周日 · 08:03</span></div></div>
+        <div class="glass-btn">${svg('more')}</div></div>
+      <div class="rv-meta"><span class="mono" id="rvFile"></span><span class="hint"><span><i class="dot" style="background:var(--amber)"></i>上滑收藏</span><span><i class="dot" style="background:var(--fade)"></i>下滑移走</span></span></div>
+    </div>
+    <div class="cue" id="cueUp"><span class="ring">${svg('star', 'solid')}</span><b><span class="pre-txt">继续上滑收藏</span><span class="post-txt">松手收藏</span></b><small>清理时随时可以取消</small></div>
+    <div class="cue" id="cueDown"><span class="ring">${svg('trash')}</span><b><span class="pre-txt">继续下滑</span><span class="post-txt">松手移到垃圾桶</span></b><small>轻滑一下 · 清空前都能找回</small></div>
+    <div class="undo" id="undo"><span class="thumb">${DAY_A.map(d => `<img src="${PH + d.f}">`).join('')}</span>
+      <span class="txt"><span id="undoT">已收藏</span><small id="undoS"></small></span>
+      <span class="act">${svg('undo', 'sm')}撤回</span><span class="timer"><i></i></span></div>
+    <div class="finger" id="fingerR"></div>
+  </div>`;
+}
+
+const FAV = [0, 1, 3, 6, 11], TRASH = [2, 5, 7, 9, 10, 13], KEEP = [4, 8, 12];
+const freedMB = TRASH.reduce((s, i) => s + DAY_A[i].mb, 0);
+function summaryScreen() {
+  const segs = DAY_A.map((_, i) => `<i class="${FAV.includes(i) ? 'f' : TRASH.includes(i) ? 't' : 'k'}"></i>`).join('');
+  const minis = DAY_A.slice(0, 8).map((d, i) => `<div class="mini ${FAV.includes(i) ? 'fav' : TRASH.includes(i) ? 'del' : ''}"><img src="${PH + d.f}"></div>`).join('');
+  const ticks = 'nil nil done done todo nil todo done nil nil nil done todo todo done nil nil nil todo done now future future future future future future future future future'.split(' ').map(c => `<i class="${c}"></i>`).join('');
+  return `<div class="scr" id="scrSum"><div class="sum-bg"><img src="${PH}hero.jpg"></div>
+    <div class="segs" style="z-index:4">${segs}</div>
+    <div class="sum">
+      <div class="eyebrow mono">9月21日 · 周一</div><h4>这一天整理完了</h4>
+      <div class="stack"><i style="flex:${FAV.length};background:var(--amber)"></i><i style="flex:${TRASH.length};background:var(--fade)"></i><i style="flex:${KEEP.length};background:rgba(238,233,226,.7)"></i></div>
+      <div class="stats">
+        <div><div class="num v" style="color:var(--amber)" data-n="${FAV.length}">0</div><div class="l">收藏</div></div>
+        <div><div class="num v" style="color:#A39C94" data-n="${TRASH.length}">0</div><div class="l">移走<span class="x mono">释放 ${Math.round(freedMB)} MB</span></div></div>
+        <div><div class="num v" data-n="${KEEP.length}">0</div><div class="l">保留</div></div>
+      </div>
+      <div class="strip">${minis}</div>
+      <div class="month"><div class="hd"><span>9月</span><span class="mono"><b>7</b> / 12 天整理完</span></div><div class="ticks">${ticks}</div></div>
+    </div>
+    <div class="next"><span class="nt"><img src="${PH}d.jpg"></span><span><b>下一天 · 9月20日</b><small>6 张未看</small></span>${svg('arrow')}</div>
+    <div class="later">回到照片</div></div>`;
+}
+
+const tiles = (list, dots = []) => list.map((f, i) => `<div class="tile"><img src="${PH + f}">${dots.includes(i) ? '<span class="new"></span>' : ''}</div>`).join('');
+const dayRow = (d, md, r) => `<div class="day"><span class="num d">${d}</span><span class="md">${md}</span><span class="r">${r}${svg('chev', 'sm')}</span></div>`;
+function homeScreen() {
+  return `<div class="scr" id="scrHome"><header class="bar"><div><div class="eyebrow">照片</div><div class="count"><span class="num big">1,284</span><span class="unit">张</span><span class="sub mono">· 298 未看</span></div></div>
+    <div class="bar-r"><span class="ib">${svg('sort')}</span><span class="ib">${svg('filter')}</span></div></header>
+    <div class="list"><div class="year mono">2026<i></i></div>
+      ${dayRow(21, '9月 · 周一', '<span class="mono">已看完 · 3</span>')}<div class="grid4">${tiles(KEEP.map(i => DAY_A[i].f))}</div>
+      ${dayRow(20, '9月 · 周日', '<span class="mono"><b>6</b> / 6 未看</span>')}<div class="grid4">${tiles(['d.jpg', 'p195.jpg', 'e.jpg', 'p237.jpg', 'p274.jpg', 'c.jpg'], [0, 1, 2, 3, 4, 5])}</div>
+      ${dayRow(18, '9月 · 周五', '<span class="mono"><b>3</b> / 8 未看</span>')}<div class="grid4">${tiles(['p111.jpg', 'p250.jpg', 'b.jpg', 'p167.jpg', 'p287.jpg', 'p292.jpg', 'f.jpg', 'p306.jpg'], [1, 4, 6])}</div>
+      ${dayRow(15, '9月 · 周二', '<span class="mono"><b>8</b> / 12 未看</span>')}<div class="grid4">${tiles(['p259.jpg', 'p283.jpg', 'p312.jpg', 'p174.jpg', 'p152.jpg', 'p106.jpg', 'p289.jpg', 'p208.jpg'], [0, 2, 3, 5, 6, 7])}</div>
+    </div><div class="list-fade"></div>${nav(0)}</div>`;
+}
+function favScreen() {
+  return `<div class="scr"><header class="bar"><div><div class="eyebrow">收藏 <span class="dot" style="background:var(--amber);width:5px;height:5px;vertical-align:2px"></span></div><div class="count"><span class="num big">91</span><span class="unit">张</span></div></div></header>
+    <div class="list"><div class="year mono">2026<i></i></div>
+      ${dayRow(21, '9月 · 周一', '<span class="mono">5 张</span>')}<div class="grid4">${tiles(FAV.map(i => DAY_A[i].f))}</div>
+      ${dayRow(18, '9月 · 周五', '<span class="mono">8 张</span>')}<div class="grid4">${tiles(['p110.jpg', 'p247.jpg', 'b.jpg', 'p183.jpg', 'p211.jpg', 'p239.jpg', 'p104.jpg', 'p223.jpg'])}</div>
+      ${dayRow(2, '9月 · 周三', '<span class="mono">4 张</span>')}<div class="grid4">${tiles(['f.jpg', 'p175.jpg', 'e.jpg', 'p152.jpg'])}</div>
+    </div><div class="list-fade"></div>${nav(1)}</div>`;
+}
+function trashScreen() {
+  const items = TRASH.map(i => [DAY_A[i].f, DAY_A[i].mb]).concat([['p149.jpg', 2.0], ['p300.jpg', 1.4], ['p120.jpg', 3.3], ['p302.jpg', 2.6], ['c.jpg', 4.4], ['p186.jpg', 2.9]]);
+  return `<div class="scr"><header class="bar"><div><div class="eyebrow">垃圾桶</div><div class="count"><span class="num big">28</span><span class="unit">张</span></div></div><div class="bar-r"><span class="tb">选择</span></div></header>
+    <div class="free"><div class="l"><div class="lab">清空后可释放</div><div class="v"><span class="num freeN">1.3</span><span class="u">GB</span></div><div class="sub">只在 App 内标记，清空时才真正删除</div></div><span class="btn-clear">清空</span></div>
+    <div class="grid3">${items.map(([f, mb]) => `<div class="tile"><img src="${PH + f}"><span class="size mono">${mb.toFixed(1)} MB</span></div>`).join('')}</div>
+    <div class="list-fade"></div>${nav(2)}
+    <div class="confirm-dim"></div>
+    <div class="dialog"><div class="dg-title">永久删除 28 张照片？</div><div class="dg-body">会释放 <span class="num">1.3</span> GB。删除后无法撤回，系统还会再请求一次授权。</div>
+      <div class="dg-actions"><span>取消</span><span class="dg-delete">删除</span></div></div>
+    <div class="finger"></div></div>`;
+}
+
+function makeRig(id, inner) {
+  const el = document.createElement('div'); el.className = 'rig'; el.id = id;
+  el.innerHTML = `${id === 'rigMain' ? '<div id="bgGlow"></div>' : ''}<div class="bezel"></div><div class="screen">${inner}${statusBar()}<div class="home-ind"></div></div>`;
+  $('#rigs').appendChild(el); return el;
+}
+
+const PRIV = [['不联网', 'NO INTERNET'], ['无广告', 'NO ADS'], ['无账号', 'NO ACCOUNT'], ['不上传', 'NO UPLOADS']];
+const CHIPS = ['Kotlin', 'Jetpack Compose', 'MVVM + UseCase', 'Coroutines · Flow', 'Hilt', 'Coil', 'MediaStore', 'DataStore'];
+const TERM = [
+  ['<span class="p">$</span> make build', 0], ['<span class="d">&gt; Task :app:assembleDebug</span>', .5], ['<span class="ok">BUILD SUCCESSFUL</span> <span class="d">in 41s</span>', .9],
+  ['<span class="p">$</span> make install', 1.5], ['<span class="d">Installing APK on device…</span>', 2.0], ['<span class="ok">Installed on 1 device.</span>', 2.4],
+  ['<span class="p">$</span> <span class="d">▍</span>', 2.8],
+];
+const PRINTS = [['hero.jpg', 300, -3], ['p129.jpg', 580, 4], ['p219.jpg', 1120, -2], ['p102.jpg', 1400, 3], ['p225.jpg', 860, 2]];
+
+let W, rigMain, rigFav, rigTrash, pages = [];
+function build() {
+  W = { cells: buildWall() };
+  rigMain = makeRig('rigMain', reviewScreen() + summaryScreen() + homeScreen());
+  rigMain.style.zIndex = 2;
+  for (const d of DAY_A) $('#bgGlow').insertAdjacentHTML('beforeend', `<img src="${PH + d.f}">`);
+  rigFav = makeRig('rigFav', favScreen());
+  rigTrash = makeRig('rigTrash', trashScreen());
+  $('#privacy').innerHTML = PRIV.map(([z, e]) => `<div class="row"><b>${z}</b><span><i></i>${e}</span></div>`).join('');
+  $('#chips').innerHTML = CHIPS.map(c => `<span>${c}</span>`).join('');
+  $('#termText').innerHTML = TERM.map(([l]) => `<div>${l}</div>`).join('');
+  $('#prints').innerHTML = PRINTS.map(([f, x]) => `<div class="print" style="left:${x}px"><img src="${PH + f}"></div>`).join('');
+  // 噪点：固定种子，逐帧平移
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'), im = g.createImageData(256, 256), r = rand(3);
+  for (let i = 0; i < im.data.length; i += 4) { const v = r() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
+  g.putImageData(im, 0, 0); $('#grain').style.backgroundImage = `url(${c.toDataURL()})`;
+}
+
+function layoutPages() {
+  pages = $$('#scrReview .pg').map(pg => {
+    const img = pg.querySelector('.ph img'), ph = pg.querySelector('.ph');
+    const h = 348 * img.naturalHeight / img.naturalWidth, top = (748 - h) / 2;
+    css(ph, { width: '348px', height: h + 'px', top: top + 'px' });
+    return { pg, ph, amb: pg.querySelector('.amb'), phImg: img };
+  });
+}
+
+// ---------- 关键帧：手机位置 ----------
+// [t, x, y, scale, rotate°, opacity]，段内用标准曲线插值
+function track(t, keys) {
+  if (t <= keys[0][0]) return keys[0].slice(1);
+  for (let i = 1; i < keys.length; i++) {
+    if (t <= keys[i][0]) { const a = keys[i - 1], b = keys[i], p = E.std(prog(t, a[0], b[0])); return a.slice(1).map((v, j) => lerp(v, b[j + 1], p)); }
+  }
+  return keys[keys.length - 1].slice(1);
+}
+const MAIN = [
+  [0, 960, 540, 1.12, 0, 1], [13.0, 960, 540, 1.12, 0, 1], [14.1, 1300, 540, 1.12, 0, 1],
+  [24.4, 1300, 540, 1.12, 0, 1], [25.3, 620, 540, 1.12, 0, 1],
+  [32.5, 620, 540, 1.12, 0, 1], [33.4, 1020, 250, 1.6, 0, 1],
+  [36.8, 1020, 250, 1.6, 0, 1], [37.6, 960, 530, 1.12, 0, 1],
+  [45.0, 960, 530, 1.12, 0, 1], [45.8, 1300, 540, 1.12, 0, 1],
+  [49.1, 1300, 540, 1.12, 0, 1], [49.9, 960, 560, 1.0, 0, 1],
+  [53.2, 960, 560, 1.0, 0, 1], [54.0, 960, 1500, 1.0, 0, 1],
+];
+const FAVK = [[49.0, -400, 600, .9, -10, 1], [50.0, 530, 600, .9, -7, 1], [53.2, 530, 600, .9, -7, 1], [54.0, -400, 640, .9, -12, 1]];
+const TRASHK = [[49.2, 2320, 600, .9, 10, 1], [50.2, 1390, 600, .9, 7, 1], [53.2, 1390, 600, .9, 7, 1], [54.1, 1300, 540, 1.12, 0, 1], [57.2, 1300, 540, 1.12, 0, 1], [58.0, 1300, 1600, 1.12, 0, 1]];
+function placeRig(el, [x, y, s, rz, o]) {
+  el.style.transform = `translate(${x - 180}px, ${y - 380}px) scale(${s}) rotate(${rz}deg)`;
+  show(el, o);
+}
+
+// ---------- 清理页状态 ----------
+function reviewState(t) {
+  const seg = Array(N).fill(''); let cur = 0, last = null, active = null;
+  for (const e of EV) {
+    if (e.T <= t) {
+      if (e.k === 'undo') { seg[e.idx] = ''; cur = e.idx; } else { seg[e.idx] = e.k === 'up' ? 'f' : e.k === 'down' ? 't' : 'k'; cur = e.idx + 1; }
+      last = e;
+    } else if (e.k !== 'undo' && e.s <= t) active = e;
+  }
+  return { seg, cur, last, active };
+}
+const dragDist = (e, t) => e.D * E.inout(prog(t, e.s, e.r));
+const capQ = d => Math.min(d, 170) / 170;
+const thrTime = e => { // 拖过 120dp 阈值的时刻
+  let lo = e.s, hi = e.r; for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (dragDist(e, m) < 120) lo = m; else hi = m; } return hi;
+};
+
+function renderReview(t, developT) {
+  const st = reviewState(t), { cur, last, active } = st;
+  const W2 = 348 + 16;
+  for (const p of pages) p.pg.style.display = 'none';
+  const pose = (i, o) => {
+    const p = pages[i]; if (!p) return;
+    const { x = 0, sc = 1, dy = 0, phSc = 1, op = 1, br = 1, sat = 1, phBr = 1, amb = 1, ring = 0, filt = '' } = o;
+    css(p.pg, { display: 'block', transform: `translateX(${x}px) scale(${sc})`, opacity: op, filter: filt || (br !== 1 ? `brightness(${br})` : 'none') });
+    css(p.ph, { transform: `translateY(${dy}px) scale(${phSc})`, boxShadow: ring ? `0 0 0 1px rgba(242,169,59,${.55 * ring}), 0 0 48px rgba(242,169,59,${.28 * ring}), 0 32px 64px rgba(0,0,0,.6)` : dy ? '0 32px 64px rgba(0,0,0,.5)' : 'none' });
+    p.phImg.style.filter = sat !== 1 || phBr !== 1 ? `saturate(${sat}) brightness(${phBr})` : 'none';
+    p.amb.style.opacity = amb;
+  };
+  // 当前这张：先算进场，再叠拖动
+  let o = {};
+  if (developT != null) {
+    const u = developT;
+    o.filt = `contrast(${lerp(.55, 1, E.dev(prog(u, .3, 2.6)))}) brightness(${lerp(.06, 1, E.dev(prog(u, 0, 2.3)))}) saturate(${lerp(0, 1, E.dev(prog(u, .8, 2.7)))})`;
+    o.sc = lerp(1.035, 1, E.dev(prog(u, 0, 2.7)));
+  } else if (last) {
+    const u = t - last.T;
+    if (last.k === 'up' || last.k === 'down') {
+      o.sc = .94 + .06 * spring(u - .05); o.br = lerp(.6, 1, E.dec(prog(u, .05, .33))); o.op = prog(u, .05, .2);
+    } else if (last.k === 'left') {
+      o.x = lerp(W2 - last.D, 0, E.std(prog(u, 0, .28)));
+    } else if (last.k === 'undo') {
+      const p = E.dec(prog(u, 0, .45));
+      o.dy = lerp(last.from === 'up' ? -760 : 760, 0, p); o.phSc = lerp(.9, 1, p); o.br = lerp(.4, 1, E.dev(prog(u, .22, .6)));
+    }
+  }
+  let dragK = null, d = 0;
+  if (active) {
+    d = dragDist(active, t); dragK = active.k;
+    if (dragK === 'left') { o.x = (o.x || 0) - d; pose(cur + 1, { x: W2 - d }); }
+    else {
+      const q = capQ(d);
+      o.dy = (dragK === 'up' ? -d : d); o.phSc = 1 - .1 * q; o.amb = 1 - .7 * q;
+      if (dragK === 'up') o.ring = d >= 120 ? 1 : 0;
+      else { o.sat = 1 - .65 * q; o.phBr = 1 - .45 * q; }
+    }
+  }
+  if (cur < N && t < DAY_END + .6) pose(cur, o);
+  // 离场那张
+  if (last && last.k !== 'undo' && t - last.r < .32) {
+    const u = t - last.r, dR = last.D, q = capQ(dR);
+    if (last.k === 'left') pose(last.idx, { x: -dR - (W2 - dR) * E.std(prog(u, 0, .28)) });
+    else if (last.k === 'up') pose(last.idx, { dy: -dR - 900 * E.acc(prog(u, 0, .27)), phSc: 1 - .1 * q, amb: 1 - .7 * q - .3 * prog(u, 0, .15), ring: 1, op: 1 - prog(u, .12, .27) });
+    else pose(last.idx, { dy: dR + 700 * E.acc(prog(u, 0, .27)), phSc: 1 - .1 * q, amb: .3 * (1 - prog(u, 0, .15)), sat: .35, phBr: .55, op: 1 - prog(u, .1, .27) });
+  }
+  if (last && last.k === 'undo' && t - last.s < .32) {
+    const p = prog(t - last.s, 0, .3); pose(last.idx + 1, { sc: lerp(1, .94, p), br: lerp(1, .5, p), op: 1 - p });
+  }
+
+  // 琥珀光、暗角、提示圆
+  const relU = last && last.k !== 'undo' ? 1 - prog(t - last.r, 0, .266) : 0;
+  const up = dragK === 'up' ? (d >= 120 ? 1 : .38 * d / 120) : (last && last.k === 'up' ? relU : 0);
+  const dn = dragK === 'down' ? (d >= 120 ? 1 : .5 * d / 120) : (last && last.k === 'down' ? relU : 0);
+  $('#scrReview .glowUp').style.opacity = up;
+  $('#scrReview .vig').style.opacity = dn;
+  const cue = (el, on, k) => {
+    const pre = on && d < 120 && dragK === k;
+    el.classList.toggle('pre', pre);
+    let vis = 0, pop = 1;
+    if (dragK === k) { vis = prog(d, 8, 40); if (!pre) { const tc = thrTime(active); pop = 1 + .14 * Math.sin(Math.PI * prog(t, tc, tc + .16)); } }
+    else if (last && last.k === k) vis = relU;
+    el.style.opacity = vis; el.querySelector('.ring').style.transform = `scale(${pop})`;
+  };
+  cue($('#cueUp'), true, 'up'); cue($('#cueDown'), true, 'down');
+
+  // 返回、日期、进度条：上下拖动开始 80ms 内淡出，下一张进场时回来
+  let chrome = 1;
+  if (active && active.k !== 'left') chrome = 1 - prog(t, active.s, active.s + .08);
+  else if (last && (last.k === 'up' || last.k === 'down')) chrome = prog(t - last.r, .12, .4);
+  $$('#scrReview .segs, #scrReview .rv-top').forEach(el => { el.style.opacity = chrome; });
+
+  // 进度条
+  $$('#scrReview .segs i').forEach((el, i) => { el.className = st.seg[i] || (i === cur ? 'c' : ''); });
+  const ph = DAY_A[Math.min(cur, N - 1)];
+  $('#rvTime').textContent = `周一 · ${ph.tm}`;
+  $('#rvFile').textContent = `${ph.n} · ${ph.mb.toFixed(1)} MB`;
+
+  // 撤回胶囊：操作后 4 秒，拖动时隐藏
+  const undo = $('#undo');
+  let uv = 0, ref = null;
+  if (last && (last.k === 'up' || last.k === 'down')) {
+    ref = last; const u = t - last.r;
+    uv = Math.min(E.dec(prog(u, .08, .36)), 1 - prog(u, 4, 4.2));
+  } else if (last && last.k === 'undo') {
+    ref = EV.find(e => e.k !== 'undo' && e.idx === last.idx && e.r < last.s); uv = 1 - E.acc(prog(t - last.s, 0, .2));
+  }
+  if (active) uv = Math.min(uv, 1 - prog(t, active.s, active.s + .1));
+  if (ref) {
+    undo.classList.toggle('fav', ref.k === 'up');
+    $('#undoT').textContent = ref.k === 'up' ? '已收藏' : '已移到垃圾桶';
+    $('#undoS').textContent = ref.k === 'up' ? `9月21日 · 第 ${ref.idx + 1} 张` : `可释放 ${DAY_A[ref.idx].mb.toFixed(1)} MB`;
+    $$('#undo .thumb img').forEach((im, i) => { im.style.display = i === ref.idx ? 'block' : 'none'; });
+    undo.querySelector('.timer i').style.transform = `scaleX(${last.k === 'undo' ? 1 - (last.s - ref.r) / 4 : 1 - clamp((t - ref.r) / 4)})`;
+  }
+  undo.style.opacity = uv; undo.style.transform = `translateY(${(1 - uv) * 24}px)`;
+  const tapU = EV.find(e => e.k === 'undo');
+  undo.querySelector('.act').style.transform = `scale(${1 - .06 * win(t, tapU.s - .12, tapU.s + .1, .06, .1)})`;
+  $('#scrReview .rv-meta').style.opacity = Math.min(chrome, 1 - uv);
+
+  // 手指
+  const f = $('#fingerR'); let fo = 0, fx = 174, fy = 470, fs = 1;
+  const g = EV.find(e => e.k !== 'undo' && t >= e.s - .15 && t <= e.r + .15);
+  if (g) {
+    const dd = dragDist(g, clamp(t, g.s, g.r)) + (t > g.r ? 260 * (t - g.r) : 0);
+    fo = Math.min(prog(t, g.s - .15, g.s), 1 - prog(t, g.r, g.r + .15));
+    if (g.k === 'left') { fx = 270 - dd; } else fy = 470 + (g.k === 'up' ? -dd : dd);
+  }
+  if (t >= tapU.s - .4 && t <= tapU.s + .3) { fo = win(t, tapU.s - .4, tapU.s + .3, .2, .2); fx = 292; fy = 688; fs = 1 - .15 * win(t, tapU.s - .1, tapU.s + .12, .06, .1); }
+  css(f, { opacity: fo, left: fx + 'px', top: fy + 'px', transform: `scale(${fs})` });
+
+  return st;
+}
+
+// ---------- 每帧 ----------
+let lastSub = -1;
+window.seek = function seek(t) {
+  // 01 照片墙 + 02 关灯
+  const wallOn = t < 10.4;
+  show($('#wallL'), wallOn ? 1 : 0);
+  if (wallOn) {
+    const z = lerp(2.4, 1, E.std(prog(t, 0, 6.6)));
+    $('#wall').style.transform = `scale(${z})`;
+    for (const c of W.cells) {
+      const a = prog(t, c.tin, c.tin + .25), dark = prog(t, c.tout, c.tout + .7);
+      c.el.style.opacity = a * (1 - dark);
+      c.el.style.transform = `scale(${lerp(1.18, 1, E.dec(a))})`;
+      c.el.style.filter = dark > 0 ? `brightness(${1 - .6 * dark})` : a < 1 ? `brightness(${lerp(2, 1, a)})` : 'none';
+    }
+    $('#cntN').textContent = Math.round(12847 * Math.pow(prog(t, .2, 5.4), 2.2)).toLocaleString('en-US');
+    show($('#counter'), win(t, 0, 7.0, .3, .6));
+    $('#wallShade').style.opacity = lerp(.2, 1, prog(t, 0, 2));
+  }
+  show($('#safelight'), Math.min(prog(t, 7.6, 8.8), 1 - prog(t, 13.6, 15)) * (1 + .03 * Math.sin(t * 9)));
+
+  // 手机
+  const devT = t >= 10.26 && t < bt(32) ? t - 10.4 : null;
+  placeRig(rigMain, track(t, MAIN));
+  show(rigMain, t >= 10.26 && t < 54.2 ? 1 : 0);
+  if (t >= 10.26 && t < 54.2) {
+    const shell = t < 16.4 ? E.std(prog(t, 13.0, 13.8)) : 1;
+    rigMain.querySelector('.bezel').style.opacity = shell;
+    rigMain.querySelector('.screen').style.background = shell < 1 ? `rgba(15,14,13,${shell})` : '';
+    const ui = t < 16.4 ? E.std(prog(t, 13.4, 13.9)) : 1;
+    rigMain.querySelector('#scrReview .ui').style.opacity = ui;
+    $$('.status, .home-ind', rigMain).forEach(el => { el.style.opacity = ui; });
+    const sumIn = prog(t, DAY_END + .15, DAY_END + .6) * (1 - prog(t, 49.2, 49.45)), homeIn = prog(t, 49.4, 49.75);
+    const showReview = t < DAY_END + .7;
+    show($('#scrReview'), showReview ? 1 - sumIn : 0);
+    if (showReview) renderReview(t, devT);
+    show($('#scrSum'), sumIn);
+    if (sumIn > 0) renderSummary(t - DAY_END);
+    show($('#scrHome'), homeIn);
+    if (homeIn > 0) renderHome(t);
+    // 背景余光
+    const st = showReview ? reviewState(t) : null;
+    $$('#bgGlow img').forEach((im, i) => { im.style.opacity = st && i === Math.min(st.cur, N - 1) ? .42 : 0; });
+    show($('#bgGlow'), Math.min(prog(t, 11.5, 13.5), 1 - prog(t, DAY_END, DAY_END + 1.2)));
+  }
+
+  placeRig(rigFav, track(t, FAVK)); show(rigFav, t > 49 && t < 54.2 ? 1 : 0);
+  placeRig(rigTrash, track(t, TRASHK)); show(rigTrash, t > 49.2 && t < 58.2 ? 1 : 0);
+  if (t > 49.2 && t < 58.2) renderTrash(t);
+
+  // 标题与大字
+  const ti = $('#title'); show(ti, win(t, 13.6, 16.6, .5, .3));
+  const tr = $$('#title .reveal > *'); const iconP = E.dec(prog(t, 13.5, 14.1));
+  ti.querySelector('.icon').style.transform = `scale(${lerp(.6, 1, spring(t - 13.5, .5, 400))})`;
+  ti.querySelector('.icon').style.opacity = iconP;
+  tr.forEach((el, i) => { el.style.transform = `translateY(${(1 - E.dec(prog(t, 13.75 + i * .12, 14.35 + i * .12))) * 110}%)`; });
+  ti.style.transform = `translateX(${-60 * E.acc(prog(t, 16.3, 16.6))}px)`;
+  headline($('#hlKeep'), t, 16.6, 24.4);
+  headline($('#hlTrash'), t, 25.2, 32.6);
+  headline($('#hlUndo'), t, 33.2, 36.8);
+  headline($('#hlSum'), t, 45.6, 49.0);
+  headline($('#hlEmpty'), t, 54.2, 57.2);
+
+  // 连刷计数
+  const mOn = win(t, 37.4, 45.0, .5, .4);
+  show($('#mCount'), mOn); show($('#mWord'), mOn);
+  if (mOn > 0) {
+    const st = reviewState(t);
+    $('#mFav').textContent = st.seg.filter(s => s === 'f').length;
+    $('#mTrash').textContent = st.seg.filter(s => s === 't').length;
+    $('#mSeen').textContent = st.seg.filter(Boolean).length;
+    $$('#mCount .row').forEach((r, i) => { r.style.transform = `translateX(${(1 - E.dec(prog(t, 37.4 + i * .1, 38 + i * .1))) * -80}px)`; });
+    const m = EV.filter(e => e.k !== 'undo' && e.s <= t + .05 && e.s > bt(72)).pop();
+    const mw = $('#mWord');
+    if (m) {
+      const [z, en, col] = { up: ['↑ 收藏', 'KEEP', 'var(--amber)'], down: ['↓ 移走', 'TRASH', 'var(--fade-text)'], left: ['← 下一张', 'NEXT', 'var(--paper)'] }[m.k];
+      if (mw.dataset.k !== String(m.s)) { mw.innerHTML = `${z}<small>${en}</small>`; mw.dataset.k = String(m.s); }
+      const u = t - (m.s - .05);
+      css(mw, { color: col, transform: `scale(${lerp(1.14, 1, E.dec(prog(u, 0, .16)))})`, opacity: mOn * prog(u, 0, .08) });
+    } else { mw.style.opacity = 0; }
+  }
+
+  // 隐私
+  const pv = win(t, 57.4, 61.4, .3, .35); show($('#privacy'), pv); show($('#manifest'), Math.min(pv, prog(t, 58.2, 58.8)));
+  $$('#privacy .row').forEach((r, i) => {
+    const a = bt(112 + i * 2) - .05, p = prog(t, a, a + .22);
+    css(r, { opacity: p, transform: `scale(${lerp(1.12, 1, E.dec(p))})`, filter: `blur(${(1 - p) * 8}px)` });
+  });
+
+  // 开源
+  const os = win(t, 61.5, 65.5, .4, .35); show($('#term'), os); show($('#oss'), os);
+  if (os > 0) {
+    $('#term').style.transform = `translateY(${(1 - E.dec(prog(t, 61.5, 62.2))) * 40}px)`;
+    $$('#termText > div').forEach((l, i) => { l.style.opacity = prog(t, 61.8 + TERM[i][1], 61.85 + TERM[i][1]); });
+    $$('#oss .reveal > *').forEach((el, i) => { el.style.transform = `translateY(${(1 - E.dec(prog(t, 61.6 + i * .12, 62.2 + i * .12))) * 110}%)`; });
+    $$('#chips span').forEach((c, i) => { const a = bt(121 + i * .5), p = prog(t, a, a + .25); css(c, { opacity: p, transform: `translateY(${(1 - E.dec(p)) * 18}px)` }); });
+  }
+
+  // 片尾：晾片
+  const oo = prog(t, 65.6, 66.6); show($('#outroL'), oo);
+  if (oo > 0) {
+    $$('.print').forEach((p, i) => {
+      const [, , rot] = PRINTS[i], a = 65.7 + i * .18, drop = E.dec(prog(t, a, a + .9));
+      const dev = E.dev(prog(t, a + .2, a + 2.6));
+      css(p, { transform: `translateY(${lerp(-420, 0, drop)}px) rotate(${rot + Math.sin(t * 1.3 + i) * 1.4 + (1 - spring(t - a, .5, 120)) * 6}deg)` });
+      p.querySelector('img').style.filter = `brightness(${lerp(.08, 1, dev)}) saturate(${dev})`;
+    });
+    const ol = $('#outro'); ol.style.opacity = E.dec(prog(t, 66.4, 67.2)); ol.style.transform = `translateY(${(1 - E.dec(prog(t, 66.4, 67.2))) * 30}px)`;
+    $('#credit').style.opacity = prog(t, 67.4, 68.2) * .9;
+    $('#line').style.opacity = prog(t, 65.6, 66.4);
+  }
+
+  // 字幕
+  const ci = CUES.findIndex(([a, b]) => t >= a && t < b);
+  if (ci !== lastSub) { const c = CUES[ci]; $('#subs .zh').textContent = c ? c[2] : ''; $('#subs .en').textContent = c ? c[3] : ''; lastSub = ci; }
+  if (ci >= 0) { const [a, b] = CUES[ci]; $('#subs').style.opacity = Math.min(prog(t, a, a + .15), 1 - prog(t, b - .15, b)); }
+
+  $('#grain').style.backgroundPosition = `${Math.floor(t * 30) * 73 % 256}px ${Math.floor(t * 30) * 151 % 256}px`;
+  $('#black').style.opacity = Math.max(1 - prog(t, 0, .4), prog(t, DURATION - 1.4, DURATION - .1));
+};
+
+function headline(el, t, a, b) {
+  const v = win(t, a, b, .3, .3); show(el, v); if (v <= 0) return;
+  $$('.line > div', el).forEach((l, i) => { l.style.transform = `translateY(${(1 - E.dec(prog(t, a + i * .09, a + .55 + i * .09))) * 110}%)`; });
+  el.style.transform = `translateY(${-20 * E.acc(prog(t, b - .3, b))}px)`;
+}
+
+function renderSummary(u) {
+  const s = $('#scrSum');
+  s.querySelector('.sum').style.transform = `translateY(${(1 - E.dec(prog(u, .15, .75))) * 28}px)`;
+  $$('.stack i', s).forEach((el, i) => { el.style.transform = `scaleX(${E.std(prog(u, .5 + i * .12, 1.1 + i * .12))})`; el.style.transformOrigin = 'left'; });
+  $$('.stats .v', s).forEach((el, i) => { el.textContent = Math.round(+el.dataset.n * E.std(prog(u, .6 + i * .1, 1.5 + i * .1))); });
+  $$('.mini', s).forEach((el, i) => { const p = prog(u, .8 + i * .04, 1.1 + i * .04); css(el, { opacity: p, transform: `scale(${lerp(.8, 1, E.dec(p))})` }); });
+  $$('.ticks i', s).forEach((el, i) => { el.style.transform = `scaleY(${E.dec(prog(u, 1.1 + i * .025, 1.4 + i * .025))})`; });
+  const nx = s.querySelector('.next'), p = E.dec(prog(u, 1.4, 1.9));
+  css(nx, { opacity: p, transform: `translateY(${(1 - p) * 40}px)` });
+}
+
+function renderHome(t) {
+  const h = $('#scrHome');
+  h.querySelector('.list').style.transform = `translateY(${-90 * E.inout(prog(t, 50.2, 53.2))}px)`;
+  $$('.new', h).forEach((el, i) => { el.style.opacity = .75 + .25 * Math.sin(t * 4 + i); });
+}
+
+function renderTrash(t) {
+  const s = rigTrash;
+  s.querySelector('.freeN').textContent = (1.3 * E.std(prog(t, 49.6, 50.8))).toFixed(1);
+  const tap = 55.6, dlg = prog(t, tap + .1, tap + .28);
+  s.querySelector('.btn-clear').style.transform = `scale(${1 - .06 * win(t, tap - .1, tap + .12, .06, .1)})`;
+  s.querySelector('.confirm-dim').style.opacity = dlg;
+  css(s.querySelector('.dialog'), { opacity: dlg, transform: `scale(${lerp(.94, 1, E.dec(dlg))})` });
+  const f = s.querySelector('.finger');
+  const fo = Math.max(win(t, tap - .45, tap + .35, .2, .2), win(t, 56.6, 57.2, .2, .2));
+  const atCancel = prog(t, 56.3, 56.7);
+  css(f, { opacity: fo, left: lerp(296, 205, atCancel) + 'px', top: lerp(176, 470, atCancel) + 'px', transform: `scale(${1 - .15 * Math.max(win(t, tap - .1, tap + .12, .06, .1), win(t, 56.85, 57.05, .06, .1))})` });
+}
+
+// ---------- 启动 ----------
+build();
+async function ready() {
+  const sample = '理照照片收藏垃圾桶撤回小结 CleanPhotos 0123456789';
+  await Promise.all([400, 500, 600, 700].map(w => document.fonts.load(`${w} 20px "Noto Sans SC"`, sample))
+    .concat([500, 600, 700].map(w => document.fonts.load(`${w} 20px "Schibsted Grotesk"`, sample)))
+    .concat([400, 500].map(w => document.fonts.load(`${w} 20px "IBM Plex Mono"`, sample))));
+  await document.fonts.ready;
+  await Promise.all($$('img').map(im => im.decode()));
+  layoutPages();
+}
+window.ready = ready();
+window.DURATION = DURATION;
+
+if (!navigator.webdriver) {
+  // 浏览器预览：铺满窗口，点击播放 / 暂停（带配乐）
+  const fit = () => { const k = Math.min(innerWidth / 1920, innerHeight / 1080); $('#stage').style.transform = `translate(${(innerWidth - 1920 * k) / 2}px, ${(innerHeight - 1080 * k) / 2}px) scale(${k})`; };
+  addEventListener('resize', fit); fit();
+  const audio = new Audio('../music/ethernight-club.mp3');
+  const q = new URLSearchParams(location.search);
+  window.ready.then(() => {
+    seek(+(q.get('t') || 0));
+    document.body.addEventListener('click', () => { if (audio.paused) { if (audio.currentTime >= DURATION) audio.currentTime = 0; audio.play(); } else audio.pause(); });
+    const loop = () => { if (!audio.paused) { if (audio.currentTime >= DURATION) audio.pause(); seek(audio.currentTime); } requestAnimationFrame(loop); };
+    loop();
+  });
+}
+</script>
+</body>
+</html>

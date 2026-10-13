@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 暗房只有暗色：窗口底色用暗室底，冷启动和转场时不露白 -->
+    <style name="Theme.Cleanphotos" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/darkroom_room</item>
+        <item name="android:colorBackground">@color/darkroom_room</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

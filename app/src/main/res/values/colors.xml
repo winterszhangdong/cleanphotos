@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 暗室底 DarkroomColors.Room：窗口底色与启动画面，避免冷启动白闪 -->
+    <color name="darkroom_room">#FF0F0E0D</color>
+</resources>

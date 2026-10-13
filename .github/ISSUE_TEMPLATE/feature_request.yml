@@ -1,0 +1,29 @@
+name: Feature request / 功能建议
+description: Describe a use case / 描述一个使用场景
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Describe the use case; no need to design the implementation. Write it yourself; do not paste model output verbatim. See CONTRIBUTING.md.
+        先搜索已有 issue。先写使用场景，不必设计实现。正文自己写，不要把模型输出原样贴上来。规则见 CONTRIBUTING.md。
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist / 确认
+      options:
+        - label: I searched existing issues and found no duplicate. / 我搜过已有 issue，没有找到相同的建议。
+          required: true
+        - label: I wrote this request myself. / 正文是我自己写的。
+          required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Use case / 使用场景
+      description: Who needs what, in which situation. / 谁、在什么情况下、需要什么。
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: Current workaround / 现在怎么处理
+      description: Leave empty if none. / 没有就留空。

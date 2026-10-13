@@ -1,0 +1,38 @@
+*.iml
+.gradle
+/.gradle-home/
+/local.properties
+/.idea
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/keystore.properties
+
+/tmp/
+.worktrees/
+
+/.agents
+/.claude
+/.kiro
+/.gradle-local
+
+# 全量 Material Symbols 字体（仅本地保留，用于重新生成子集）
+/tools/
+
+# 内部过程记录，不进公开仓库
+/init_prompt.md
+/tasks/
+/docs/memo/
+/docs/plan/
+/docs/implementation-plan.md
+/skills-lock.json
+
+# 宣传片网页预览成片，由 promo 渲染写出，不入库
+/site/assets/promo.mp4
+
+# 原始设计稿只私下保存，不进公开仓库
+/docs/design-draft-v2/

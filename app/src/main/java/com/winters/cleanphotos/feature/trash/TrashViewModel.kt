@@ -1,0 +1,490 @@
+package com.winters.cleanphotos.feature.trash
+
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
+import com.winters.cleanphotos.domain.model.PhotoOperationResult
+import com.winters.cleanphotos.domain.repository.PhotoRepository
+import com.winters.cleanphotos.domain.usecase.DeletePhotosPermanentlyUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTrashedPhotosUseCase
+import com.winters.cleanphotos.domain.usecase.RestorePhotosFromTrashUseCase
+import com.winters.cleanphotos.domain.usecase.RestorePhotoFromTrashUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTrashMovedAtUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase
+import com.winters.cleanphotos.domain.usecase.SumPhotoBytesUseCase
+import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+/**
+ * 垃圾桶页 ViewModel。
+ *
+ * 行为变化（App 内垃圾桶）：
+ * - 单张/批量移出垃圾桶：直接成功，不弹系统窗
+ * - 清空垃圾桶：先 App 确认框，再系统永久删除授权
+ * - 删除成功后刷新 MediaStore 并校验残留
+ */
+@HiltViewModel
+class TrashViewModel @Inject constructor(
+    private val observeTrashedPhotosUseCase: ObserveTrashedPhotosUseCase,
+    private val restorePhotoFromTrashUseCase: RestorePhotoFromTrashUseCase,
+    private val restorePhotosFromTrashUseCase: RestorePhotosFromTrashUseCase,
+    private val deletePhotosPermanentlyUseCase: DeletePhotosPermanentlyUseCase,
+    private val photoRepository: PhotoRepository,
+    private val observeTrashSummaryUseCase: ObserveTrashSummaryUseCase,
+    private val observeTrashMovedAtUseCase: ObserveTrashMovedAtUseCase,
+    private val sumPhotoBytesUseCase: SumPhotoBytesUseCase,
+    @DefaultDispatcher private val computeDispatcher: CoroutineDispatcher,
+) : ViewModel() {
+
+    companion object {
+        private const val TAG = "TrashViewModel"
+    }
+
+    private val _uiState = MutableStateFlow(TrashUiState())
+    val uiState: StateFlow<TrashUiState> = _uiState.asStateFlow()
+
+    // 一次性事件通道（系统授权）
+    private val _effects = Channel<TrashEffect>(Channel.BUFFERED)
+    val effects = _effects.receiveAsFlow()
+
+    // 系统授权后待继续的操作
+    private var pendingSystemAction: (suspend () -> Unit)? = null
+
+    // 本轮清空已申请过写权限（Android 8–10）：重试仍缺权限时直接提示，不再循环申请
+    private var writePermissionRequested = false
+
+    init {
+        loadTrashedPhotos()
+        observeTrashedPhotos()
+        observeTrashDetails()
+    }
+
+    /** 「清空后可释放 X GB」与单张预览「N天前移入」。 */
+    private fun observeTrashDetails() {
+        viewModelScope.launch {
+            observeTrashSummaryUseCase().collect { summary ->
+                _uiState.value = _uiState.value.copy(totalBytes = summary.totalBytes)
+            }
+        }
+        viewModelScope.launch {
+            observeTrashMovedAtUseCase().collect { movedAt ->
+                _uiState.value = _uiState.value.copy(movedAt = movedAt)
+            }
+        }
+    }
+
+    /** 已选照片总大小。 */
+    fun selectedBytes(state: TrashUiState = _uiState.value): Long =
+        sumPhotoBytesUseCase(state.photos, state.selectedPhotoIds)
+
+    /** 加载垃圾桶照片列表 */
+    private fun loadTrashedPhotos() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            try {
+                photoRepository.refreshTrashedPhotos()
+                _uiState.value = _uiState.value.copy(isLoading = false)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = "加载垃圾桶失败"
+                )
+            }
+        }
+    }
+
+    /** 观察垃圾桶照片 Flow，自动更新列表 */
+    private fun observeTrashedPhotos() {
+        viewModelScope.launch {
+            // 整库 associateBy 不在主线程：本页留在返回栈里时，清理页每次滑动写 DataStore 都会让这里重算
+            observeTrashedPhotosUseCase().flowOn(computeDispatcher).collect { photos ->
+                // isLoading 由刷新流程维护：首次刷新完成前照片表还是空的，不能先闪「垃圾桶是空的」
+                val ids = photos.mapTo(HashSet()) { it.id }
+                _uiState.value = _uiState.value.copy(
+                    photos = photos,
+                    selectedPhotoIds = _uiState.value.selectedPhotoIds.filterTo(HashSet()) { it in ids },
+                )
+            }
+        }
+    }
+
+    // ========== 网格模式操作 ==========
+
+    /** 点击缩略图：进入全屏预览模式 */
+    fun onPhotoClick(photo: PhotoItem) {
+        val state = _uiState.value
+        if (state.screenMode == TrashScreenMode.Grid) {
+            _uiState.value = state.copy(
+                screenMode = TrashScreenMode.Preview,
+                previewPhotoId = photo.id
+            )
+        }
+    }
+
+    /** 点击"选择"按钮：进入多选模式 */
+    fun onEnterSelectionMode() {
+        _uiState.value = _uiState.value.copy(
+            screenMode = TrashScreenMode.Selection,
+            selectedPhotoIds = emptySet()
+        )
+    }
+
+    /** 点击"清空"按钮：显示确认弹框 */
+    fun onShowEmptyTrashConfirm() {
+        _uiState.value = _uiState.value.copy(showEmptyTrashConfirmDialog = true)
+    }
+
+    /** 关闭清空垃圾桶确认弹框 */
+    fun onDismissEmptyTrashConfirm() {
+        _uiState.value = _uiState.value.copy(showEmptyTrashConfirmDialog = false)
+    }
+
+    // ========== 多选模式操作 ==========
+
+    /** 多选模式：点击缩略图切换选中状态 */
+    fun onTogglePhotoSelection(photo: PhotoItem) {
+        val state = _uiState.value
+        if (state.screenMode != TrashScreenMode.Selection) return
+
+        val newSelected = if (photo.id in state.selectedPhotoIds) {
+            state.selectedPhotoIds - photo.id
+        } else {
+            state.selectedPhotoIds + photo.id
+        }
+        _uiState.value = state.copy(selectedPhotoIds = newSelected)
+    }
+
+    /** 退出多选模式 */
+    fun onExitSelectionMode() {
+        _uiState.value = _uiState.value.copy(
+            screenMode = TrashScreenMode.Grid,
+            selectedPhotoIds = emptySet()
+        )
+    }
+
+    /**
+     * 多选模式：批量移出垃圾桶。
+     * App 内垃圾桶操作，直接成功，不弹系统窗。
+     */
+    fun onBatchRestore() {
+        val state = _uiState.value
+        if (state.selectedPhotoIds.isEmpty() || state.isProcessingAction) return
+
+        val selectedPhotos = state.photos.filter { it.id in state.selectedPhotoIds }
+        if (selectedPhotos.isEmpty()) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isProcessingAction = true)
+
+            val result = restorePhotosFromTrashUseCase(selectedPhotos)
+            when (result) {
+                is PhotoOperationResult.Success -> {
+                    handleBatchRestoreSuccess()
+                }
+                // App 内垃圾桶操作不会返回 NeedSystemApproval
+                is PhotoOperationResult.NeedSystemApproval -> {
+                    Log.wtf(TAG, "App 内垃圾桶恢复不应触发系统授权")
+                    handleBatchRestoreSuccess()
+                }
+                is PhotoOperationResult.Failure -> {
+                    _uiState.value = _uiState.value.copy(
+                        isProcessingAction = false,
+                        errorMessage = getFailureMessage(result.reason)
+                    )
+                }
+            }
+        }
+    }
+
+    // ========== 预览模式操作 ==========
+
+    /** 退出预览模式 */
+    fun onExitPreview() {
+        _uiState.value = _uiState.value.copy(
+            screenMode = TrashScreenMode.Grid,
+            previewPhotoId = null
+        )
+    }
+
+    /** 预览模式：切换到指定照片 */
+    fun onPreviewPhotoChange(photoId: Long) {
+        _uiState.value = _uiState.value.copy(previewPhotoId = photoId)
+    }
+
+    /**
+     * 预览模式：恢复当前预览照片。
+     * App 内垃圾桶操作，直接成功，不弹系统窗。
+     *
+     * 恢复前快照当前状态，确保后续索引计算基于恢复前快照而非刷新后的流状态，
+     * 避免竞态导致 indexOfFirst == -1 引发闪退。
+     */
+    fun onRestorePreviewPhoto() {
+        val state = _uiState.value
+        val photoId = state.previewPhotoId ?: return
+        val photo = state.photos.find { it.id == photoId } ?: return
+
+        // 快照恢复前的照片列表和当前索引，供成功回调使用
+        val preRestorePhotos = state.photos.toList()
+        val preRestoreIndex = preRestorePhotos.indexOfFirst { it.id == photoId }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isProcessingAction = true)
+
+            val result = restorePhotoFromTrashUseCase(photo)
+            when (result) {
+                is PhotoOperationResult.Success -> {
+                    handlePreviewRestoreSuccess(preRestorePhotos, preRestoreIndex)
+                }
+                is PhotoOperationResult.NeedSystemApproval -> {
+                    Log.wtf(TAG, "App 内垃圾桶恢复不应触发系统授权")
+                    handlePreviewRestoreSuccess(preRestorePhotos, preRestoreIndex)
+                }
+                is PhotoOperationResult.Failure -> {
+                    _uiState.value = _uiState.value.copy(
+                        isProcessingAction = false,
+                        errorMessage = getFailureMessage(result.reason)
+                    )
+                }
+            }
+        }
+    }
+
+    // ========== 清空垃圾桶 ==========
+
+    /**
+     * 确认清空垃圾桶。
+     * 发起系统永久删除授权，成功后刷新校验。
+     */
+    fun onConfirmEmptyTrash() {
+        val state = _uiState.value
+        // 确认框淡出期间按钮仍可点，连点会发两次系统删除请求
+        if (state.photos.isEmpty() || state.isProcessingAction) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isProcessingAction = true,
+                showEmptyTrashConfirmDialog = false
+            )
+
+            // 删除前拍快照：Android 8–10 直接删除时 MediaStore 变化会先刷新列表，之后再读 state 会是空的
+            val snapshot = TrashDissolve(state.photos, state.totalBytes)
+            val result = deletePhotosPermanentlyUseCase(state.photos)
+            when (result) {
+                is PhotoOperationResult.Success -> {
+                    writePermissionRequested = false
+                    handleEmptyTrashSuccess(snapshot)
+                }
+                is PhotoOperationResult.NeedSystemApproval -> {
+                    pendingSystemAction = { handleEmptyTrashSuccess(snapshot) }
+                    _effects.send(TrashEffect.LaunchSystemMediaAction(result.request))
+                }
+                is PhotoOperationResult.Failure -> {
+                    if (result.reason == PhotoOperationFailureReason.WritePermissionRequired && !writePermissionRequested) {
+                        // Android 8–10：先申请写权限，拿到后重试一次；保持 isProcessingAction 防止连点
+                        writePermissionRequested = true
+                        _effects.send(TrashEffect.RequestWritePermission)
+                    } else {
+                        writePermissionRequested = false
+                        _uiState.value = _uiState.value.copy(
+                            isProcessingAction = false,
+                            errorMessage = getFailureMessage(result.reason)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** 写权限申请结果（Android 8–10）。同意后重新发起清空；拒绝则提示，列表不变。 */
+    fun onWritePermissionResult(granted: Boolean) {
+        if (!writePermissionRequested) return
+        if (granted) {
+            _uiState.value = _uiState.value.copy(isProcessingAction = false)
+            onConfirmEmptyTrash()
+        } else {
+            writePermissionRequested = false
+            _uiState.value = _uiState.value.copy(
+                isProcessingAction = false,
+                errorMessage = getFailureMessage(PhotoOperationFailureReason.WritePermissionRequired)
+            )
+        }
+    }
+
+    // ========== 系统授权回调 ==========
+
+    /**
+     * 系统媒体授权结果回调。
+     * 只在清空垃圾桶时触发。
+     */
+    fun onSystemMediaActionResult(authorized: Boolean) {
+        viewModelScope.launch {
+            if (authorized) {
+                pendingSystemAction?.invoke()
+            } else {
+                // 用户取消系统授权：静默处理，列表保持不变
+                _uiState.value = _uiState.value.copy(isProcessingAction = false)
+            }
+            pendingSystemAction = null
+        }
+    }
+
+    // ========== 通用操作 ==========
+
+    /** 溶解播完。 */
+    fun onDissolveFinished() {
+        _uiState.value = _uiState.value.copy(dissolving = null)
+    }
+
+    fun dismissError() {
+        _uiState.value = _uiState.value.copy(errorMessage = null)
+    }
+
+    fun dismissActionMessage() {
+        _uiState.value = _uiState.value.copy(actionMessage = null)
+    }
+
+    /** 重试加载垃圾桶 */
+    fun retryLoad() {
+        _uiState.value = _uiState.value.copy(errorMessage = null)
+        loadTrashedPhotos()
+    }
+
+    // ========== 内部处理方法 ==========
+
+    /**
+     * 预览模式恢复成功后的切换逻辑。
+     *
+     * 完全基于恢复前快照 [preRestorePhotos] 和 [preRestoreIndex] 计算目标照片，
+     * 先决定目标再刷新列表，避免 Flow 提前更新导致索引失效。
+     *
+     * @param preRestorePhotos 恢复前的照片列表快照
+     * @param preRestoreIndex 恢复前当前照片在列表中的索引
+     */
+    private suspend fun handlePreviewRestoreSuccess(
+        preRestorePhotos: List<PhotoItem>,
+        preRestoreIndex: Int
+    ) {
+        // 基于恢复前快照计算剩余照片
+        val remainingPhotos = preRestorePhotos.filterIndexed { index, _ -> index != preRestoreIndex }
+
+        if (remainingPhotos.isEmpty()) {
+            // 恢复前只有 1 张：退出 Preview，回到 Grid
+            _uiState.value = _uiState.value.copy(
+                screenMode = TrashScreenMode.Grid,
+                previewPhotoId = null,
+                isProcessingAction = false,
+                actionMessage = "已移出垃圾桶",
+                justFreedBytes = null,
+            )
+            // 目标已决定，再刷新列表
+            refreshPhotoLists()
+            return
+        }
+
+        // 目标照片规则：
+        // 1. 原索引后还有照片 → 显示原下一张（保持原索引位置）
+        // 2. 原索引已是最后一张 → 显示新的最后一张
+        val targetPhoto = if (preRestoreIndex < remainingPhotos.size) {
+            remainingPhotos[preRestoreIndex]
+        } else {
+            remainingPhotos.last()
+        }
+
+        // 先更新目标照片，再刷新列表
+        _uiState.value = _uiState.value.copy(
+            previewPhotoId = targetPhoto.id,
+            isProcessingAction = false,
+            actionMessage = "已移出垃圾桶",
+            justFreedBytes = null,
+        )
+        refreshPhotoLists()
+    }
+
+    /** 批量恢复成功：退出多选，回到网格 */
+    private suspend fun handleBatchRestoreSuccess() {
+        refreshPhotoLists()
+        _uiState.value = _uiState.value.copy(
+            screenMode = TrashScreenMode.Grid,
+            selectedPhotoIds = emptySet(),
+            isProcessingAction = false,
+            actionMessage = "已移出垃圾桶",
+            justFreedBytes = null,
+        )
+    }
+
+    /**
+     * 清空垃圾桶成功后：
+     * 1. 刷新 MediaStore
+     * 2. 校验本次待删照片是否真的消失
+     * 3. 全部消失：显示"已清空垃圾桶"（失效的 AppTrashEntry 由刷新里的清理移除）
+     * 4. 存在残留：显示失败提示
+     */
+    private suspend fun handleEmptyTrashSuccess(snapshot: TrashDissolve) {
+        // 先挂上溶解快照再刷新：否则刷新后列表先变空，空状态会闪一帧（P5 录屏 13-sheet 第 9 格）
+        _uiState.value = _uiState.value.copy(dissolving = snapshot, justFreedBytes = snapshot.totalBytes)
+        refreshPhotoLists()
+
+        // 刷新后检查残留
+        val remainingPhotos = observeTrashedPhotosUseCase().first()
+        val remainingIds = remainingPhotos.map { it.id }.toSet()
+
+        if (remainingIds.isEmpty()) {
+            // 全部删除成功
+            _uiState.value = _uiState.value.copy(
+                screenMode = TrashScreenMode.Grid,
+                selectedPhotoIds = emptySet(),
+                previewPhotoId = null,
+                isProcessingAction = false,
+                actionMessage = "已清空垃圾桶",
+                // dissolving 已在刷新前挂上；这里不能再写一次：动画关闭时溶解会在刷新期间就播完并清空，
+                // 再写回同一个快照会被 StateFlow 合并成「从未变化」，LaunchedEffect 不重启，页面卡在溶解态。
+            )
+        } else {
+            // 部分残留
+            Log.w(TAG, "清空垃圾桶后仍有 ${remainingIds.size} 张照片残留")
+            _uiState.value = _uiState.value.copy(
+                screenMode = TrashScreenMode.Grid,
+                selectedPhotoIds = emptySet(),
+                previewPhotoId = null,
+                isProcessingAction = false,
+                errorMessage = "部分照片删除失败",
+                dissolving = null,
+                justFreedBytes = null,
+            )
+        }
+    }
+
+    /**
+     * 刷新照片列表。
+     * refreshTrashedPhotos() 内部委托 refreshPhotos()，只调一次避免重复扫描 MediaStore。
+     */
+    private suspend fun refreshPhotoLists() {
+        try {
+            photoRepository.refreshTrashedPhotos()
+        } catch (_: Exception) {
+            // 刷新失败不影响操作结果
+        }
+    }
+
+    private fun getFailureMessage(reason: PhotoOperationFailureReason): String {
+        return when (reason) {
+            PhotoOperationFailureReason.SystemFavoriteUnsupported -> "操作失败"
+            PhotoOperationFailureReason.PermissionDenied -> "没有足够权限"
+            PhotoOperationFailureReason.UserCancelled -> "操作已取消"
+            PhotoOperationFailureReason.MediaStoreFailed -> "操作失败"
+            PhotoOperationFailureReason.WritePermissionRequired -> "需要存储权限才能删除照片"
+        }
+    }
+}

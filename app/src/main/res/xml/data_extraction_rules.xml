@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   垃圾桶 / 收藏 / 看过状态按 MediaStore _ID 记录，换机或恢复后 _ID 对应的是别的照片，
+   恢复出来会把别的照片放进垃圾桶（清空时被永久删除），所以不备份。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore/cleanphotos_preferences.preferences_pb" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/cleanphotos_preferences.preferences_pb" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,142 @@
+package com.winters.cleanphotos.core.design
+
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+/** 尺寸、间距、圆角，数值来自 docs/ui-design.md。 */
+object Dimens {
+    // 底部导航（.nav / .ni / .badge）
+    val NavHeight = 44.dp
+    val NavPadding = 4.dp
+    val NavCorner = 22.dp
+    val NavBottom = 24.dp
+    val NavItemWidth = 72.dp
+    val NavItemHeight = 36.dp
+    val NavIndicatorWidth = 16.dp
+    val NavIndicatorHeight = 2.dp
+    val NavIndicatorBottom = 3.dp
+    val NavItemGap = 4.dp
+    val NavShadowY = 12.dp
+    val NavShadowBlur = 32.dp
+    val NavBlur = 20.dp
+    val NavBadgeHeight = 16.dp
+    val NavBadgeMinWidth = 16.dp
+    val NavBadgePaddingH = 4.dp
+    val NavLabelSize = 13.sp
+    val NavBadgeTextSize = 10.sp
+
+    // 圆形按钮
+    val GlassButton = 40.dp
+    val GlassBlur = 16.dp
+    val ToolButton = 36.dp
+    val ToolIcon = 18.dp
+    val ToolPip = 6.dp
+    val ToolPipInset = 7.dp
+    val Hairline = 1.dp
+
+    // 进度条
+    val SegHeight = 2.dp
+    val SegGap = 3.dp
+    val SegSideInset = 16.dp
+    val SegDash = 3.dp
+    val SegDashGap = 2.dp
+    val SegGlow = 6.dp
+
+    // 未看光点
+    val UnseenDot = 6.dp
+    val UnseenRing = 1.5.dp
+    val UnseenGlow = 8.dp
+    val UnseenInset = 6.dp
+
+    // 菜单 / 对话框 / 按钮
+    val MenuWidth = 192.dp
+    val MenuCorner = 16.dp
+    val MenuPadding = 4.dp
+    val MenuItemHeight = 44.dp
+    val MenuItemCorner = 12.dp
+    val DialogCorner = 24.dp
+    val DialogSide = 24.dp
+    val PrimaryButtonHeight = 52.dp
+    val SmallButtonHeight = 36.dp
+    val DeleteButtonHeight = 40.dp
+
+    // 顶栏
+    val TopCountSize = 30.sp
+    val TopCountLine = 32.sp
+    val ScreenSide = 16.dp
+
+    // —— P3 列表 / 页面骨架 ——
+    /** .bar：高 84，状态栏下方，内边距 0 16 12。 */
+    val HeaderHeight = 84.dp
+    val HeaderBottomPadding = 12.dp
+    val EyebrowGap = 4.dp
+    val CountHeight = 32.dp
+    val CountGap = 4.dp
+    val CountSubGap = 8.dp
+    val HeaderActionGap = 8.dp
+    /** .year：高 32，左右 16，间距 12。 */
+    val YearHeight = 32.dp
+    val YearGap = 12.dp
+    /** .day：高 50，padding 16 16 10，间距 8。 */
+    val DayHeight = 50.dp
+    val DayTop = 16.dp
+    val DayBottom = 10.dp
+    val DayGap = 8.dp
+    val DayChevron = 16.dp
+    /** .grid4 / .grid3 间隔 2。 */
+    val GridGap = 2.dp
+    /** .list-fade 高 128。 */
+    val ListFade = 128.dp
+    /** .tb / .ghost / .btn-clear / .btn-paper。 */
+    val TextButtonPaddingH = 16.dp
+    val GhostPaddingH = 20.dp
+    val GhostGap = 8.dp
+    /** .free 卡片：外边距 4 16 16，内边距 16，圆角 20，间距 16。 */
+    val FreeCorner = 20.dp
+    val FreePadding = 16.dp
+    val FreeTop = 4.dp
+    /** .grid3 .size 距右下 6。 */
+    val TileLabelInset = 6.dp
+    /** .sel-sum 高 40。 */
+    val SelSumHeight = 40.dp
+    /** .tile .ck：22，距右上 8，图标 14，暗室色外环 2。 */
+    val CheckBadge = 22.dp
+    val CheckInset = 8.dp
+    val CheckIcon = 14.dp
+    val CheckRing = 2.dp
+    /** 多选：选中缩到 0.86、圆角 6（决定 8）。 */
+    val SelectedCorner = 6.dp
+    /** .menu：距顶（状态栏下）80，右 16。 */
+    val MenuTopBelowStatus = 80.dp
+    val MenuHeaderPadding = 12.dp
+    /** .empty：上 116 / 下 92 之间居中。 */
+    val EmptyTop = 116.dp
+    val EmptyBottom = 92.dp
+    val EmptyTextWidth = 232.dp
+    /** .pile 160×176，卡 100×128 圆角 8。 */
+    val PileWidth = 160.dp
+    val PileHeight = 176.dp
+    val PileCardWidth = 100.dp
+    val PileCardHeight = 128.dp
+    val PileCardCorner = 8.dp
+    /** .done-art 248×152。 */
+    val DoneArtWidth = 248.dp
+    val DoneArtHeight = 152.dp
+    /** .perm 侧边 24，主按钮距底 72，次按钮距底 36。 */
+    val PermSide = 24.dp
+    val PermGoBottom = 72.dp
+    val PermAltBottom = 36.dp
+    /** .pv-act 距底 40、左右 24；.pv-hint 距底 100。 */
+    val PreviewActionBottom = 40.dp
+    val PreviewHintBottom = 100.dp
+    /** 排序提示（mini 228px ↔ 360dp，× 1.579）：高 24→38、圆角 12→19、左右 12→19；顶边在屏高 342/494 处。 */
+    val ToastHeight = 38.dp
+    val ToastPaddingH = 19.dp
+    const val TOAST_TOP_FRACTION = 342f / 494f
+    /** 进场上移 6px → 9.5dp。 */
+    val ToastRise = 9.5.dp
+    /** 空状态升起 8px → 12.6dp。 */
+    val EmptyRise = 12.6.dp
+    /** 溶解模糊 5dp（31+）。 */
+    val DissolveBlur = 5.dp
+}

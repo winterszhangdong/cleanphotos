@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动图标 F1「彩色滑落」：留下的一张在上，被划走的一张带竖向拖影往下滑。草图见 docs/design-draft-v2/app-icon-preview.html -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+        <path android:pathData="M0,0h108v108h-108z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear"
+                    android:startX="54" android:startY="0" android:endX="54" android:endY="108"
+                    android:startColor="#FFFFFDF8" android:endColor="#FFEFE8DD" />
+            </aapt:attr>
+        </path>
+</vector>
