@@ -1,5 +1,8 @@
 package com.winters.cleanphotos.core.design
 
+import androidx.annotation.StringRes
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -48,10 +51,10 @@ fun dockListBottomPadding(): Dp {
     return nav + Dimens.NavBottom + Dimens.NavHeight + 16.dp
 }
 
-enum class BottomTab(val label: String) {
-    AllPhotos("照片"),
-    Favorites("收藏"),
-    Trash("垃圾桶"),
+enum class BottomTab(@StringRes val label: Int) {
+    AllPhotos(R.string.tab_photos),
+    Favorites(R.string.tab_favorites),
+    Trash(R.string.tab_trash),
 }
 
 /**
@@ -159,7 +162,7 @@ private fun NavItem(tab: BottomTab, selected: Boolean, count: Int?, onClick: (()
     ) {
         // 颜色在绘制阶段读取：280ms 渐变期间不重组、不重新排版
         BasicText(
-            text = tab.label,
+            text = stringResource(tab.label),
             // 与 material3 Text 一样叠在 LocalTextStyle 上，排版不变
             style = LocalTextStyle.current.merge(DarkroomText.NavLabel.copy(fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal)),
             color = { color },

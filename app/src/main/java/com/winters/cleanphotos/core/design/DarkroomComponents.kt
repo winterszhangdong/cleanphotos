@@ -1,5 +1,9 @@
 package com.winters.cleanphotos.core.design
 
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.State
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.core.RepeatMode
@@ -122,13 +126,14 @@ fun FavPip() {
 /** .count：大数字（里程表）+「张」+ 可选 .sub（左距 8 = gap 4 + 4）。 */
 @Composable
 fun RowScope.HeaderCount(count: Int, sub: String? = null) {
+    val locale = currentLocale()
     OdometerText(
         value = count.toLong(),
         style = DarkroomText.CountBig,
-        format = { NumberFormatter.formatCount(it.toInt()) },
+        format = { NumberFormatter.formatCount(it.toInt(), locale) },
         modifier = Modifier.alignByBaseline(),
     )
-    Text("张", style = DarkroomText.CountUnit, modifier = Modifier.alignByBaseline())
+    Text(pluralStringResource(R.plurals.count_unit, count), style = DarkroomText.CountUnit, modifier = Modifier.alignByBaseline())
     if (sub != null) {
         Text(sub, style = DarkroomText.CountSub, modifier = Modifier.alignByBaseline().padding(start = Dimens.CountSubGap - Dimens.CountGap))
     }
@@ -178,7 +183,7 @@ fun DayHeaderRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             right()
-            if (showChevron) Icon(DarkroomIcons.Chevron, contentDescription = "进入这一天", tint = DarkroomColors.Dim, modifier = Modifier.size(Dimens.DayChevron))
+            if (showChevron) Icon(DarkroomIcons.Chevron, contentDescription = stringResource(R.string.cd_enter_day), tint = DarkroomColors.Dim, modifier = Modifier.size(Dimens.DayChevron))
         }
     }
 }

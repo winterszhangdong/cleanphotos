@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -117,9 +119,9 @@ internal fun ReviewTutorialOverlay(topInset: Dp, bottomInset: Dp, onKnow: () -> 
                 .padding(top = topInset + ROWS_TOP, start = 32.dp, end = 32.dp)
                 .fillMaxWidth(),
         ) {
-            TutRow(0, time, DarkroomIcons.Up, DarkroomColors.Amber, "向上滑动", "收藏照片", last = false)
-            TutRow(1, time, DarkroomIcons.Down, DarkroomColors.Paper, "向下滑动", "移到垃圾桶", last = false)
-            TutRow(2, time, DarkroomIcons.LeftRight, DarkroomColors.Paper, "左右滑动", "切换照片", last = true)
+            TutRow(0, time, DarkroomIcons.Up, DarkroomColors.Amber, stringResource(R.string.tut_up), stringResource(R.string.tut_up_desc), last = false)
+            TutRow(1, time, DarkroomIcons.Down, DarkroomColors.Paper, stringResource(R.string.tut_down), stringResource(R.string.tut_down_desc), last = false)
+            TutRow(2, time, DarkroomIcons.LeftRight, DarkroomColors.Paper, stringResource(R.string.tut_lr), stringResource(R.string.tut_lr_desc), last = true)
         }
         Box(
             Modifier
@@ -131,7 +133,7 @@ internal fun ReviewTutorialOverlay(topInset: Dp, bottomInset: Dp, onKnow: () -> 
                 .plainClickable(onClick = onKnow)
                 .padding(horizontal = 32.dp),
             contentAlignment = Alignment.Center,
-        ) { Text("知道了", style = DarkroomText.TutOk) }
+        ) { Text(stringResource(R.string.tut_ok), style = DarkroomText.TutOk) }
     }
 }
 

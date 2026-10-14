@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Cleanphotos" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Cleanphotos" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@color/darkroom_room</item>
         <item name="android:colorBackground">@color/darkroom_room</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

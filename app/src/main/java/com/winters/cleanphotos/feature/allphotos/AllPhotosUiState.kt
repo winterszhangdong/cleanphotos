@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.AllSeenStats
 import com.winters.cleanphotos.domain.model.PhotoDaySection
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
@@ -24,5 +25,5 @@ data class AllPhotosUiState(
     /** 冷启动第一次读相册：用加载显影参数，之后用网格首屏参数。 */
     val isInitialLoad: Boolean = true,
     val hasPermission: Boolean = false,
-    val errorMessage: String? = null,
+    val errorMessage: UiText? = null,
 )

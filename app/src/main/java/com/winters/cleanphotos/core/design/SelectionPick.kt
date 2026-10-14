@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.core.design
 
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -75,7 +77,7 @@ fun BoxScope.SelectionCheck(visible: Boolean) {
                 .background(DarkroomColors.Paper),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(DarkroomIcons.CheckBold, contentDescription = "已选", tint = DarkroomColors.Room, modifier = Modifier.size(Dimens.CheckIcon))
+            Icon(DarkroomIcons.CheckBold, contentDescription = stringResource(R.string.cd_selected), tint = DarkroomColors.Room, modifier = Modifier.size(Dimens.CheckIcon))
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.favorites
 
+import com.winters.cleanphotos.R
+import com.winters.cleanphotos.core.text.UiText
 import android.net.Uri
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
@@ -78,7 +80,7 @@ class FavoritesViewModelTest {
 
         val state = viewModel.uiState.value
         assertEquals("totalCount 应等于收藏照片数量", 3, state.totalCount)
-        assertEquals("errorMessage 应保留加载收藏照片失败提示", "加载收藏照片失败", state.errorMessage)
+        assertEquals("errorMessage 应保留加载收藏照片失败提示", UiText.Res(R.string.error_load_favorites), state.errorMessage)
     }
 
     @Test

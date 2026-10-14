@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: 从 CHANGELOG 生成发布说明
+        # 先于构建执行：CHANGELOG 缺这一版或为空时直接失败，不浪费构建
+        run: scripts/release-notes.sh "$GITHUB_REF_NAME" CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
       - uses: actions/setup-java@v6.0.1
         with:
           distribution: temurin
@@ -40,4 +43,4 @@ jobs:
       - uses: softprops/action-gh-release@v3.0.3
         with:
           files: CleanPhotos-*.apk
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md

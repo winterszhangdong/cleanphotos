@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.core.text.UiText
+import com.winters.cleanphotos.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
@@ -90,7 +92,7 @@ class ReviewViewModel @Inject constructor(
         val currentKey: String? = null,
         val activeSummaryDay: String? = null,
         val undo: UndoInfo? = null,
-        val error: String? = null,
+        val error: UiText? = null,
         val tutorialDismissed: Boolean = false,
     )
 
@@ -149,7 +151,7 @@ class ReviewViewModel @Inject constructor(
                 }
                 markPhotoSeenUseCase(start.id)
             } catch (e: Exception) {
-                core.update { it.copy(loading = false, error = "加载照片失败") }
+                core.update { it.copy(loading = false, error = UiText.Res(R.string.error_load_photos)) }
             }
         }
     }
@@ -206,7 +208,7 @@ class ReviewViewModel @Inject constructor(
                         ledger = previousOutcome?.let { l.recordOutcome(photo.id, it) } ?: l,
                         removed = s.removed + photo.id,
                         currentKey = if (s.currentKey == key) nextKeyAfterRemoval(s, photo.id) else s.currentKey,
-                        error = "撤回失败",
+                        error = UiText.Res(R.string.error_undo),
                     )
                 }
             }
@@ -364,34 +366,38 @@ class ReviewViewModel @Inject constructor(
     }
 
     private fun undoTitle(type: PhotoActionType) = when (type) {
-        PhotoActionType.Favorite -> "已收藏"
-        PhotoActionType.Unfavorite -> "已取消收藏"
-        PhotoActionType.MoveToTrash -> "已移到垃圾桶"
+        PhotoActionType.Favorite -> UiText.Res(R.string.undo_favorited)
+        PhotoActionType.Unfavorite -> UiText.Res(R.string.undo_unfavorited)
+        PhotoActionType.MoveToTrash -> UiText.Res(R.string.undo_trashed)
     }
 
     /** 移走：「可释放 2.4 MB」；收藏 / 取消收藏：「9月21日 · 第 3 张」（这一天会话里的第几张）。 */
-    private fun undoSubtitle(ledger: ReviewLedger, photo: PhotoItem, type: PhotoActionType): String = when (type) {
-        PhotoActionType.MoveToTrash -> "可释放 " + FileSizeFormatter.format(photo.size ?: 0L)
+    private fun undoSubtitle(ledger: ReviewLedger, photo: PhotoItem, type: PhotoActionType): UiText = when (type) {
+        PhotoActionType.MoveToTrash -> UiText.Res(R.string.undo_sub_freeable, UiText.Bytes(photo.size ?: 0L))
         else -> {
             val n = ledger.photosOfDay(photo.dateGroup).indexOfFirst { it.id == photo.id } + 1
-            DayDisplay.cleanPageDateFor(photo) + " · 第 $n 张"
+            UiText.Res(R.string.undo_sub_position, UiText.Date(DayDisplay.reviewDayOrdinal(photo)), n)
         }
     }
 
-    private fun failureMessage(result: PhotoOperationResult, type: PhotoActionType): String? {
-        val name = when (type) {
-            PhotoActionType.Favorite -> "收藏"
-            PhotoActionType.Unfavorite -> "取消收藏"
-            PhotoActionType.MoveToTrash -> "移到垃圾桶"
-        }
+    private fun failureMessage(result: PhotoOperationResult, type: PhotoActionType): UiText? {
         val reason = (result as? PhotoOperationResult.Failure)?.reason ?: return null
-        return when (reason) {
-            PhotoOperationFailureReason.SystemFavoriteUnsupported -> "当前系统不支持收藏"
-            PhotoOperationFailureReason.PermissionDenied -> "没有足够权限$name"
-            PhotoOperationFailureReason.UserCancelled -> null
-            PhotoOperationFailureReason.MediaStoreFailed -> "${name}失败"
-            PhotoOperationFailureReason.WritePermissionRequired -> "没有足够权限"
+        val id = when (reason) {
+            PhotoOperationFailureReason.SystemFavoriteUnsupported -> R.string.fail_favorite_unsupported
+            PhotoOperationFailureReason.PermissionDenied -> when (type) {
+                PhotoActionType.Favorite -> R.string.fail_permission_favorite
+                PhotoActionType.Unfavorite -> R.string.fail_permission_unfavorite
+                PhotoActionType.MoveToTrash -> R.string.fail_permission_trash
+            }
+            PhotoOperationFailureReason.UserCancelled -> return null
+            PhotoOperationFailureReason.MediaStoreFailed -> when (type) {
+                PhotoActionType.Favorite -> R.string.fail_favorite
+                PhotoActionType.Unfavorite -> R.string.fail_unfavorite
+                PhotoActionType.MoveToTrash -> R.string.fail_trash
+            }
+            PhotoOperationFailureReason.WritePermissionRequired -> R.string.fail_permission
         }
+        return UiText.Res(id)
     }
 
     companion object {

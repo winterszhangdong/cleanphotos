@@ -1,5 +1,9 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.core.text.asString
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
@@ -218,22 +222,24 @@ private fun DrawScope.drawContinuous(cells: List<DayCellState>, radius: CornerRa
 internal fun ReviewTopBar(photo: PhotoItem?, onBack: () -> Unit, onMore: (() -> Unit)?, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(40.dp)) {
         GlassIconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
-            Icon(DarkroomIcons.Back, contentDescription = "返回", tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
+            Icon(DarkroomIcons.Back, contentDescription = stringResource(R.string.cd_back), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
         }
         if (photo != null) {
+            val locale = currentLocale()
+            val unknownDate = stringResource(R.string.date_unknown)
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.4f), Offset(0f, 2.6f), 21f))
                 OdometerText(
                     value = DayDisplay.reviewDayOrdinal(photo),
                     style = DarkroomText.RvDate.merge(shadow),
-                    format = { DayDisplay.cleanDateOfEpochDay(it) },
+                    format = { DayDisplay.cleanDateOfEpochDay(it, locale) ?: unknownDate },
                 )
-                Text(DayDisplay.reviewMeta(photo), style = DarkroomText.RvDateMeta.merge(shadow))
+                Text(DayDisplay.reviewMeta(photo, locale), style = DarkroomText.RvDateMeta.merge(shadow))
             }
         }
         if (onMore != null) {
             GlassIconButton(onClick = onMore, modifier = Modifier.align(Alignment.CenterEnd)) {
-                Icon(DarkroomIcons.More, contentDescription = "更多", tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
+                Icon(DarkroomIcons.More, contentDescription = stringResource(R.string.cd_more), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -244,12 +250,13 @@ internal fun ReviewTopBar(photo: PhotoItem?, onBack: () -> Unit, onMore: (() -> 
 internal fun ReviewMeta(photo: PhotoItem, showHints: Boolean, scope: ReviewScope, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         val name = photo.displayName?.substringBeforeLast('.') ?: "—"
-        val size = photo.size?.let { " · " + FileSizeFormatter.format(it) }.orEmpty()
+        val locale = currentLocale()
+        val size = photo.size?.let { " · " + FileSizeFormatter.format(it, locale) }.orEmpty()
         Text(name + size, style = DarkroomText.RvFile, maxLines = 1)
         if (showHints) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HintDot(DarkroomColors.Amber, if (scope == ReviewScope.Favorites) "上滑取消收藏" else "上滑收藏")
-                HintDot(DarkroomColors.Fade, "下滑移走")
+                HintDot(DarkroomColors.Amber, stringResource(if (scope == ReviewScope.Favorites) R.string.hint_up_unfavorite else R.string.hint_up_favorite))
+                HintDot(DarkroomColors.Fade, stringResource(R.string.hint_down))
             }
         }
     }
@@ -293,7 +300,7 @@ internal fun ReviewCue(state: ReviewStageState, up: Boolean, scope: ReviewScope,
                 contentAlignment = Alignment.Center,
             ) { Icon(icon, null, tint = textColor, modifier = Modifier.size(16.dp)) }
             Text(
-                if (up) (if (unfav) "继续上滑取消收藏" else "继续上滑收藏") else "继续下滑",
+                stringResource(if (up) (if (unfav) R.string.cue_keep_unfavorite else R.string.cue_keep_favorite) else R.string.cue_keep_down),
                 style = DarkroomText.CuePre.copy(color = textColor),
             )
         }
@@ -322,12 +329,12 @@ internal fun ReviewCue(state: ReviewStageState, up: Boolean, scope: ReviewScope,
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                if (up) (if (unfav) "松手取消收藏" else "松手收藏") else "松手移到垃圾桶",
+                stringResource(if (up) (if (unfav) R.string.cue_release_unfavorite else R.string.cue_release_favorite) else R.string.cue_release_trash),
                 style = DarkroomText.CueTitle.copy(color = accent),
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (up) (if (unfav) "还在相册里" else "放进收藏") else "清空前都能找回",
+                stringResource(if (up) (if (unfav) R.string.cue_sub_unfavorite else R.string.cue_sub_favorite) else R.string.cue_sub_trash),
                 style = DarkroomText.CueSmall.copy(color = if (up) DarkroomColors.Amber else DarkroomColors.Dim),
             )
         }
@@ -347,7 +354,7 @@ internal fun ReviewUndoBar(
 ) {
     UndoBar(
         content = undo?.let {
-            UndoCapsuleContent(it.seq, it.photo.id, it.photo.uri, it.type != PhotoActionType.MoveToTrash, it.title, it.subtitle)
+            UndoCapsuleContent(it.seq, it.photo.id, it.photo.uri, it.type != PhotoActionType.MoveToTrash, it.title.asString(), it.subtitle.asString())
         },
         visible = visible,
         onUndo = onUndo,

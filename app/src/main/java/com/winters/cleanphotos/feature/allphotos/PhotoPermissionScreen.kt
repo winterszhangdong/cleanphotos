@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -33,9 +34,9 @@ import com.winters.cleanphotos.core.design.plainClickable
 import com.winters.cleanphotos.core.permission.PermissionChecker
 
 private val permItems = listOf(
-    Triple("01", "只在这台手机上处理", "照片不会上传，App 不联网。"),
-    Triple("02", "移到垃圾桶随时能找回", "只是 App 里的标记，清空时才真正删除。"),
-    Triple("03", "删除前会再确认一次", "永久删除由系统弹窗授权，你说了算。"),
+    Triple("01", R.string.perm_item1_title, R.string.perm_item1_body),
+    Triple("02", R.string.perm_item2_title, R.string.perm_item2_body),
+    Triple("03", R.string.perm_item3_title, R.string.perm_item3_body),
 )
 
 /**
@@ -52,8 +53,8 @@ fun PhotoPermissionScreen(permanentlyDenied: Boolean, onRequest: () -> Unit, mod
                 right = painterResource(R.drawable.perm_print_right),
                 modifier = Modifier.padding(top = 32.dp),
             )
-            Box(Modifier.padding(top = 8.dp, bottom = 4.dp)) { Eyebrow("开始之前") }
-            Text("允许访问你的相册", style = DarkroomText.PermH4)
+            Box(Modifier.padding(top = 8.dp, bottom = 4.dp)) { Eyebrow(stringResource(R.string.perm_eyebrow)) }
+            Text(stringResource(R.string.perm_title), style = DarkroomText.PermH4)
             Column(Modifier.padding(top = 24.dp)) {
                 permItems.forEach { (no, title, body) ->
                     Box(Modifier.fillMaxWidth().height(Dimens.Hairline).background(DarkroomColors.Rim))
@@ -67,8 +68,8 @@ fun PhotoPermissionScreen(permanentlyDenied: Boolean, onRequest: () -> Unit, mod
                             contentAlignment = Alignment.Center,
                         ) { Text(no, style = DarkroomText.PermItemNo) }
                         Column {
-                            Text(title, style = DarkroomText.PermItemTitle)
-                            Text(body, style = DarkroomText.PermItemBody)
+                            Text(stringResource(title), style = DarkroomText.PermItemTitle)
+                            Text(stringResource(body), style = DarkroomText.PermItemBody)
                         }
                     }
                 }
@@ -82,12 +83,12 @@ fun PhotoPermissionScreen(permanentlyDenied: Boolean, onRequest: () -> Unit, mod
                 .padding(horizontal = Dimens.PermSide),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            PrimaryButton(if (permanentlyDenied) "去系统设置开启" else "允许访问照片", onClick = onRequest)
+            PrimaryButton(stringResource(if (permanentlyDenied) R.string.perm_open_settings else R.string.perm_allow), onClick = onRequest)
             // .perm-go 距底 72、.perm-alt 距底 36（都从系统导航条上沿量）
             Box(Modifier.fillMaxWidth().height(Dimens.PermGoBottom), contentAlignment = Alignment.BottomCenter) {
                 if (PermissionChecker.supportsPartialAccess && !permanentlyDenied) {
                     Text(
-                        "只选部分照片",
+                        stringResource(R.string.perm_partial),
                         style = DarkroomText.TextButton,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(bottom = Dimens.PermAltBottom).plainClickable(onClick = onRequest),

@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.PhotoItem
 
 data class TrashUiState(
@@ -10,8 +11,8 @@ data class TrashUiState(
     val showEmptyTrashConfirmDialog: Boolean = false,
     val isLoading: Boolean = false,
     val isProcessingAction: Boolean = false,
-    val actionMessage: String? = null,
-    val errorMessage: String? = null,
+    val actionMessage: UiText? = null,
+    val errorMessage: UiText? = null,
     /** 垃圾桶总大小（「清空后可释放」）。 */
     val totalBytes: Long = 0L,
     /** photoId → 移入时间。 */

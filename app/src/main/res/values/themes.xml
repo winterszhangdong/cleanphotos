@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 暗房只有暗色：窗口底色用暗室底，冷启动和转场时不露白 -->
-    <style name="Theme.Cleanphotos" parent="android:Theme.Material.NoActionBar">
+    <!-- AppCompat 主题：MainActivity 是 AppCompatActivity，Android 8–12 的 App 内语言切换要靠它 -->
+    <style name="Theme.Cleanphotos" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@color/darkroom_room</item>
         <item name="android:colorBackground">@color/darkroom_room</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

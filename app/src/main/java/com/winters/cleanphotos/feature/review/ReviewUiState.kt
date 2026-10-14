@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.DaySummary
 import com.winters.cleanphotos.domain.model.PhotoActionType
 import com.winters.cleanphotos.domain.model.PhotoItem
@@ -12,8 +13,8 @@ data class UndoInfo(
     val seq: Long,
     val photo: PhotoItem,
     val type: PhotoActionType,
-    val title: String,
-    val subtitle: String,
+    val title: UiText,
+    val subtitle: UiText,
 )
 
 data class ReviewUiState(
@@ -30,7 +31,7 @@ data class ReviewUiState(
     val showTutorial: Boolean = false,
     val undo: UndoInfo? = null,
     val trashCount: Int = 0,
-    val errorMessage: String? = null,
+    val errorMessage: UiText? = null,
     /** 照片全部处理完且没有小结：回到入口页。 */
     val isCompleted: Boolean = false,
 )

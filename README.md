@@ -9,7 +9,7 @@ English | [简体中文](README.zh-CN.md)
 
 Swipe up to favorite, swipe down to trash, one photo at a time. CleanPhotos is an open-source Android app for cleaning up your photo library. It has no network access, no ads and no accounts.
 
-> **The UI is currently Simplified Chinese only; translations welcome.**
+> **The UI is available in Simplified Chinese and English and follows your system language (Chinese systems, including Traditional Chinese, show Chinese; all others show English). You can also switch it from the ⋯ menu on the Photos tab. Translations for other languages are welcome — add a `res/values-<lang>/strings.xml`.**
 
 ![CleanPhotos](site/assets/promo-poster.jpg)
 
@@ -31,6 +31,7 @@ Swipe up to favorite, swipe down to trash, one photo at a time. CleanPhotos is a
 - Favorites tab, pinch and double-tap zoom, predictive back on Android 14+
 - In-app trash: restore photos, or empty it to permanently delete them from the system gallery (with a confirmation and the system's delete prompt)
 - Dark "darkroom" UI built with Jetpack Compose
+- Simplified Chinese and English UI, following the system language, switchable in the app
 
 ## Download
 

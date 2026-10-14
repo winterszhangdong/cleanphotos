@@ -9,7 +9,7 @@ import java.util.Locale
 object FileSizeFormatter {
     private val units = listOf("KB", "MB", "GB", "TB")
 
-    fun format(bytes: Long): String {
+    fun format(bytes: Long, locale: Locale = Locale.US): String {
         require(bytes >= 0) { "bytes 不能为负：$bytes" }
         var value = bytes / 1024.0
         var unit = 0
@@ -18,13 +18,13 @@ object FileSizeFormatter {
             value /= 1024
             unit++
         }
-        val text = if (value < 9.95) String.format(Locale.US, "%.1f", value) else String.format(Locale.US, "%.0f", value)
+        val text = if (value < 9.95) String.format(locale, "%.1f", value) else String.format(locale, "%.0f", value)
         return "$text ${units[unit]}"
     }
 
     /** 数字与单位分开（「清空后可释放 1.2 GB」里数字用 .num 大字、单位用小字）。 */
-    fun parts(bytes: Long): Pair<String, String> {
-        val text = format(bytes)
+    fun parts(bytes: Long, locale: Locale = Locale.US): Pair<String, String> {
+        val text = format(bytes, locale)
         val space = text.lastIndexOf(' ')
         return text.substring(0, space) to text.substring(space + 1)
     }

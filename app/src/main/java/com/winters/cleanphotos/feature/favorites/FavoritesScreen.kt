@@ -1,5 +1,10 @@
 package com.winters.cleanphotos.feature.favorites
 
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.core.text.asString
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,7 +64,7 @@ fun FavoritesScreen(
             Column(Modifier.fillMaxSize().glassBackdropSource()) {
                 ScreenHeader(
                     eyebrow = {
-                        Eyebrow("收藏")
+                        Eyebrow(stringResource(R.string.tab_favorites))
                         if (!empty) FavPip()
                     },
                     count = { HeaderCount(uiState.totalCount) },
@@ -78,7 +83,7 @@ fun FavoritesScreen(
                         photoDaySections(
                             sections = uiState.sections,
                             unseen = { false },
-                            right = { section -> MonoWithBold(null, "${section.totalCount} 张") },
+                            right = { section -> MonoWithBold(null, pluralStringResource(R.plurals.favorites_section_count, section.totalCount, section.totalCount)) },
                             develop = develop,
                             reorderAnchor = anchor,
                             onPhotoClick = onPhotoClick,
@@ -89,11 +94,11 @@ fun FavoritesScreen(
             if (empty) {
                 EmptyStateArea {
                     if (uiState.errorMessage != null) {
-                        EmptyTitleAndBody("没能读取收藏", uiState.errorMessage)
+                        EmptyTitleAndBody(stringResource(R.string.favorites_error_title), uiState.errorMessage.asString())
                     } else {
                         FavoritePileArt(Modifier.padding(bottom = 32.dp))
-                        EmptyTitleAndBody("还没有收藏", "在清理页把好照片向上一推，它就会留在这里。")
-                        GhostButton("去清理", onClick = onNavigateBack, mono = "${NumberFormatter.formatCount(uiState.unseenCount)} 张未看")
+                        EmptyTitleAndBody(stringResource(R.string.favorites_empty_title), stringResource(R.string.favorites_empty_body))
+                        GhostButton(stringResource(R.string.go_review), onClick = onNavigateBack, mono = pluralStringResource(R.plurals.unseen_count, uiState.unseenCount, NumberFormatter.formatCount(uiState.unseenCount, currentLocale())))
                     }
                 }
             } else {

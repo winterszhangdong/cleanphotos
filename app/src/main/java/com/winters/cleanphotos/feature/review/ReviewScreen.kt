@@ -1,5 +1,8 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.core.text.asString
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -406,7 +409,7 @@ fun ReviewScreen(
                     onDismissError()
                 }
                 Text(
-                    message,
+                    message.asString(),
                     style = DarkroomText.EdgeHint,
                     modifier = Modifier
                         .zIndex(11f)
@@ -423,13 +426,13 @@ fun ReviewScreen(
                     MenuScrim(visible = true, onDismiss = { menuOpen = false })
                     DarkroomMenu(
                         visible = true,
-                        header = "更多",
+                        header = stringResource(R.string.menu_more_header),
                         options = listOf(
-                            MenuOption("去垃圾桶", uiState.trashCount.takeIf { it > 0 }?.toString(), false) {
+                            MenuOption(stringResource(R.string.review_go_trash), uiState.trashCount.takeIf { it > 0 }?.toString(), false) {
                                 menuOpen = false
                                 onNavigateToTrash()
                             },
-                            MenuOption("回到照片", null, false) {
+                            MenuOption(stringResource(R.string.back_to_photos), null, false) {
                                 menuOpen = false
                                 onNavigateBack()
                             },
@@ -450,7 +453,7 @@ private fun EdgeHint(stage: ReviewStageState, modifier: Modifier) {
     if (!atStart && !atEnd) return
     Box(modifier.fillMaxSize()) {
         Text(
-            if (atStart) "第一张" else "最后一张",
+            stringResource(if (atStart) R.string.edge_first else R.string.edge_last),
             style = DarkroomText.EdgeHint,
             modifier = Modifier
                 .align(if (atStart) Alignment.CenterStart else Alignment.CenterEnd)

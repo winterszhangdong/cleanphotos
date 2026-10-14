@@ -1,5 +1,10 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.core.text.asString
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -113,14 +118,16 @@ fun TrashScreen(
     val recorderScope = rememberCoroutineScope()
     BackHandler(enabled = isSelection && !isPreview) { onExitSelectionMode() }
 
+    val errorText = uiState.errorMessage?.asString()
+    val actionText = uiState.actionMessage?.asString()
     LaunchedEffect(uiState.errorMessage) {
-        if (uiState.errorMessage != null && uiState.photos.isNotEmpty()) {
-            snackbarHostState.showSnackbar(uiState.errorMessage)
+        if (errorText != null && uiState.photos.isNotEmpty()) {
+            snackbarHostState.showSnackbar(errorText)
             onDismissError()
         }
     }
     LaunchedEffect(uiState.actionMessage) {
-        uiState.actionMessage?.let { message ->
+        actionText?.let { message ->
             snackbarHostState.showSnackbar(message)
             onDismissActionMessage()
         }
@@ -162,10 +169,10 @@ fun TrashScreen(
                         )
                     } else {
                         ScreenHeader(
-                            eyebrow = { Eyebrow("垃圾桶") },
+                            eyebrow = { Eyebrow(stringResource(R.string.tab_trash)) },
                             count = { HeaderCount(uiState.photos.size) },
                             actions = {
-                                if (uiState.photos.isNotEmpty()) TrayTextButton("选择", onClick = onEnterSelectionMode)
+                                if (uiState.photos.isNotEmpty()) TrayTextButton(stringResource(R.string.trash_select), onClick = onEnterSelectionMode)
                             },
                         )
                     }
@@ -197,16 +204,16 @@ fun TrashScreen(
                 }
                 when {
                     uiState.errorMessage != null && uiState.photos.isEmpty() && !uiState.isLoading -> EmptyStateArea {
-                        EmptyTitleAndBody("没能读取垃圾桶", uiState.errorMessage)
-                        GhostButton("重试", onClick = onRetry)
+                        EmptyTitleAndBody(stringResource(R.string.trash_error_title), errorText.orEmpty())
+                        GhostButton(stringResource(R.string.retry), onClick = onRetry)
                     }
                     uiState.dissolving != null -> ListFade()
                     uiState.photos.isEmpty() && !uiState.isLoading -> RisingEmpty(rise = uiState.justFreedBytes != null) {
                         EmptyPileArt(sink = true, modifier = Modifier.padding(bottom = 32.dp))
                         EmptyTitleAndBody(
-                            "垃圾桶是空的",
-                            uiState.justFreedBytes?.let { "刚刚释放了 ${FileSizeFormatter.format(it)}" }
-                                ?: "在清理页把照片向下一拉，它会先放在这里，清空前都能找回。",
+                            stringResource(R.string.trash_empty_title),
+                            uiState.justFreedBytes?.let { stringResource(R.string.trash_just_freed, FileSizeFormatter.format(it, currentLocale())) }
+                                ?: stringResource(R.string.trash_empty_body),
                         )
                     }
                     else -> ListFade()
@@ -254,7 +261,7 @@ fun TrashScreen(
 @Composable
 private fun FreeCard(totalBytes: Long, onClear: () -> Unit) {
     val shape = RoundedCornerShape(Dimens.FreeCorner)
-    val (num, unit) = FileSizeFormatter.parts(totalBytes)
+    val (num, unit) = FileSizeFormatter.parts(totalBytes, currentLocale())
     Row(
         Modifier
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, top = Dimens.FreeTop, bottom = 16.dp - Dimens.GridGap)
@@ -267,14 +274,14 @@ private fun FreeCard(totalBytes: Long, onClear: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("清空后可释放", style = DarkroomText.Label12)
+            Text(stringResource(R.string.free_label), style = DarkroomText.Label12)
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(num, style = DarkroomText.FreeNum, modifier = Modifier.alignByBaseline())
                 Text(unit, style = DarkroomText.FreeUnit, modifier = Modifier.alignByBaseline())
             }
-            Text("只在 App 内标记，清空时才真正删除", style = DarkroomText.FreeSub, modifier = Modifier.padding(top = 4.dp))
+            Text(stringResource(R.string.free_sub), style = DarkroomText.FreeSub, modifier = Modifier.padding(top = 4.dp))
         }
-        DeleteOutlineButton("清空", onClick = onClear)
+        DeleteOutlineButton(stringResource(R.string.empty_trash), onClick = onClear)
     }
 }
 
@@ -288,17 +295,20 @@ private fun SelectionBar(selectedCount: Int, onExit: () -> Unit, onBatchRestore:
             .height(Dimens.HeaderHeight)
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.HeaderBottomPadding),
     ) {
-        TrayTextButton("取消", onClick = onExit, modifier = Modifier.align(Alignment.BottomStart))
+        TrayTextButton(stringResource(R.string.cancel), onClick = onExit, modifier = Modifier.align(Alignment.BottomStart))
         Row(
             Modifier.align(Alignment.BottomCenter).height(Dimens.SmallButtonHeight),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("已选择", style = DarkroomText.SelTitle, modifier = Modifier.alignByBaseline())
+            // 中文「已选择 N 项」，英文「N selected」：前后缀为空时不占位
+            val prefix = stringResource(R.string.trash_selected_prefix)
+            val suffix = stringResource(R.string.trash_selected_suffix)
+            if (prefix.isNotEmpty()) Text(prefix, style = DarkroomText.SelTitle, modifier = Modifier.alignByBaseline())
             Text(selectedCount.toString(), style = DarkroomText.SelNum, modifier = Modifier.alignByBaseline())
-            Text("项", style = DarkroomText.SelTitle, modifier = Modifier.alignByBaseline())
+            if (suffix.isNotEmpty()) Text(suffix, style = DarkroomText.SelTitle, modifier = Modifier.alignByBaseline())
         }
-        PaperButton("移出垃圾桶", onClick = onBatchRestore, enabled = isRestoreEnabled, modifier = Modifier.align(Alignment.BottomEnd))
+        PaperButton(stringResource(R.string.restore_from_trash), onClick = onBatchRestore, enabled = isRestoreEnabled, modifier = Modifier.align(Alignment.BottomEnd))
     }
 }
 
@@ -310,13 +320,15 @@ private fun SelectionSummary(selectedBytes: Long) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text("点照片选中，再点取消", style = DarkroomText.SelSum)
+        Text(stringResource(R.string.sel_sum_hint), style = DarkroomText.SelSum)
+        val selectedSize = FileSizeFormatter.format(selectedBytes, currentLocale())
+        val backLabel = stringResource(R.string.sel_sum_back)
         Text(
             buildAnnotatedString {
                 withStyle(SpanStyle(color = DarkroomColors.Paper, fontWeight = FontWeight.Medium)) {
-                    append(FileSizeFormatter.format(selectedBytes))
+                    append(selectedSize)
                 }
-                append(" · 回到相册")
+                append(backLabel)
             },
             style = DarkroomText.SelSumMono,
         )
@@ -331,7 +343,11 @@ private fun EmptyTrashConfirmDialog(count: Int, totalBytes: Long, onDismiss: () 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(DarkroomColors.DialogScrim).plainClickable(onClick = onDismiss))
         val shape = RoundedCornerShape(Dimens.DialogCorner)
-        val (num, unit) = FileSizeFormatter.parts(totalBytes)
+        val (num, unit) = FileSizeFormatter.parts(totalBytes, currentLocale())
+        // 「会释放 1.2 GB。……」里数字加粗：按占位符位置拆开拼
+        val body = stringResource(R.string.dialog_delete_body, "\u0000")
+        val bodyBefore = body.substringBefore('\u0000')
+        val bodyAfter = body.substringAfter('\u0000')
         Column(
             Modifier
                 .align(Alignment.Center)
@@ -344,19 +360,20 @@ private fun EmptyTrashConfirmDialog(count: Int, totalBytes: Long, onDismiss: () 
                 .plainClickable(onClick = {})
                 .padding(24.dp),
         ) {
-            Text("永久删除 $count 张照片？", style = DarkroomText.DialogTitle)
+            Text(pluralStringResource(R.plurals.dialog_delete_title, count, count), style = DarkroomText.DialogTitle)
             Text(
                 buildAnnotatedString {
-                    append("会释放 ")
+                    append(bodyBefore)
                     withStyle(SpanStyle(fontFamily = DarkroomText.Num.fontFamily, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")) { append(num) }
-                    append(" $unit。删除后无法撤回，系统还会再请求一次授权。")
+                    append(" $unit")
+                    append(bodyAfter)
                 },
                 style = DarkroomText.DialogBody,
                 modifier = Modifier.padding(top = 8.dp),
             )
             Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                DialogButton("取消", DarkroomColors.Paper, null, onDismiss)
-                DialogButton("删除", DarkroomColors.OnDelete, DarkroomColors.Delete, onConfirm)
+                DialogButton(stringResource(R.string.cancel), DarkroomColors.Paper, null, onDismiss)
+                DialogButton(stringResource(R.string.delete), DarkroomColors.OnDelete, DarkroomColors.Delete, onConfirm)
             }
         }
     }

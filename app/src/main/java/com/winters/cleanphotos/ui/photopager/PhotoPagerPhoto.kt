@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.ui.photopager
 
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -155,5 +157,5 @@ internal fun buildPhotoPagerImageRequestKey(
 
 @Composable
 private fun ImageLoadFailedContent() {
-    Text(text = "图片加载失败", style = DarkroomText.Body.copy(color = DarkroomColors.Dim))
+    Text(text = stringResource(R.string.photo_load_failed), style = DarkroomText.Body.copy(color = DarkroomColors.Dim))
 }

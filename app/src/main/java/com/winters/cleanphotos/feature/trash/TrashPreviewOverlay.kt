@@ -1,5 +1,9 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -165,10 +169,10 @@ fun TrashPreviewOverlay(
                 .zIndex(2f)
         ) {
             GlassIconButton(onClick = onExit, modifier = Modifier.align(Alignment.CenterStart)) {
-                Icon(DarkroomIcons.Back, contentDescription = "返回", tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
+                Icon(DarkroomIcons.Back, contentDescription = stringResource(R.string.cd_back), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
             }
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("垃圾桶", style = DarkroomText.PvTitle)
+                Text(stringResource(R.string.tab_trash), style = DarkroomText.PvTitle)
                 Text("${displayIndex + 1} / ${photos.size}", style = DarkroomText.PvSub)
             }
         }
@@ -264,10 +268,16 @@ fun TrashPreviewOverlay(
         )
 
         if (currentPhoto != null) {
+            val locale = currentLocale()
+            val takenText = currentPhoto.dateTaken?.takeIf { it > 0L }
+                ?.let { stringResource(R.string.trash_taken, DayDisplay.cleanPageDate(it, java.time.ZoneId.systemDefault(), locale)) }
+            val movedText = movedAt[currentPhoto.id]?.let { DayDisplay.daysSince(it, System.currentTimeMillis()) }?.let { days ->
+                if (days == 0) stringResource(R.string.trash_moved_today) else pluralStringResource(R.plurals.trash_moved_days, days, days)
+            }
             // .pv-meta：照片下 16dp，两行等宽小字居中
             Text(
-                text = "${baseName(currentPhoto.displayName)}${currentPhoto.size?.let { " · " + FileSizeFormatter.format(it) } ?: ""}\n" +
-                    DayDisplay.trashPreviewDates(currentPhoto, movedAt[currentPhoto.id], System.currentTimeMillis()),
+                text = "${baseName(currentPhoto.displayName)}${currentPhoto.size?.let { " · " + FileSizeFormatter.format(it, locale) } ?: ""}\n" +
+                    listOfNotNull(takenText, movedText).joinToString(" · "),
                 style = DarkroomText.PvMeta,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
@@ -277,7 +287,7 @@ fun TrashPreviewOverlay(
                     .offset { IntOffset(0, containerSize.height) },
             )
             Text(
-                text = "移出后回到照片页的 ${DayDisplay.cleanPageDateFor(currentPhoto)}",
+                text = stringResource(R.string.trash_restore_hint, DayDisplay.photoDate(currentPhoto)?.let { DayDisplay.cleanDate(it, locale) } ?: stringResource(R.string.date_unknown)),
                 style = DarkroomText.PvHint,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -286,7 +296,7 @@ fun TrashPreviewOverlay(
             )
         }
         PrimaryButton(
-            text = "移出垃圾桶",
+            text = stringResource(R.string.restore_from_trash),
             icon = DarkroomIcons.Restore,
             onClick = onRestore,
             enabled = !isProcessingAction,

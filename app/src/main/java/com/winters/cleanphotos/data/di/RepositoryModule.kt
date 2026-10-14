@@ -39,4 +39,10 @@ abstract class RepositoryModule {
     abstract fun bindSeenStateRepository(
         impl: com.winters.cleanphotos.data.repository.SeenStateRepositoryImpl
     ): com.winters.cleanphotos.domain.repository.SeenStateRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindLanguageRepository(
+        impl: com.winters.cleanphotos.data.repository.LanguageRepositoryImpl
+    ): com.winters.cleanphotos.domain.repository.LanguageRepository
 }

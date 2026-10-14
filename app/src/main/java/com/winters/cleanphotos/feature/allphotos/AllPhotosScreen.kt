@@ -1,5 +1,13 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import com.winters.cleanphotos.core.text.asString
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.R
+import com.winters.cleanphotos.domain.model.AppLanguage
+import com.winters.cleanphotos.core.locale.labelRes
+import com.winters.cleanphotos.core.locale.LanguageSheet
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import com.winters.cleanphotos.core.design.skeletonFill
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
@@ -86,7 +94,7 @@ import com.winters.cleanphotos.core.util.NumberFormatter
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 
-private enum class OpenMenu { None, Sort, Filter }
+private enum class OpenMenu { None, Sort, Filter, More }
 
 /**
  * 照片页。
@@ -104,6 +112,11 @@ fun AllPhotosScreen(
     modifier: Modifier = Modifier,
     selection: PhotoSelectionState = PhotoSelectionState(),
     selectionActions: PhotoSelectionActions = PhotoSelectionActions.None,
+    currentLanguage: AppLanguage = AppLanguage.System,
+    onLanguageClick: () -> Unit = {},
+    showLanguageSheet: Boolean = false,
+    onLanguageSelected: (AppLanguage) -> Unit = {},
+    onDismissLanguageSheet: () -> Unit = {},
 ) {
     SystemBarIcons(lightBackground = false)
 
@@ -116,6 +129,7 @@ fun AllPhotosScreen(
     var openMenu by remember { mutableStateOf(OpenMenu.None) }
     // 系统返回先关菜单
     BackHandler(enabled = openMenu != OpenMenu.None) { openMenu = OpenMenu.None }
+    BackHandler(enabled = showLanguageSheet) { onDismissLanguageSheet() }
     val selecting = selection.isSelecting
     // 多选中返回先退出多选（照片页是根页，没有预测性返回动画可抢）
     BackHandler(enabled = selecting && openMenu == OpenMenu.None) { selectionActions.onExit() }
@@ -126,10 +140,12 @@ fun AllPhotosScreen(
     // 切换排序后图标转 180°（点击后 50ms 起，落定弹簧），并用一句提示说明当前顺序
     val sortRotation = remember { Animatable(sortAngle(uiState.sortOrder)) }
     val sortToast = remember { SortToastState() }
+    val locale = currentLocale()
+    val sortLabel = stringResource(if (uiState.sortOrder == PhotoSortOrder.OldestFirst) R.string.sort_oldest else R.string.sort_newest)
     LaunchedEffect(uiState.sortOrder) {
         val target = sortAngle(uiState.sortOrder)
         if (sortRotation.value == target) return@LaunchedEffect
-        launch { sortToast.show(if (uiState.sortOrder == PhotoSortOrder.OldestFirst) "最早优先" else "最新优先") }
+        launch { sortToast.show(sortLabel) }
         delay(MotionDurations.SORT_ICON_DELAY.toLong())
         sortRotation.animateTo(target, MotionSprings.Settle.spec())
     }
@@ -137,7 +153,7 @@ fun AllPhotosScreen(
     GlassBackdropHost {
         AppDockEffect(
             // 多选时底部导航让位给「收藏 / 移入垃圾桶」两项操作栏
-            mode = if (selecting) DockMode.Hidden else DockMode.Visible,
+            mode = if (selecting || showLanguageSheet) DockMode.Hidden else DockMode.Visible,
             scrim = if (openMenu != OpenMenu.None) {
                 DockScrim(DarkroomColors.MenuScrim, MotionDurations.MENU, MotionDurations.SHORT) { openMenu = OpenMenu.None }
             } else null,
@@ -148,9 +164,9 @@ fun AllPhotosScreen(
                 Box(Modifier.weight(1f)) {
                     when {
                         loading -> LoadingSkeleton()
-                        uiState.errorMessage != null && uiState.sections.isEmpty() -> MessageState("没能读取相册", uiState.errorMessage)
+                        uiState.errorMessage != null && uiState.sections.isEmpty() -> MessageState(stringResource(R.string.photos_error_title), uiState.errorMessage.asString())
                         allSeen -> Unit
-                        uiState.sections.isEmpty() -> MessageState("相册里还没有照片", "拍的照片会出现在这里。")
+                        uiState.sections.isEmpty() -> MessageState(stringResource(R.string.photos_empty_title), stringResource(R.string.photos_empty_body))
                         else -> PhotoList(uiState, onPhotoClick, selection, selectionActions)
                     }
                 }
@@ -169,28 +185,28 @@ fun AllPhotosScreen(
             val menuOpen = openMenu != OpenMenu.None
             ScreenHeader(
                 leftAlpha = if (menuOpen) 0.5f else 1f,
-                eyebrow = { Eyebrow(if (selecting) "已选" else if (unseenOnly) "照片 · 仅未看过" else "照片") },
+                eyebrow = { Eyebrow(stringResource(if (selecting) R.string.eyebrow_selected else if (unseenOnly) R.string.eyebrow_photos_unseen else R.string.tab_photos)) },
                 count = {
                     if (selecting) {
                         HeaderCount(selection.count)
                     } else if (loading) {
                         SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
                         Text(
-                            "正在读取相册…",
+                            stringResource(R.string.photos_loading),
                             style = DarkroomText.CountSub,
                             modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
                         )
                     } else if (unseenOnly) {
-                        HeaderCount(uiState.visibleCount, sub = "· 共 ${NumberFormatter.formatCount(uiState.totalCount)}")
+                        HeaderCount(uiState.visibleCount, sub = stringResource(R.string.header_sub_total, NumberFormatter.formatCount(uiState.totalCount, locale)))
                     } else {
-                        HeaderCount(uiState.totalCount, sub = "· ${NumberFormatter.formatCount(uiState.unseenCount)} 未看")
+                        HeaderCount(uiState.totalCount, sub = stringResource(R.string.header_sub_unseen, NumberFormatter.formatCount(uiState.unseenCount, locale)))
                     }
                 },
                 actions = {
                   if (selecting) {
                     // 只把排序、筛选换成 ✕，左侧和列表位置不动
                     ToolIconButton(onClick = selectionActions.onExit) { tint ->
-                        Icon(DarkroomIcons.Close, contentDescription = "退出多选", tint = tint, modifier = Modifier.size(Dimens.ToolIcon))
+                        Icon(DarkroomIcons.Close, contentDescription = stringResource(R.string.cd_exit_selection), tint = tint, modifier = Modifier.size(Dimens.ToolIcon))
                     }
                   } else {
                     val enabled = !loading
@@ -201,14 +217,14 @@ fun AllPhotosScreen(
                         modifier = Modifier.alpha(
                             when {
                                 loading -> 0.4f
-                                openMenu == OpenMenu.Filter -> 0.5f
+                                openMenu == OpenMenu.Filter || openMenu == OpenMenu.More -> 0.5f
                                 else -> 1f
                             },
                         ),
                     ) { tint ->
                         Icon(
                             DarkroomIcons.Sort,
-                            contentDescription = "排序",
+                            contentDescription = stringResource(R.string.cd_sort),
                             tint = tint,
                             modifier = Modifier.size(Dimens.ToolIcon).graphicsLayer { rotationZ = sortRotation.value },
                         )
@@ -221,11 +237,17 @@ fun AllPhotosScreen(
                         modifier = Modifier.alpha(
                             when {
                                 loading -> 0.4f
-                                openMenu == OpenMenu.Sort -> 0.5f
+                                openMenu == OpenMenu.Sort || openMenu == OpenMenu.More -> 0.5f
                                 else -> 1f
                             },
                         ),
-                    ) { tint -> Icon(DarkroomIcons.Filter, contentDescription = "筛选", tint = tint, modifier = Modifier.size(Dimens.ToolIcon)) }
+                    ) { tint -> Icon(DarkroomIcons.Filter, contentDescription = stringResource(R.string.cd_filter), tint = tint, modifier = Modifier.size(Dimens.ToolIcon)) }
+                    // ⋯：目前只有「语言」一项（不单独做设置页）
+                    ToolIconButton(
+                        onClick = { openMenu = if (openMenu == OpenMenu.More) OpenMenu.None else OpenMenu.More },
+                        active = openMenu == OpenMenu.More,
+                        modifier = Modifier.alpha(if (openMenu == OpenMenu.Sort || openMenu == OpenMenu.Filter) 0.5f else 1f),
+                    ) { tint -> Icon(DarkroomIcons.More, contentDescription = stringResource(R.string.cd_more), tint = tint, modifier = Modifier.size(Dimens.ToolIcon)) }
                   }
                 },
             )
@@ -250,27 +272,43 @@ fun AllPhotosScreen(
 
             DarkroomMenu(
                 visible = openMenu == OpenMenu.Sort,
-                header = "排序",
+                header = stringResource(R.string.menu_sort_header),
                 options = listOf(
-                    MenuOption("最新优先", "默认", uiState.sortOrder == PhotoSortOrder.NewestFirst) {
+                    MenuOption(stringResource(R.string.sort_newest), stringResource(R.string.sort_default), uiState.sortOrder == PhotoSortOrder.NewestFirst) {
                         onSortOrderChanged(PhotoSortOrder.NewestFirst); openMenu = OpenMenu.None
                     },
-                    MenuOption("最早优先", null, uiState.sortOrder == PhotoSortOrder.OldestFirst) {
+                    MenuOption(stringResource(R.string.sort_oldest), null, uiState.sortOrder == PhotoSortOrder.OldestFirst) {
                         onSortOrderChanged(PhotoSortOrder.OldestFirst); openMenu = OpenMenu.None
                     },
                 ),
             )
             DarkroomMenu(
                 visible = openMenu == OpenMenu.Filter,
-                header = "显示",
+                header = stringResource(R.string.menu_filter_header),
                 options = listOf(
-                    MenuOption("全部照片", NumberFormatter.formatCount(uiState.totalCount), !unseenOnly) {
+                    MenuOption(stringResource(R.string.filter_all), NumberFormatter.formatCount(uiState.totalCount, locale), !unseenOnly) {
                         onFilterModeChanged(PhotoFilterMode.AllPhotos); openMenu = OpenMenu.None
                     },
-                    MenuOption("仅未看过", NumberFormatter.formatCount(uiState.unseenCount), unseenOnly) {
+                    MenuOption(stringResource(R.string.filter_unseen), NumberFormatter.formatCount(uiState.unseenCount, locale), unseenOnly) {
                         onFilterModeChanged(PhotoFilterMode.UnseenOnly); openMenu = OpenMenu.None
                     },
                 ),
+            )
+            DarkroomMenu(
+                visible = openMenu == OpenMenu.More,
+                header = stringResource(R.string.menu_more_header),
+                options = listOf(
+                    MenuOption(stringResource(R.string.menu_language), stringResource(currentLanguage.labelRes()), false) {
+                        openMenu = OpenMenu.None
+                        onLanguageClick()
+                    },
+                ),
+            )
+            LanguageSheet(
+                visible = showLanguageSheet,
+                current = currentLanguage,
+                onSelect = onLanguageSelected,
+                onDismiss = onDismissLanguageSheet,
             )
         }
     }
@@ -310,9 +348,9 @@ private fun PhotoList(
             unseen = { it !in uiState.seenIds },
             right = { section ->
                 if (section.unseenCount > 0) {
-                    MonoWithBold(section.unseenCount.toString(), " / ${section.totalCount} 未看")
+                    MonoWithBold(section.unseenCount.toString(), stringResource(R.string.section_unseen, section.totalCount))
                 } else {
-                    MonoWithBold(null, "已看完 · ${section.totalCount}")
+                    MonoWithBold(null, stringResource(R.string.section_done, section.totalCount))
                 }
             },
             develop = develop,
@@ -359,24 +397,25 @@ private fun MessageState(title: String, body: String) {
 @Composable
 private fun AllSeenContent(uiState: AllPhotosUiState, onTrashClick: () -> Unit, onShowAll: () -> Unit) {
     val stats = uiState.allSeenStats
+    val locale = currentLocale()
     EmptyStateArea {
         val painters = uiState.hangPhotos.map { rememberAsyncImagePainter(it.uri) }
         ClotheslineArt(painters, Modifier.padding(bottom = 24.dp))
         EmptyTitleAndBody(
-            "全部看过了",
-            "${NumberFormatter.formatCount(uiState.totalCount)} 张照片都过了一遍。新拍的照片会出现在这里。",
+            stringResource(R.string.all_seen_title),
+            pluralStringResource(R.plurals.all_seen_body, uiState.totalCount, NumberFormatter.formatCount(uiState.totalCount, locale)),
         )
-        val (size, unit) = FileSizeFormatter.parts(stats.trashBytes)
+        val (size, unit) = FileSizeFormatter.parts(stats.trashBytes, locale)
         Row(Modifier.padding(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            DoneStat(NumberFormatter.formatCount(stats.favoriteCount), null, DarkroomColors.Amber, "收藏")
-            DoneStat(NumberFormatter.formatCount(stats.trashCount), "张", DarkroomColors.FadeText, "垃圾桶")
-            DoneStat(size, unit, DarkroomColors.Paper, "待释放")
+            DoneStat(NumberFormatter.formatCount(stats.favoriteCount, locale), null, DarkroomColors.Amber, stringResource(R.string.stat_favorites))
+            DoneStat(NumberFormatter.formatCount(stats.trashCount, locale), pluralStringResource(R.plurals.count_unit, stats.trashCount), DarkroomColors.FadeText, stringResource(R.string.stat_trash))
+            DoneStat(size, unit, DarkroomColors.Paper, stringResource(R.string.stat_to_free))
         }
         if (stats.trashCount > 0) {
-            GhostButton("看看垃圾桶", onClick = onTrashClick, mono = "${FileSizeFormatter.format(stats.trashBytes)} 待清空")
+            GhostButton(stringResource(R.string.all_seen_view_trash), onClick = onTrashClick, mono = stringResource(R.string.all_seen_trash_mono, FileSizeFormatter.format(stats.trashBytes, locale)))
         }
         Text(
-            "显示全部照片",
+            stringResource(R.string.show_all_photos),
             style = DarkroomText.TextButton,
             modifier = Modifier.padding(top = 12.dp).plainClickable(onClick = onShowAll),
         )

@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.core.text.UiText
+import com.winters.cleanphotos.R
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -99,7 +101,7 @@ class TrashViewModel @Inject constructor(
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = "加载垃圾桶失败"
+                    errorMessage = UiText.Res(R.string.error_load_trash)
                 )
             }
         }
@@ -385,7 +387,7 @@ class TrashViewModel @Inject constructor(
                 screenMode = TrashScreenMode.Grid,
                 previewPhotoId = null,
                 isProcessingAction = false,
-                actionMessage = "已移出垃圾桶",
+                actionMessage = UiText.Res(R.string.msg_restored),
                 justFreedBytes = null,
             )
             // 目标已决定，再刷新列表
@@ -406,7 +408,7 @@ class TrashViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             previewPhotoId = targetPhoto.id,
             isProcessingAction = false,
-            actionMessage = "已移出垃圾桶",
+            actionMessage = UiText.Res(R.string.msg_restored),
             justFreedBytes = null,
         )
         refreshPhotoLists()
@@ -419,7 +421,7 @@ class TrashViewModel @Inject constructor(
             screenMode = TrashScreenMode.Grid,
             selectedPhotoIds = emptySet(),
             isProcessingAction = false,
-            actionMessage = "已移出垃圾桶",
+            actionMessage = UiText.Res(R.string.msg_restored),
             justFreedBytes = null,
         )
     }
@@ -447,7 +449,7 @@ class TrashViewModel @Inject constructor(
                 selectedPhotoIds = emptySet(),
                 previewPhotoId = null,
                 isProcessingAction = false,
-                actionMessage = "已清空垃圾桶",
+                actionMessage = UiText.Res(R.string.msg_trash_emptied),
                 // dissolving 已在刷新前挂上；这里不能再写一次：动画关闭时溶解会在刷新期间就播完并清空，
                 // 再写回同一个快照会被 StateFlow 合并成「从未变化」，LaunchedEffect 不重启，页面卡在溶解态。
             )
@@ -459,7 +461,7 @@ class TrashViewModel @Inject constructor(
                 selectedPhotoIds = emptySet(),
                 previewPhotoId = null,
                 isProcessingAction = false,
-                errorMessage = "部分照片删除失败",
+                errorMessage = UiText.Res(R.string.error_partial_delete),
                 dissolving = null,
                 justFreedBytes = null,
             )
@@ -478,13 +480,13 @@ class TrashViewModel @Inject constructor(
         }
     }
 
-    private fun getFailureMessage(reason: PhotoOperationFailureReason): String {
+    private fun getFailureMessage(reason: PhotoOperationFailureReason): UiText {
         return when (reason) {
-            PhotoOperationFailureReason.SystemFavoriteUnsupported -> "操作失败"
-            PhotoOperationFailureReason.PermissionDenied -> "没有足够权限"
-            PhotoOperationFailureReason.UserCancelled -> "操作已取消"
-            PhotoOperationFailureReason.MediaStoreFailed -> "操作失败"
-            PhotoOperationFailureReason.WritePermissionRequired -> "需要存储权限才能删除照片"
+            PhotoOperationFailureReason.SystemFavoriteUnsupported -> UiText.Res(R.string.fail_generic)
+            PhotoOperationFailureReason.PermissionDenied -> UiText.Res(R.string.fail_permission)
+            PhotoOperationFailureReason.UserCancelled -> UiText.Res(R.string.fail_cancelled)
+            PhotoOperationFailureReason.MediaStoreFailed -> UiText.Res(R.string.fail_generic)
+            PhotoOperationFailureReason.WritePermissionRequired -> UiText.Res(R.string.fail_write_permission)
         }
     }
 }

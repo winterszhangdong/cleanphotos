@@ -82,13 +82,13 @@ class P3ListUseCasesTest {
 
     @Test
     fun day_label_and_relative_moved() {
-        val l = DayDisplay.dayLabel(LocalDate.of(2026, 9, 2))
+        val l = DayDisplay.dayLabel(LocalDate.of(2026, 9, 2), java.util.Locale.SIMPLIFIED_CHINESE)
         assertEquals("02", l.dayNumeral)
         assertEquals("9月 · 周三", l.monthLabel)
         val zone = ZoneId.of("Asia/Shanghai")
         val now = LocalDate.of(2026, 9, 23).atTime(10, 0).atZone(zone).toInstant().toEpochMilli()
         val moved = LocalDate.of(2026, 9, 21).atTime(23, 0).atZone(zone).toInstant().toEpochMilli()
-        assertEquals("2天前移入", DayDisplay.relativeMoved(moved, now, zone))
-        assertEquals("今天移入", DayDisplay.relativeMoved(now, now, zone))
+        assertEquals(2, DayDisplay.daysSince(moved, now, zone))
+        assertEquals(0, DayDisplay.daysSince(now, now, zone))
     }
 }

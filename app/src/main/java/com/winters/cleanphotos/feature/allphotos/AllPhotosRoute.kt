@@ -17,14 +17,19 @@ import androidx.core.app.ActivityCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.winters.cleanphotos.core.locale.openSystemAppLanguageSettings
 import com.winters.cleanphotos.core.permission.PermissionChecker
+import com.winters.cleanphotos.feature.language.LanguageViewModel
 
 @Composable
 fun AllPhotosRoute(
     onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String) -> Unit,
     onNavigateToTrash: () -> Unit,
-    viewModel: AllPhotosViewModel = hiltViewModel()
+    viewModel: AllPhotosViewModel = hiltViewModel(),
+    languageViewModel: LanguageViewModel = hiltViewModel(),
 ) {
+    val currentLanguage by languageViewModel.current.collectAsStateWithLifecycle()
+    var showLanguageSheet by rememberSaveable { mutableStateOf(false) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -45,6 +50,7 @@ fun AllPhotosRoute(
 
     LifecycleResumeEffect(Unit) {
         viewModel.recheckPermission()
+        languageViewModel.refresh()
         onPauseOrDispose { }
     }
 
@@ -67,6 +73,16 @@ fun AllPhotosRoute(
         onSortOrderChanged = viewModel::onSortOrderChanged,
         onFilterModeChanged = viewModel::onFilterModeChanged,
         selection = selection,
+        currentLanguage = currentLanguage,
+        showLanguageSheet = showLanguageSheet,
+        // Android 13+ 优先跳系统「应用语言」设置；打不开或 8–12 用 App 内弹层
+        onLanguageClick = { if (!openSystemAppLanguageSettings(context)) showLanguageSheet = true },
+        onLanguageSelected = { language ->
+            // 先关弹层再切：8–12 切换会重建 Activity，保存下来的必须是关闭状态
+            showLanguageSheet = false
+            languageViewModel.select(language)
+        },
+        onDismissLanguageSheet = { showLanguageSheet = false },
         selectionActions = remember(viewModel) {
             PhotoSelectionActions(
                 onLongPress = viewModel::onLongPressPhoto,

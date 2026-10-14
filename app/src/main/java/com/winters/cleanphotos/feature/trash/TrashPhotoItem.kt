@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.core.locale.currentLocale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,7 +56,7 @@ fun TrashPhotoItem(
         val size = photo.size
         if (size != null && !isSelected) {
             Text(
-                FileSizeFormatter.format(size),
+                FileSizeFormatter.format(size, currentLocale()),
                 style = DarkroomText.TileSize,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = Dimens.TileLabelInset, bottom = Dimens.TileLabelInset),
             )

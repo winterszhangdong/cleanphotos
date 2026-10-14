@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.favorites
 
+import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.PhotoDaySection
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 
@@ -10,5 +11,5 @@ data class FavoritesUiState(
     /** 空状态「去清理 · 312 张未看」。 */
     val unseenCount: Int = 0,
     val isLoading: Boolean = false,
-    val errorMessage: String? = null,
+    val errorMessage: UiText? = null,
 )

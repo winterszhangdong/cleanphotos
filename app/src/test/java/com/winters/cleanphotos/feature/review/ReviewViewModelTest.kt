@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.R
+import com.winters.cleanphotos.core.text.UiText
 import android.content.IntentSender
 import android.net.Uri
 import app.cash.turbine.test
@@ -168,7 +170,7 @@ class ReviewViewModelTest {
         val s = vm.uiState.value
         assertEquals(listOf(5L, 4L, 2L, 1L), photoKeys(s))
         assertEquals("p2", s.currentKey)
-        assertEquals("已收藏", s.undo?.title)
+        assertEquals(UiText.Res(R.string.undo_favorited), s.undo?.title)
         assertEquals(PhotoActionType.Favorite, s.undo?.type)
         assertFalse(s.showTutorial)
         assertEquals(listOf("fav" to 3L), reviewRepository.calls)
@@ -316,7 +318,7 @@ class ReviewViewModelTest {
         vm.onSwipeDown(2L)
         advanceUntilIdle()
         assertEquals(listOf(3L, 2L, 1L), photoKeys(vm.uiState.value))
-        assertEquals("移到垃圾桶失败", vm.uiState.value.errorMessage)
+        assertEquals(UiText.Res(R.string.fail_trash), vm.uiState.value.errorMessage)
     }
 
     @Test

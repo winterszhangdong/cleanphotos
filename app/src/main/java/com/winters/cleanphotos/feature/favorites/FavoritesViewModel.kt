@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.favorites
 
+import com.winters.cleanphotos.core.text.UiText
+import com.winters.cleanphotos.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
@@ -68,7 +70,7 @@ class FavoritesViewModel @Inject constructor(
                 photoRepository.refreshPhotos()
                 _uiState.value = _uiState.value.copy(isLoading = false)
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = "加载收藏照片失败")
+                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = UiText.Res(R.string.error_load_favorites))
             }
         }
     }

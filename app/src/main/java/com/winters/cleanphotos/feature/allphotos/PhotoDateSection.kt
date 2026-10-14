@@ -1,5 +1,8 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.padding
@@ -120,13 +123,14 @@ fun LazyGridScope.photoDaySections(
         }
         val headerIndex = itemIndex++
         item(key = section.dayKey, span = { GridItemSpan(maxLineSpan) }, contentType = "day") {
-            val label = section.date?.let(DayDisplay::dayLabel) ?: DayDisplay.unknownDayLabel
+            val locale = currentLocale()
+            val label = section.date?.let { DayDisplay.dayLabel(it, locale) } ?: DayDisplay.unknownDayLabel(stringResource(R.string.date_unknown))
             if (selection != null && selection.selecting) {
                 val allPicked = section.photos.isNotEmpty() && section.photos.all { it.id in selection.selectedIds }
                 DayHeaderRow(
                     numeral = label.dayNumeral,
                     meta = label.monthLabel,
-                    right = { MonoWithBold(if (allPicked) "取消全选" else "全选", "") },
+                    right = { MonoWithBold(stringResource(if (allPicked) R.string.deselect_all else R.string.select_all), "") },
                     onEnter = { selection.onToggleDay(section.dayKey) },
                     modifier = reorderModifier(headerIndex, reorderAnchor()),
                     showChevron = false,

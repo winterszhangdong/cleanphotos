@@ -1,5 +1,9 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -106,9 +110,9 @@ internal fun ReviewSummaryPage(
                 .padding(top = status + if (landscape) 40.dp else 64.dp, start = 24.dp, end = 24.dp),
         ) {
             Column(Modifier.graphicsLayer { riseIn(rise(0f)) }) {
-                Text(DayDisplay.summaryEyebrow(summary.date), style = DarkroomText.SumEyebrow)
+                Text(DayDisplay.summaryEyebrow(summary.date, currentLocale()), style = DarkroomText.SumEyebrow)
                 Spacer(Modifier.height(8.dp))
-                Text("这一天整理完了", style = DarkroomText.SumTitle)
+                Text(stringResource(R.string.summary_title), style = DarkroomText.SumTitle)
             }
             Spacer(Modifier.height(32.dp))
             StackBar(summary) { i -> window(STACK_START + i * 280f, 280f) }
@@ -132,7 +136,7 @@ internal fun ReviewSummaryPage(
             )
         }
         Text(
-            "回到照片",
+            stringResource(R.string.back_to_photos),
             style = DarkroomText.Later,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -208,11 +212,16 @@ private fun StackBar(summary: DaySummary, progress: (Int) -> Float) {
 @Composable
 private fun Stats(summary: DaySummary, progress: (Int) -> Float) {
     data class Stat(val value: Int, val label: String, val color: Color, val extra: String? = null)
+    val favoritedLabel = stringResource(R.string.stat_favorited)
+    val unfavoritedLabel = stringResource(R.string.stat_unfavorited)
+    val removedLabel = stringResource(R.string.stat_removed)
+    val keptLabel = stringResource(R.string.stat_kept)
+    val freed = stringResource(R.string.stat_freed, FileSizeFormatter.format(summary.freedBytes, currentLocale()))
     val stats = buildList {
-        if (summary.favoritedCount > 0 || summary.unfavoritedCount == 0) add(Stat(summary.favoritedCount, "收藏", DarkroomColors.Amber))
-        if (summary.unfavoritedCount > 0) add(Stat(summary.unfavoritedCount, "取消收藏", DarkroomColors.Amber.copy(alpha = 0.7f)))
-        add(Stat(summary.trashedCount, "移走", DarkroomColors.FadeText, "释放 " + FileSizeFormatter.format(summary.freedBytes)))
-        add(Stat(summary.keptCount, "保留", DarkroomColors.Paper))
+        if (summary.favoritedCount > 0 || summary.unfavoritedCount == 0) add(Stat(summary.favoritedCount, favoritedLabel, DarkroomColors.Amber))
+        if (summary.unfavoritedCount > 0) add(Stat(summary.unfavoritedCount, unfavoritedLabel, DarkroomColors.Amber.copy(alpha = 0.7f)))
+        add(Stat(summary.trashedCount, removedLabel, DarkroomColors.FadeText, freed))
+        add(Stat(summary.keptCount, keptLabel, DarkroomColors.Paper))
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         stats.forEachIndexed { i, s ->
@@ -273,12 +282,13 @@ private fun Strip(summary: DaySummary, modifier: Modifier) {
 private fun Month(summary: DaySummary, progress: (Int) -> Float) {
     val m = summary.month
     Column {
+        val daysDone = pluralStringResource(R.plurals.summary_days_done, m.daysWithPhotos, m.daysWithPhotos)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${m.month.monthValue}月", style = DarkroomText.MonthHead)
+            Text(DayDisplay.monthName(m.month.monthValue, currentLocale()), style = DarkroomText.MonthHead)
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(color = DarkroomColors.Paper, fontWeight = FontWeight.Medium)) { append(m.doneDays.toString()) }
-                    append(" / ${m.daysWithPhotos} 天整理完")
+                    append(daysDone)
                 },
                 style = DarkroomText.MonthHeadMono,
             )
@@ -342,8 +352,8 @@ private fun NextDayCard(summary: DaySummary, onNext: () -> Unit, modifier: Modif
         )
         Column(Modifier.weight(1f)) {
             val date = com.winters.cleanphotos.domain.model.DayKey.parse(next.dayKey)
-            Text("下一天 · " + (date?.let { DayDisplay.cleanDate(it) } ?: "未知日期"), style = DarkroomText.NextTitle)
-            Text(if (next.unseenCount > 0) "${next.unseenCount} 张未看" else "都看过了", style = DarkroomText.NextSub)
+            Text(stringResource(R.string.next_day, date?.let { DayDisplay.cleanDate(it, currentLocale()) } ?: stringResource(R.string.date_unknown)), style = DarkroomText.NextTitle)
+            Text(if (next.unseenCount > 0) pluralStringResource(R.plurals.next_unseen, next.unseenCount, next.unseenCount) else stringResource(R.string.next_all_seen), style = DarkroomText.NextSub)
         }
         Icon(DarkroomIcons.Arrow, null, tint = DarkroomColors.Room, modifier = Modifier.size(20.dp))
     }

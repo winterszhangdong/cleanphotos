@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import com.winters.cleanphotos.R
+import com.winters.cleanphotos.core.text.UiText
 import android.app.Application
 import android.content.Context
 import android.content.pm.PackageManager
@@ -186,7 +188,7 @@ class AllPhotosViewModelTest {
         assertFalse(vm.selection.value.allSelectedFavorite)
         vm.onBatchFavorite(); advanceUntilIdle()
         val undo = vm.selection.value.undo!!
-        assertEquals("已收藏 2 张", undo.title)
+        assertEquals(UiText.Plural(R.plurals.batch_undo_favorite, 2), undo.title)
         assertFalse(vm.selection.value.isSelecting)
         assertEquals(setOf(1L, 2L, 3L), mockSeenDataSource.seenIds.value)
         vm.onUndoBatch(); advanceUntilIdle()
@@ -201,7 +203,7 @@ class AllPhotosViewModelTest {
         vm.onLongPressPhoto(1L); vm.onToggleSelection(2L)
         assertTrue(vm.selection.value.allSelectedFavorite)
         vm.onBatchFavorite(); advanceUntilIdle()
-        assertEquals("已取消收藏 2 张", vm.selection.value.undo!!.title)
+        assertEquals(UiText.Plural(R.plurals.batch_undo_unfavorite, 2), vm.selection.value.undo!!.title)
     }
 
     @Test
@@ -210,7 +212,7 @@ class AllPhotosViewModelTest {
         val vm = createViewModel(); advanceUntilIdle()
         vm.onLongPressPhoto(1L); vm.onToggleSelection(2L)
         vm.onBatchMoveToTrash(); advanceUntilIdle()
-        assertEquals("已移走 2 张", vm.selection.value.undo!!.title)
+        assertEquals(UiText.Plural(R.plurals.batch_undo_trash, 2), vm.selection.value.undo!!.title)
         vm.onUndoBatch(); advanceUntilIdle()
         assertEquals(listOf("trash" to setOf(1L, 2L), "restore" to setOf(1L, 2L)), fakeReviewRepository.batchCalls.map { it.first to it.second.toSet() })
     }
@@ -283,7 +285,7 @@ class AllPhotosViewModelTest {
         val state = viewModel.uiState.value
         assertEquals("totalCount 应等于照片数量", 3, state.totalCount)
         assertEquals("hasPermission 应为 true", true, state.hasPermission)
-        assertEquals("errorMessage 应保留加载失败提示", "加载照片失败", state.errorMessage)
+        assertEquals("errorMessage 应保留加载失败提示", UiText.Res(R.string.error_load_photos), state.errorMessage)
     }
 
     @Test

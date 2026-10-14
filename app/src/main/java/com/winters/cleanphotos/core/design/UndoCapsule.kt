@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.core.design
 
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -127,7 +129,7 @@ private fun UndoCapsule(info: UndoCapsuleContent, onUndo: () -> Unit, onExpired:
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(DarkroomIcons.Undo, null, tint = DarkroomColors.Room, modifier = Modifier.size(16.dp))
-                Text("撤回", style = DarkroomText.UndoAct)
+                Text(stringResource(R.string.undo_action), style = DarkroomText.UndoAct)
             }
         }
         Canvas(

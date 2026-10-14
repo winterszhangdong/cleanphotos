@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import com.winters.cleanphotos.core.text.UiText
+import com.winters.cleanphotos.R
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -219,7 +221,7 @@ class AllPhotosViewModel @Inject constructor(
                 photoRepository.refreshPhotos()
                 _uiState.value = _uiState.value.copy(isLoading = false)
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = "加载照片失败")
+                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = UiText.Res(R.string.error_load_photos))
             } finally {
                 _uiState.value = _uiState.value.copy(isInitialLoad = false)
             }

@@ -1,3 +1,187 @@
-<resources>
-    <string name="app_name">理照</string>
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 默认语言是英文；简体中文在 values-zh，values-b+zh+Hant 是其副本（繁体中文系统也显示简体中文）。界面文案统一放这里，代码里不写死。 -->
+    <string name="app_name">Clean Photos</string>
+    <string name="tab_photos">Photos</string>
+    <string name="tab_favorites">Favorites</string>
+    <string name="tab_trash">Trash</string>
+    <string name="cd_enter_day">Open this day</string>
+    <string name="cd_selected">Selected</string>
+    <string name="undo_action">Undo</string>
+    <string name="date_unknown">Unknown date</string>
+    <string name="sort_newest">Newest first</string>
+    <string name="sort_oldest">Oldest first</string>
+    <string name="sort_default">Default</string>
+    <string name="photos_error_title">Couldn\'t read your photos</string>
+    <string name="photos_empty_title">No photos yet</string>
+    <string name="photos_empty_body">Photos you take will show up here.</string>
+    <string name="eyebrow_selected">Selected</string>
+    <string name="eyebrow_photos_unseen">Photos · Unseen</string>
+    <string name="photos_loading">Reading photos…</string>
+    <string name="header_sub_total">· of %1$s</string>
+    <string name="header_sub_unseen">· %1$s unseen</string>
+    <string name="cd_exit_selection">Exit selection</string>
+    <string name="cd_sort">Sort</string>
+    <string name="menu_sort_header">Sort</string>
+    <string name="cd_filter">Filter</string>
+    <string name="menu_filter_header">Show</string>
+    <string name="filter_all">All photos</string>
+    <string name="filter_unseen">Unseen only</string>
+    <string name="cd_more">More</string>
+    <string name="menu_more_header">More</string>
+    <string name="menu_language">Language</string>
+    <string name="section_unseen" tools:ignore="PluralsCandidate">" / %1$d unseen"</string>
+    <string name="section_done">All seen · %1$d</string>
+    <string name="all_seen_title">All caught up</string>
+    <string name="stat_favorites">Favorites</string>
+    <string name="stat_trash">Trash</string>
+    <string name="stat_to_free">To free</string>
+    <string name="all_seen_view_trash">View trash</string>
+    <string name="all_seen_trash_mono">%1$s to empty</string>
+    <string name="show_all_photos">Show all photos</string>
+    <string name="error_load_photos">Couldn\'t load photos</string>
+    <string name="select_all">Select all</string>
+    <string name="deselect_all">Deselect all</string>
+    <string name="perm_item1_title">Stays on this phone</string>
+    <string name="perm_item1_body">Photos are never uploaded. The app has no internet access.</string>
+    <string name="perm_item2_title">Trash is always recoverable</string>
+    <string name="perm_item2_body">It\'s only a mark in the app. Photos are deleted when you empty the trash.</string>
+    <string name="perm_item3_title">You confirm before deleting</string>
+    <string name="perm_item3_body">Permanent deletion is approved in a system dialog. You decide.</string>
+    <string name="perm_eyebrow">Before you start</string>
+    <string name="perm_title">Allow access to your photos</string>
+    <string name="perm_open_settings">Open system settings</string>
+    <string name="perm_allow">Allow photo access</string>
+    <string name="perm_partial">Select some photos</string>
+    <string name="action_favorite">Favorite</string>
+    <string name="action_unfavorite">Unfavorite</string>
+    <string name="action_move_to_trash">Move to trash</string>
+    <string name="favorites_error_title">Couldn\'t read favorites</string>
+    <string name="favorites_empty_title">No favorites yet</string>
+    <string name="favorites_empty_body">While reviewing, swipe a photo up to keep it here.</string>
+    <string name="go_review">Start reviewing</string>
+    <string name="error_load_favorites">Couldn\'t load favorites</string>
+    <string name="cd_back">Back</string>
+    <string name="hint_up_favorite">Up: favorite</string>
+    <string name="hint_up_unfavorite">Up: unfavorite</string>
+    <string name="hint_down">Down: remove</string>
+    <string name="cue_keep_favorite">Keep swiping to favorite</string>
+    <string name="cue_keep_unfavorite">Keep swiping to unfavorite</string>
+    <string name="cue_keep_down">Keep swiping down</string>
+    <string name="cue_release_favorite">Release to favorite</string>
+    <string name="cue_release_unfavorite">Release to unfavorite</string>
+    <string name="cue_release_trash">Release to move to trash</string>
+    <string name="cue_sub_favorite">Goes to Favorites</string>
+    <string name="cue_sub_unfavorite">Stays in your library</string>
+    <string name="cue_sub_trash">Recoverable until emptied</string>
+    <string name="review_go_trash">Go to trash</string>
+    <string name="back_to_photos">Back to photos</string>
+    <string name="edge_first">First photo</string>
+    <string name="edge_last">Last photo</string>
+    <string name="summary_title">Day complete</string>
+    <string name="stat_favorited">Favorited</string>
+    <string name="stat_unfavorited">Unfavorited</string>
+    <string name="stat_removed">Removed</string>
+    <string name="stat_kept">Kept</string>
+    <string name="stat_freed">Freed %1$s</string>
+    <string name="next_day">Next day · %1$s</string>
+    <string name="next_all_seen">All seen</string>
+    <string name="tut_up">Swipe up</string>
+    <string name="tut_up_desc">Favorite photo</string>
+    <string name="tut_down">Swipe down</string>
+    <string name="tut_down_desc">Move to trash</string>
+    <string name="tut_lr">Swipe left / right</string>
+    <string name="tut_lr_desc">Switch photos</string>
+    <string name="tut_ok">Got it</string>
+    <string name="error_undo">Undo failed</string>
+    <string name="undo_favorited">Favorited</string>
+    <string name="undo_unfavorited">Unfavorited</string>
+    <string name="undo_trashed">Moved to trash</string>
+    <string name="undo_sub_freeable">%1$s to free</string>
+    <string name="undo_sub_position">%1$s · No. %2$d</string>
+    <string name="fail_favorite_unsupported">Favorites aren\'t supported on this system</string>
+    <string name="fail_permission_favorite">No permission to favorite</string>
+    <string name="fail_permission_unfavorite">No permission to unfavorite</string>
+    <string name="fail_permission_trash">No permission to move to trash</string>
+    <string name="fail_favorite">Couldn\'t favorite</string>
+    <string name="fail_unfavorite">Couldn\'t unfavorite</string>
+    <string name="fail_trash">Couldn\'t move to trash</string>
+    <string name="fail_permission">Not enough permission</string>
+    <string name="trash_taken">Taken %1$s</string>
+    <string name="trash_moved_today">Moved today</string>
+    <string name="trash_restore_hint">Returns to %1$s in Photos</string>
+    <string name="restore_from_trash">Restore</string>
+    <string name="trash_select">Select</string>
+    <string name="trash_error_title">Couldn\'t read trash</string>
+    <string name="retry">Retry</string>
+    <string name="trash_empty_title">Trash is empty</string>
+    <string name="trash_just_freed">Just freed %1$s</string>
+    <string name="trash_empty_body">While reviewing, swipe a photo down and it waits here. It\'s recoverable until you empty the trash.</string>
+    <string name="free_label">Empty to free up</string>
+    <string name="free_sub">Only marked in the app until you empty it</string>
+    <string name="empty_trash">Empty</string>
+    <string name="cancel">Cancel</string>
+    <string name="trash_selected_prefix"></string>
+    <string name="trash_selected_suffix">selected</string>
+    <string name="sel_sum_hint">Tap to select, tap again to clear</string>
+    <string name="sel_sum_back">" · back to library"</string>
+    <string name="dialog_delete_body">This frees %1$s. It can\'t be undone, and the system will ask for permission once more.</string>
+    <string name="delete">Delete</string>
+    <string name="error_load_trash">Couldn\'t load trash</string>
+    <string name="msg_restored">Restored from trash</string>
+    <string name="msg_trash_emptied">Trash emptied</string>
+    <string name="error_partial_delete">Some photos couldn\'t be deleted</string>
+    <string name="fail_generic">Something went wrong</string>
+    <string name="fail_cancelled">Cancelled</string>
+    <string name="fail_write_permission">Storage permission is needed to delete photos</string>
+    <string name="photo_load_failed">Couldn\'t load image</string>
+    <string name="language_title">Language</string>
+    <string name="language_follow_system">Follow system</string>
+    <plurals name="count_unit">
+        <item quantity="one">photo</item>
+        <item quantity="other">photos</item>
+    </plurals>
+    <plurals name="all_seen_body">
+        <item quantity="one">You\'ve been through %1$s photo. New photos will show up here.</item>
+        <item quantity="other">You\'ve been through all %1$s photos. New photos will show up here.</item>
+    </plurals>
+    <plurals name="unseen_count">
+        <item quantity="one">%1$s unseen</item>
+        <item quantity="other">%1$s unseen</item>
+    </plurals>
+    <plurals name="favorites_section_count">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
+    <plurals name="batch_undo_favorite">
+        <item quantity="one">Favorited %1$d photo</item>
+        <item quantity="other">Favorited %1$d photos</item>
+    </plurals>
+    <plurals name="batch_undo_unfavorite">
+        <item quantity="one">Unfavorited %1$d photo</item>
+        <item quantity="other">Unfavorited %1$d photos</item>
+    </plurals>
+    <plurals name="batch_undo_trash">
+        <item quantity="one">Moved %1$d to trash</item>
+        <item quantity="other">Moved %1$d to trash</item>
+    </plurals>
+    <plurals name="summary_days_done">
+        <item quantity="one">" / %1$d day done"</item>
+        <item quantity="other">" / %1$d days done"</item>
+    </plurals>
+    <plurals name="next_unseen">
+        <item quantity="one">%1$d unseen</item>
+        <item quantity="other">%1$d unseen</item>
+    </plurals>
+    <plurals name="trash_moved_days">
+        <item quantity="one">Moved %1$d day ago</item>
+        <item quantity="other">Moved %1$d days ago</item>
+    </plurals>
+    <plurals name="dialog_delete_title">
+        <item quantity="one">Permanently delete %1$d photo?</item>
+        <item quantity="other">Permanently delete %1$d photos?</item>
+    </plurals>
+    <!-- 语言名用各自的语言写，任何界面语言下都一样 -->
+    <string name="language_zh" translatable="false">简体中文</string>
+    <string name="language_en" translatable="false">English</string>
 </resources>

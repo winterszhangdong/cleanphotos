@@ -1,5 +1,8 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import com.winters.cleanphotos.core.text.asString
+import com.winters.cleanphotos.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -91,11 +94,11 @@ fun SelectionActionBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (allFavorite) {
-                ActionItem(DarkroomIcons.Star, DarkroomColors.Amber, "取消收藏", DarkroomColors.Amber, enabled, onFavorite)
+                ActionItem(DarkroomIcons.Star, DarkroomColors.Amber, stringResource(R.string.action_unfavorite), DarkroomColors.Amber, enabled, onFavorite)
             } else {
-                ActionItem(DarkroomIcons.StarSolid, DarkroomColors.Amber, "收藏", DarkroomColors.Paper, enabled, onFavorite)
+                ActionItem(DarkroomIcons.StarSolid, DarkroomColors.Amber, stringResource(R.string.action_favorite), DarkroomColors.Paper, enabled, onFavorite)
             }
-            ActionItem(DarkroomIcons.Trash, DarkroomColors.Paper, "移入垃圾桶", DarkroomColors.Paper, enabled, onMoveToTrash)
+            ActionItem(DarkroomIcons.Trash, DarkroomColors.Paper, stringResource(R.string.action_move_to_trash), DarkroomColors.Paper, enabled, onMoveToTrash)
         }
     }
 }
@@ -127,7 +130,7 @@ fun BatchUndoBar(
     UndoBar(
         content = undo?.let {
             val first = it.action.photos.first()
-            UndoCapsuleContent(it.seq, first.id, first.uri, it.action.type != BatchActionType.MoveToTrash, it.title, subtitle = null)
+            UndoCapsuleContent(it.seq, first.id, first.uri, it.action.type != BatchActionType.MoveToTrash, it.title.asString(), subtitle = null)
         },
         visible = visible,
         onUndo = onUndo,

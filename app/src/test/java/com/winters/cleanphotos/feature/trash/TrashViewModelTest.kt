@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.R
+import com.winters.cleanphotos.core.text.UiText
 import android.net.Uri
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
@@ -121,7 +123,7 @@ class TrashViewModelTest {
         viewModel.uiState.test {
             val state = awaitItem()
             assertFalse("加载完成后 isLoading 应为 false", state.isLoading)
-            assertEquals("加载垃圾桶失败", state.errorMessage)
+            assertEquals(UiText.Res(R.string.error_load_trash), state.errorMessage)
         }
     }
 
@@ -160,7 +162,7 @@ class TrashViewModelTest {
         viewModel.uiState.test {
             val state = awaitItem()
             assertFalse("恢复完成后 isProcessingAction 应为 false", state.isProcessingAction)
-            assertEquals("已移出垃圾桶", state.actionMessage)
+            assertEquals(UiText.Res(R.string.msg_restored), state.actionMessage)
             assertNull("不应有错误信息", state.errorMessage)
         }
     }
@@ -226,7 +228,7 @@ class TrashViewModelTest {
             assertEquals("恢复后应保持预览模式", TrashScreenMode.Preview, state.screenMode)
             // 恢复前索引 0，恢复后应显示原下一张（索引 0 位置的 photo_2）
             assertEquals("应切到原下一张", trashedPhotos[1].id, state.previewPhotoId)
-            assertEquals("已移出垃圾桶", state.actionMessage)
+            assertEquals(UiText.Res(R.string.msg_restored), state.actionMessage)
         }
     }
 
@@ -314,7 +316,7 @@ class TrashViewModelTest {
             val state = awaitItem()
             assertEquals("批量恢复后应回到网格模式", TrashScreenMode.Grid, state.screenMode)
             assertEquals("选中集合应清空", 0, state.selectedPhotoIds.size)
-            assertEquals("已移出垃圾桶", state.actionMessage)
+            assertEquals(UiText.Res(R.string.msg_restored), state.actionMessage)
         }
     }
 
@@ -339,7 +341,7 @@ class TrashViewModelTest {
         viewModel.uiState.test {
             val state = awaitItem()
             assertFalse(state.isProcessingAction)
-            assertEquals("已清空垃圾桶", state.actionMessage)
+            assertEquals(UiText.Res(R.string.msg_trash_emptied), state.actionMessage)
             assertEquals(TrashScreenMode.Grid, state.screenMode)
         }
     }
@@ -406,7 +408,7 @@ class TrashViewModelTest {
             advanceUntilIdle()
             expectNoEvents()
         }
-        assertEquals("已清空垃圾桶", viewModel.uiState.value.actionMessage)
+        assertEquals(UiText.Res(R.string.msg_trash_emptied), viewModel.uiState.value.actionMessage)
         assertFalse(viewModel.uiState.value.isProcessingAction)
     }
 
@@ -425,7 +427,7 @@ class TrashViewModelTest {
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
-        assertEquals("需要存储权限才能删除照片", state.errorMessage)
+        assertEquals(UiText.Res(R.string.fail_write_permission), state.errorMessage)
         assertFalse(state.isProcessingAction)
         assertEquals(3, state.photos.size)
         assertNull(state.dissolving)
@@ -448,7 +450,7 @@ class TrashViewModelTest {
             advanceUntilIdle()
             expectNoEvents()
         }
-        assertEquals("需要存储权限才能删除照片", viewModel.uiState.value.errorMessage)
+        assertEquals(UiText.Res(R.string.fail_write_permission), viewModel.uiState.value.errorMessage)
         assertFalse(viewModel.uiState.value.isProcessingAction)
     }
 
