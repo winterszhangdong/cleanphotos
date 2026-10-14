@@ -158,6 +158,7 @@ fun DayHeaderRow(
     right: @Composable () -> Unit,
     onEnter: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    showChevron: Boolean = true,
 ) {
     Row(
         modifier
@@ -177,7 +178,7 @@ fun DayHeaderRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             right()
-            Icon(DarkroomIcons.Chevron, contentDescription = "进入这一天", tint = DarkroomColors.Dim, modifier = Modifier.size(Dimens.DayChevron))
+            if (showChevron) Icon(DarkroomIcons.Chevron, contentDescription = "进入这一天", tint = DarkroomColors.Dim, modifier = Modifier.size(Dimens.DayChevron))
         }
     }
 }

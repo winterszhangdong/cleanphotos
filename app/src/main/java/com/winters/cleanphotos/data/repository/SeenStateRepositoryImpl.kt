@@ -12,4 +12,5 @@ class SeenStateRepositoryImpl @Inject constructor(
 ) : SeenStateRepository {
     override fun observeSeenIds(): Flow<Set<Long>> = seenStateDataSource.observeSeenIds()
     override suspend fun markSeen(photoId: Long) = seenStateDataSource.markSeen(photoId)
+    override suspend fun markSeen(photoIds: Set<Long>) = seenStateDataSource.markSeen(photoIds)
 }

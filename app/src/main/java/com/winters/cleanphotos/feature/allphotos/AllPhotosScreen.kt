@@ -59,6 +59,8 @@ import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomMenu
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
+import com.winters.cleanphotos.core.design.Haptics
+import androidx.compose.ui.platform.LocalView
 import com.winters.cleanphotos.core.design.EmptyStateArea
 import com.winters.cleanphotos.core.design.EmptyTitleAndBody
 import com.winters.cleanphotos.core.design.Eyebrow
@@ -100,6 +102,8 @@ fun AllPhotosScreen(
     onSortOrderChanged: (PhotoSortOrder) -> Unit,
     onFilterModeChanged: (PhotoFilterMode) -> Unit,
     modifier: Modifier = Modifier,
+    selection: PhotoSelectionState = PhotoSelectionState(),
+    selectionActions: PhotoSelectionActions = PhotoSelectionActions.None,
 ) {
     SystemBarIcons(lightBackground = false)
 
@@ -112,6 +116,10 @@ fun AllPhotosScreen(
     var openMenu by remember { mutableStateOf(OpenMenu.None) }
     // 系统返回先关菜单
     BackHandler(enabled = openMenu != OpenMenu.None) { openMenu = OpenMenu.None }
+    val selecting = selection.isSelecting
+    // 多选中返回先退出多选（照片页是根页，没有预测性返回动画可抢）
+    BackHandler(enabled = selecting && openMenu == OpenMenu.None) { selectionActions.onExit() }
+    LaunchedEffect(selecting) { if (selecting) openMenu = OpenMenu.None }
     val loading = uiState.isLoading && uiState.sections.isEmpty()
     val allSeen = !loading && uiState.filterMode == PhotoFilterMode.UnseenOnly && uiState.visibleCount == 0 && uiState.totalCount > 0
     val unseenOnly = uiState.filterMode == PhotoFilterMode.UnseenOnly
@@ -128,7 +136,8 @@ fun AllPhotosScreen(
 
     GlassBackdropHost {
         AppDockEffect(
-            mode = DockMode.Visible,
+            // 多选时底部导航让位给「收藏 / 移入垃圾桶」两项操作栏
+            mode = if (selecting) DockMode.Hidden else DockMode.Visible,
             scrim = if (openMenu != OpenMenu.None) {
                 DockScrim(DarkroomColors.MenuScrim, MotionDurations.MENU, MotionDurations.SHORT) { openMenu = OpenMenu.None }
             } else null,
@@ -142,7 +151,7 @@ fun AllPhotosScreen(
                         uiState.errorMessage != null && uiState.sections.isEmpty() -> MessageState("没能读取相册", uiState.errorMessage)
                         allSeen -> Unit
                         uiState.sections.isEmpty() -> MessageState("相册里还没有照片", "拍的照片会出现在这里。")
-                        else -> PhotoList(uiState, onPhotoClick)
+                        else -> PhotoList(uiState, onPhotoClick, selection, selectionActions)
                     }
                 }
             }
@@ -160,9 +169,11 @@ fun AllPhotosScreen(
             val menuOpen = openMenu != OpenMenu.None
             ScreenHeader(
                 leftAlpha = if (menuOpen) 0.5f else 1f,
-                eyebrow = { Eyebrow(if (unseenOnly) "照片 · 仅未看过" else "照片") },
+                eyebrow = { Eyebrow(if (selecting) "已选" else if (unseenOnly) "照片 · 仅未看过" else "照片") },
                 count = {
-                    if (loading) {
+                    if (selecting) {
+                        HeaderCount(selection.count)
+                    } else if (loading) {
                         SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
                         Text(
                             "正在读取相册…",
@@ -176,6 +187,12 @@ fun AllPhotosScreen(
                     }
                 },
                 actions = {
+                  if (selecting) {
+                    // 只把排序、筛选换成 ✕，左侧和列表位置不动
+                    ToolIconButton(onClick = selectionActions.onExit) { tint ->
+                        Icon(DarkroomIcons.Close, contentDescription = "退出多选", tint = tint, modifier = Modifier.size(Dimens.ToolIcon))
+                    }
+                  } else {
                     val enabled = !loading
                     ToolIconButton(
                         onClick = { openMenu = if (openMenu == OpenMenu.Sort) OpenMenu.None else OpenMenu.Sort },
@@ -209,7 +226,24 @@ fun AllPhotosScreen(
                             },
                         ),
                     ) { tint -> Icon(DarkroomIcons.Filter, contentDescription = "筛选", tint = tint, modifier = Modifier.size(Dimens.ToolIcon)) }
+                  }
                 },
+            )
+
+            SelectionActionBar(
+                visible = selecting,
+                allFavorite = selection.allSelectedFavorite,
+                enabled = !selection.isProcessing,
+                onFavorite = selectionActions.onFavorite,
+                onMoveToTrash = selectionActions.onMoveToTrash,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+            BatchUndoBar(
+                undo = selection.undo,
+                visible = !selecting,
+                onUndo = selectionActions.onUndo,
+                onExpired = selectionActions.onUndoExpired,
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
 
             SortToast(sortToast)
@@ -243,14 +277,31 @@ fun AllPhotosScreen(
 }
 
 @Composable
-private fun PhotoList(uiState: AllPhotosUiState, onPhotoClick: (Long) -> Unit) {
+private fun PhotoList(
+    uiState: AllPhotosUiState,
+    onPhotoClick: (Long) -> Unit,
+    selection: PhotoSelectionState,
+    actions: PhotoSelectionActions,
+) {
+    val view = LocalView.current
+    val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val gridState = rememberLazyGridState()
     val anchor = rememberReorderAnchor(gridState, uiState.sortOrder to uiState.filterMode)
     LazyVerticalGrid(
         columns = GridCells.Fixed(PHOTO_GRID_COLUMNS),
         state = gridState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .photoGridGestures(
+                state = gridState,
+                onTap = { id -> if (selecting) actions.onToggle(id) else onPhotoClick(id) },
+                onLongPress = { id ->
+                    Haptics.longPress(view)
+                    actions.onLongPress(id)
+                },
+                onDrag = actions.onDrag,
+            ),
         horizontalArrangement = Arrangement.spacedBy(Dimens.GridGap),
         contentPadding = PaddingValues(bottom = dockListBottomPadding()),
     ) {
@@ -267,6 +318,7 @@ private fun PhotoList(uiState: AllPhotosUiState, onPhotoClick: (Long) -> Unit) {
             develop = develop,
             reorderAnchor = anchor,
             onPhotoClick = onPhotoClick,
+            selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay),
         )
     }
 }

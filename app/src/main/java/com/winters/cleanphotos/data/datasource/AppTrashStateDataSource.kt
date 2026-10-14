@@ -59,6 +59,21 @@ class AppTrashStateDataSource @Inject constructor(
     }
 
     /**
+     * 批量新增或更新垃圾桶条目（含收藏快照），一次写入。
+     */
+    suspend fun upsertEntries(entries: List<AppTrashEntry>) {
+        if (entries.isEmpty()) return
+        val ids = entries.map { it.photoId }.toSet()
+        dataStore.edit { preferences ->
+            val currentSet = preferences[ENTRIES_KEY] ?: emptySet()
+            val filtered = currentSet.filterNot { parseEntry(it).photoId in ids }.toSet()
+            preferences[ENTRIES_KEY] = filtered + entries.map {
+                encodeEntry(it.photoId, it.movedToTrashAt, it.wasFavorited, it.favoritedAt)
+            }
+        }
+    }
+
+    /**
      * 删除单条垃圾桶条目。
      */
     suspend fun removeEntry(photoId: Long) {

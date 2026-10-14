@@ -24,6 +24,10 @@ import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.MotionSprings
 import com.winters.cleanphotos.core.design.PhotoTile
+import com.winters.cleanphotos.core.design.MonoWithBold
+import com.winters.cleanphotos.core.design.SelectionCheck
+import com.winters.cleanphotos.core.design.animateSelectPick
+import com.winters.cleanphotos.core.design.selectedShrink
 import com.winters.cleanphotos.core.design.YearDivider
 import com.winters.cleanphotos.core.design.photoThumbKey
 import com.winters.cleanphotos.core.navigation.sharedPhoto
@@ -80,6 +84,16 @@ fun rememberReorderAnchor(state: LazyGridState, ordering: Any): () -> Int {
 }
 
 /**
+ * 照片页多选：网格外层的手势接管点按（[photoGridGestures]），所以格子不再挂点击；
+ * 天标题右侧换成「全选」/「取消全选」。
+ */
+class GridSelection(
+    val selectedIds: Set<Long>,
+    val selecting: Boolean,
+    val onToggleDay: (dayKey: String) -> Unit,
+)
+
+/**
  * 年份分隔 + 天标题 + 四列缩略图（LazyVerticalGrid，每张缩略图一个 item，key = photoId，
  * 这样切换排序时每一格都能 animateItem 重排）。
  * 只有天标题右侧（数字 + 箭头）进入这一天的第一张；缩略图点击进入那一张。
@@ -91,6 +105,7 @@ fun LazyGridScope.photoDaySections(
     develop: TileDevelop,
     reorderAnchor: () -> Int,
     onPhotoClick: (Long) -> Unit,
+    selection: GridSelection? = null,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -106,13 +121,25 @@ fun LazyGridScope.photoDaySections(
         val headerIndex = itemIndex++
         item(key = section.dayKey, span = { GridItemSpan(maxLineSpan) }, contentType = "day") {
             val label = section.date?.let(DayDisplay::dayLabel) ?: DayDisplay.unknownDayLabel
-            DayHeaderRow(
-                numeral = label.dayNumeral,
-                meta = label.monthLabel,
-                right = { right(section) },
-                onEnter = section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
-                modifier = reorderModifier(headerIndex, reorderAnchor()),
-            )
+            if (selection != null && selection.selecting) {
+                val allPicked = section.photos.isNotEmpty() && section.photos.all { it.id in selection.selectedIds }
+                DayHeaderRow(
+                    numeral = label.dayNumeral,
+                    meta = label.monthLabel,
+                    right = { MonoWithBold(if (allPicked) "取消全选" else "全选", "") },
+                    onEnter = { selection.onToggleDay(section.dayKey) },
+                    modifier = reorderModifier(headerIndex, reorderAnchor()),
+                    showChevron = false,
+                )
+            } else {
+                DayHeaderRow(
+                    numeral = label.dayNumeral,
+                    meta = label.monthLabel,
+                    right = { right(section) },
+                    onEnter = section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
+                    modifier = reorderModifier(headerIndex, reorderAnchor()),
+                )
+            }
         }
         val firstRow = rowOffset
         section.photos.forEachIndexed { i, photo ->
@@ -125,6 +152,8 @@ fun LazyGridScope.photoDaySections(
                 val model = remember(photo.id, photo.uri) {
                     ImageRequest.Builder(context).data(photo.uri).memoryCacheKey(photoThumbKey(photo.id)).build()
                 }
+                val picked = selection != null && photo.id in selection.selectedIds
+                val pick = animateSelectPick(picked, label = "grid-pick")
                 PhotoTile(
                     model = model,
                     contentDescription = photo.displayName,
@@ -135,8 +164,11 @@ fun LazyGridScope.photoDaySections(
                     unseen = unseen(photo.id),
                     developProfile = develop.profile,
                     developDelayMs = develop.delayFor(firstRow + row, col),
-                    onClick = { onPhotoClick(photo.id) },
-                )
+                    imageModifier = if (selection != null) Modifier.selectedShrink { pick.value } else Modifier,
+                    onClick = if (selection != null) null else ({ onPhotoClick(photo.id) }),
+                ) {
+                    if (selection != null) SelectionCheck(picked)
+                }
             }
         }
         rowOffset += (section.photos.size + PHOTO_GRID_COLUMNS - 1) / PHOTO_GRID_COLUMNS

@@ -7,7 +7,12 @@ import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.repository.PhotoRepository
+import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PhotoOperationResult
+import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
+import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
+import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
 import com.winters.cleanphotos.domain.usecase.FilterPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllSeenStatsUseCase
@@ -38,8 +43,21 @@ class AllPhotosViewModel @Inject constructor(
     private val buildPhotoSectionsUseCase: BuildPhotoSectionsUseCase,
     private val observeSeenIdsUseCase: ObserveSeenIdsUseCase,
     private val observeAllSeenStatsUseCase: ObserveAllSeenStatsUseCase,
+    private val batchFavoritePhotosUseCase: BatchFavoritePhotosUseCase,
+    private val batchMovePhotosToTrashUseCase: BatchMovePhotosToTrashUseCase,
+    private val undoBatchActionUseCase: UndoBatchActionUseCase,
     @DefaultDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : AndroidViewModel(application) {
+
+    private val _selection = MutableStateFlow(PhotoSelectionState())
+    val selection: StateFlow<PhotoSelectionState> = _selection.asStateFlow()
+
+    /** 当前列表里可见的照片，按显示顺序（拖选按这个顺序取区间）。 */
+    private var visiblePhotos: List<PhotoItem> = emptyList()
+    private var visibleById: Map<Long, PhotoItem> = emptyMap()
+    /** 长按开始拖选那一刻已选中的集合；拖选结果 = 它 ∪ 起点到当前格的区间。 */
+    private var dragBase: Set<Long> = emptySet()
+    private var undoSeq = 0L
 
     /** 排序、筛选不持久化，进入页面时为默认值。 */
     private val _sortOrder = MutableStateFlow(PhotoSortOrder.NewestFirst)
@@ -83,6 +101,10 @@ class AllPhotosViewModel @Inject constructor(
                 // 排序 / 分组整个相册不在主线程：本页留在返回栈里时，清理页每次滑动都会让这里重算一遍
                 .flowOn(computeDispatcher)
                 .collect { state ->
+                    visiblePhotos = state.sections.flatMap { it.photos }
+                    visibleById = visiblePhotos.associateBy { it.id }
+                    // 列表变了（照片被移走、筛选切换）：选中集合只保留还在列表里的；一张不剩即退出多选
+                    updateSelection(_selection.value.selectedIds)
                     // 数据流更新不覆盖加载 / 权限 / 错误这几个由刷新流程维护的字段
                     val now = _uiState.value
                     _uiState.value = state.copy(
@@ -113,6 +135,81 @@ class AllPhotosViewModel @Inject constructor(
 
     fun onFilterModeChanged(mode: PhotoFilterMode) {
         _filterMode.value = mode
+    }
+
+    // ---------------------------------------------------------------- 多选
+
+    /** 长按某一格：进入多选并选中它（已在多选中则只是加选），同时作为拖选起点。 */
+    fun onLongPressPhoto(photoId: Long) {
+        if (photoId !in visibleById || _selection.value.isProcessing) return
+        dragBase = _selection.value.selectedIds
+        updateSelection(dragBase + photoId)
+    }
+
+    /** 长按后不松手拖动：选中 = 长按前已选 ∪ 起点到当前格（按列表顺序）。 */
+    fun onDragSelect(anchorId: Long, currentId: Long) {
+        val from = visiblePhotos.indexOfFirst { it.id == anchorId }
+        val to = visiblePhotos.indexOfFirst { it.id == currentId }
+        if (from < 0 || to < 0) return
+        val range = visiblePhotos.subList(minOf(from, to), maxOf(from, to) + 1).map { it.id }
+        updateSelection(dragBase + range)
+    }
+
+    /** 多选中点一格：切换选中；取消到一张不剩退出多选。 */
+    fun onToggleSelection(photoId: Long) {
+        val current = _selection.value.selectedIds
+        updateSelection(if (photoId in current) current - photoId else current + photoId)
+    }
+
+    /** 天标题「全选这一天」：这一天已全选 → 全部取消，否则补齐。 */
+    fun onToggleDay(dayKey: String) {
+        val ids = _uiState.value.sections.firstOrNull { it.dayKey == dayKey }?.photos?.map { it.id } ?: return
+        val current = _selection.value.selectedIds
+        updateSelection(if (current.containsAll(ids)) current - ids.toSet() else current + ids)
+    }
+
+    /** 返回键 / 顶栏 ✕。 */
+    fun onExitSelection() {
+        updateSelection(emptySet())
+    }
+
+    fun onBatchFavorite() = runBatch { batchFavoritePhotosUseCase(it) }
+
+    fun onBatchMoveToTrash() = runBatch { batchMovePhotosToTrashUseCase(it) }
+
+    fun onUndoBatch() {
+        val undo = _selection.value.undo ?: return
+        _selection.value = _selection.value.copy(undo = null)
+        viewModelScope.launch {
+            val result = undoBatchActionUseCase(undo.action)
+            check(result is PhotoOperationResult.Success) { "撤回批量操作失败：$result" }
+        }
+    }
+
+    fun onUndoExpired(seq: Long) {
+        if (_selection.value.undo?.seq == seq) _selection.value = _selection.value.copy(undo = null)
+    }
+
+    private fun runBatch(block: suspend (List<PhotoItem>) -> Pair<com.winters.cleanphotos.domain.model.BatchAction, PhotoOperationResult>) {
+        val state = _selection.value
+        if (!state.isSelecting || state.isProcessing) return
+        val selected = visiblePhotos.filter { it.id in state.selectedIds }
+        _selection.value = state.copy(isProcessing = true)
+        viewModelScope.launch {
+            val (action, result) = block(selected)
+            check(result is PhotoOperationResult.Success) { "批量操作失败：$result" }
+            // 动作完成后退出多选，并给出撤回胶囊
+            _selection.value = PhotoSelectionState(undo = BatchUndo(++undoSeq, action, batchUndoTitle(action)))
+        }
+    }
+
+    private fun updateSelection(ids: Set<Long>) {
+        val kept = ids.filterTo(LinkedHashSet()) { it in visibleById }
+        val current = _selection.value
+        _selection.value = current.copy(
+            selectedIds = kept,
+            allSelectedFavorite = kept.isNotEmpty() && kept.all { visibleById.getValue(it).isFavorite },
+        )
     }
 
     private fun refreshPhotos() {

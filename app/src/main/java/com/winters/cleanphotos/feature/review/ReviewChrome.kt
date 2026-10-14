@@ -1,6 +1,5 @@
 package com.winters.cleanphotos.feature.review
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
@@ -11,16 +10,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import kotlinx.coroutines.delay
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,15 +22,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -48,32 +41,24 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow as DropShadow
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.GlassIconButton
-import com.winters.cleanphotos.core.design.GlassSpec
 import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.OdometerText
-import com.winters.cleanphotos.core.design.glassBlur
-import com.winters.cleanphotos.core.design.plainClickable
-import com.winters.cleanphotos.core.design.saturateBrightness
+import com.winters.cleanphotos.core.design.UndoBar
+import com.winters.cleanphotos.core.design.UndoCapsuleContent
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.domain.model.DayCellState
@@ -351,10 +336,7 @@ internal fun ReviewCue(state: ReviewStageState, up: Boolean, scope: ReviewScope,
 
 // ---------------------------------------------------------------- 撤回
 
-/**
- * 玻璃胶囊 56dp + 40dp 圆形小样 + 文案 + 相纸白「撤回」+ 底部 2dp 4 秒倒计时。
- * 移入垃圾桶：小样去色压暗、中性灰；收藏：琥珀。收起 200ms 加速离场。
- */
+/** 撤回胶囊（组件在 core/design/UndoCapsule.kt，照片页多选共用）。 */
 @Composable
 internal fun ReviewUndoBar(
     undo: UndoInfo?,
@@ -363,114 +345,17 @@ internal fun ReviewUndoBar(
     onExpired: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val last = remember { arrayOfNulls<UndoInfo>(1) }
-    if (undo != null) last[0] = undo
-    AnimatedVisibility(
-        visible = undo != null && visible,
+    UndoBar(
+        content = undo?.let {
+            UndoCapsuleContent(it.seq, it.photo.id, it.photo.uri, it.type != PhotoActionType.MoveToTrash, it.title, it.subtitle)
+        },
+        visible = visible,
+        onUndo = onUndo,
+        onExpired = onExpired,
         modifier = modifier,
-        enter = fadeIn(tween(MotionDurations.MEDIUM, easing = MotionEasings.Standard)) +
-            slideInVertically(tween(MotionDurations.MEDIUM, easing = MotionEasings.Decelerate)) { it / 3 },
-        exit = fadeOut(tween(MotionDurations.UNDO_BAR_EXIT, easing = MotionEasings.Accelerate)) +
-            slideOutVertically(tween(MotionDurations.UNDO_BAR_EXIT, easing = MotionEasings.Accelerate)) { it / 3 },
-    ) {
-        val info = undo ?: last[0] ?: return@AnimatedVisibility
-        UndoCapsule(info, onUndo, onExpired)
-    }
+    )
 }
 
-@Composable
-private fun UndoCapsule(info: UndoInfo, onUndo: () -> Unit, onExpired: (Long) -> Unit) {
-    val fav = info.type != PhotoActionType.MoveToTrash
-    val countdown = remember(info.seq) { Animatable(1f) }
-    val animations = LocalAnimationsEnabled.current
-    LaunchedEffect(info.seq) {
-        // 4 秒是真实时间：Compose 动画会乘系统动画缩放，「移除动画」时 tween 立刻结束，撤回条一闪就没了。
-        // 细线只做显示；过期由不受缩放影响的 delay 计时。动画关闭时细线保持满格。
-        if (animations) launch { countdown.animateTo(0f, tween(MotionDurations.UNDO_COUNTDOWN, easing = LinearEasing)) }
-        delay(MotionDurations.UNDO_COUNTDOWN.toLong())
-        onExpired(info.seq)
-    }
-    val shape = RoundedCornerShape(28.dp)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .dropShadow(shape, DropShadow(radius = 40.dp, color = Color.Black.copy(alpha = 0.5f), offset = DpOffset(0.dp, 16.dp)))
-            .clip(shape)
-            .glassBlur(UndoGlassSpec)
-            .border(1.dp, DarkroomColors.MenuRim, shape),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 8.dp).height(56.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            UndoThumb(info.photo, fav)
-            Column(Modifier.weight(1f)) {
-                Text(info.title, style = DarkroomText.UndoTitle, maxLines = 1)
-                Text(info.subtitle, style = DarkroomText.UndoSub, maxLines = 1)
-            }
-            Row(
-                Modifier
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(DarkroomColors.Paper)
-                    .plainClickable(onClick = onUndo)
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(DarkroomIcons.Undo, null, tint = DarkroomColors.Room, modifier = Modifier.size(16.dp))
-                Text("撤回", style = DarkroomText.UndoAct)
-            }
-        }
-        Canvas(
-            Modifier
-                .align(Alignment.BottomStart)
-                .padding(horizontal = 28.dp)
-                .fillMaxWidth()
-                .height(2.dp),
-        ) {
-            val track = if (fav) DarkroomColors.Amber.copy(alpha = 0.25f) else DarkroomColors.Paper.copy(alpha = 0.12f)
-            val bar = if (fav) DarkroomColors.Amber else DarkroomColors.Fade
-            drawRoundRect(track, cornerRadius = CornerRadius(size.height / 2f))
-            drawRect(bar, size = Size(size.width * countdown.value, size.height))
-        }
-    }
-}
-
-@Composable
-private fun UndoThumb(photo: PhotoItem, fav: Boolean) {
-    val context = LocalContext.current
-    val request = remember(photo.id) {
-        ImageRequest.Builder(context).data(photo.uri).size(THUMB_PX).memoryCacheKey("review-thumb-${photo.id}").crossfade(false).build()
-    }
-    Box(
-        Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(DarkroomColors.Tray2),
-    ) {
-        AsyncImage(
-            model = request,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            colorFilter = if (fav) null else UNDO_TRASH_FILTER,
-            modifier = Modifier.size(40.dp),
-        )
-        Box(
-            Modifier
-                .size(40.dp)
-                .border(if (fav) 1.5.dp else 1.dp, if (fav) DarkroomColors.Amber else DarkroomColors.Paper.copy(alpha = 0.16f), CircleShape),
-        )
-    }
-}
-
-/** 撤回胶囊玻璃：rgba(26,24,22,0.78) + blur(24)。 */
-private val UndoGlassSpec = GlassSpec(DarkroomColors.UndoGlass, 24.dp)
-/** .undo .thumb img：grayscale(0.6) brightness(0.7)。 */
-private val UNDO_TRASH_FILTER: ColorFilter = saturateBrightness(0.4f, 0.7f)
-private const val THUMB_PX = 160
 private const val BREATH_LOW = 0.55f
 private val SEG_HEIGHT = 2.dp
 private val SEG_GAP = 3.dp

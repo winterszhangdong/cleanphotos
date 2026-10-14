@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +26,7 @@ fun AllPhotosRoute(
     viewModel: AllPhotosViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val selection by viewModel.selection.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // 拒绝且系统不再弹窗：主按钮改为「去系统设置开启」（interaction.md）
     var permanentlyDenied by rememberSaveable { mutableStateOf(false) }
@@ -64,5 +66,19 @@ fun AllPhotosRoute(
         onTrashClick = onNavigateToTrash,
         onSortOrderChanged = viewModel::onSortOrderChanged,
         onFilterModeChanged = viewModel::onFilterModeChanged,
+        selection = selection,
+        selectionActions = remember(viewModel) {
+            PhotoSelectionActions(
+                onLongPress = viewModel::onLongPressPhoto,
+                onDrag = viewModel::onDragSelect,
+                onToggle = viewModel::onToggleSelection,
+                onToggleDay = viewModel::onToggleDay,
+                onExit = viewModel::onExitSelection,
+                onFavorite = viewModel::onBatchFavorite,
+                onMoveToTrash = viewModel::onBatchMoveToTrash,
+                onUndo = viewModel::onUndoBatch,
+                onUndoExpired = viewModel::onUndoExpired,
+            )
+        },
     )
 }

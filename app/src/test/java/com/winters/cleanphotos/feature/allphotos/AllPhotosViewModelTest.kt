@@ -16,6 +16,12 @@ import com.winters.cleanphotos.domain.usecase.FilterPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.SortPhotosUseCase
 import com.winters.cleanphotos.fake.FakePhotoRepository
+import com.winters.cleanphotos.fake.FakeReviewRepository
+import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
+import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
+import com.winters.cleanphotos.domain.usecase.ResolveBatchFavoriteUseCase
+import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
+import org.junit.Assert.assertTrue
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -107,8 +113,128 @@ class AllPhotosViewModelTest {
             observeAllSeenStatsUseCase = ObserveAllSeenStatsUseCase(
                 fakePhotoRepository, ObserveTrashSummaryUseCase(fakePhotoRepository),
             ),
+            batchFavoritePhotosUseCase = BatchFavoritePhotosUseCase(ResolveBatchFavoriteUseCase(), fakeReviewRepository, mockSeenDataSource),
+            batchMovePhotosToTrashUseCase = BatchMovePhotosToTrashUseCase(fakeReviewRepository, mockSeenDataSource),
+            undoBatchActionUseCase = UndoBatchActionUseCase(fakeReviewRepository),
             computeDispatcher = testDispatcher,
         )
+    }
+
+    private val fakeReviewRepository = FakeReviewRepository()
+
+    // ====== 多选 ======
+
+    @Test
+    fun `长按进入多选_点按切换_取消到一张不剩退出`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(5))
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(2L)
+        assertEquals(setOf(2L), vm.selection.value.selectedIds)
+        assertTrue(vm.selection.value.isSelecting)
+        vm.onToggleSelection(3L)
+        assertEquals(setOf(2L, 3L), vm.selection.value.selectedIds)
+        vm.onToggleSelection(2L); vm.onToggleSelection(3L)
+        assertFalse(vm.selection.value.isSelecting)
+    }
+
+    @Test
+    fun `返回或叉号退出多选`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(5))
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(1L); vm.onToggleSelection(4L)
+        vm.onExitSelection()
+        assertFalse(vm.selection.value.isSelecting)
+    }
+
+    @Test
+    fun `拖选_长按前已选并上起点到当前格的区间`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(8))
+        val vm = createViewModel(); advanceUntilIdle()
+        val order = vm.uiState.value.sections.flatMap { it.photos }.map { it.id }
+        vm.onLongPressPhoto(order[6])
+        vm.onLongPressPhoto(order[1])
+        vm.onDragSelect(order[1], order[3])
+        assertEquals(setOf(order[6], order[1], order[2], order[3]), vm.selection.value.selectedIds)
+        // 往回拖：区间收窄，长按前已选的仍在
+        vm.onDragSelect(order[1], order[1])
+        assertEquals(setOf(order[6], order[1]), vm.selection.value.selectedIds)
+    }
+
+    @Test
+    fun `全选这一天_再点取消这一天`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createMultiDateTestPhotos())
+        val vm = createViewModel(); advanceUntilIdle()
+        val day = vm.uiState.value.sections.first { it.photos.size > 1 }
+        val other = vm.uiState.value.sections.first { it.dayKey != day.dayKey }
+        vm.onLongPressPhoto(other.photos.first().id)
+        vm.onToggleDay(day.dayKey)
+        assertEquals(day.photos.map { it.id }.toSet() + other.photos.first().id, vm.selection.value.selectedIds)
+        vm.onToggleDay(day.dayKey)
+        assertEquals(setOf(other.photos.first().id), vm.selection.value.selectedIds)
+    }
+
+    @Test
+    fun `混合收藏_按钮显示收藏_撤回胶囊写实际张数并退出多选`() = runTest(testDispatcher) {
+        val photos = listOf(
+            TestPhotoData.createTestPhoto(1, isFavorite = true),
+            TestPhotoData.createTestPhoto(2),
+            TestPhotoData.createTestPhoto(3),
+        )
+        fakePhotoRepository.setPhotos(photos)
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(1L); vm.onToggleSelection(2L); vm.onToggleSelection(3L)
+        assertFalse(vm.selection.value.allSelectedFavorite)
+        vm.onBatchFavorite(); advanceUntilIdle()
+        val undo = vm.selection.value.undo!!
+        assertEquals("已收藏 2 张", undo.title)
+        assertFalse(vm.selection.value.isSelecting)
+        assertEquals(setOf(1L, 2L, 3L), mockSeenDataSource.seenIds.value)
+        vm.onUndoBatch(); advanceUntilIdle()
+        assertEquals(listOf("favorite" to setOf(2L, 3L), "unfavorite" to setOf(2L, 3L)), fakeReviewRepository.batchCalls.map { it.first to it.second.toSet() })
+        assertNull(vm.selection.value.undo)
+    }
+
+    @Test
+    fun `全部已收藏_变成取消收藏`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(listOf(TestPhotoData.createTestPhoto(1, isFavorite = true), TestPhotoData.createTestPhoto(2, isFavorite = true)))
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(1L); vm.onToggleSelection(2L)
+        assertTrue(vm.selection.value.allSelectedFavorite)
+        vm.onBatchFavorite(); advanceUntilIdle()
+        assertEquals("已取消收藏 2 张", vm.selection.value.undo!!.title)
+    }
+
+    @Test
+    fun `移入垃圾桶_含收藏全部移走_撤回整批恢复`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(listOf(TestPhotoData.createTestPhoto(1, isFavorite = true), TestPhotoData.createTestPhoto(2)))
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(1L); vm.onToggleSelection(2L)
+        vm.onBatchMoveToTrash(); advanceUntilIdle()
+        assertEquals("已移走 2 张", vm.selection.value.undo!!.title)
+        vm.onUndoBatch(); advanceUntilIdle()
+        assertEquals(listOf("trash" to setOf(1L, 2L), "restore" to setOf(1L, 2L)), fakeReviewRepository.batchCalls.map { it.first to it.second.toSet() })
+    }
+
+    @Test
+    fun `照片从列表消失时选中集合跟着收缩_清空即退出`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(3))
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(1L); vm.onToggleSelection(2L)
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(3).filter { it.id == 3L })
+        advanceUntilIdle()
+        assertFalse(vm.selection.value.isSelecting)
+    }
+
+    @Test
+    fun `撤回胶囊过期只清掉同一序号`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(3))
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(1L); vm.onBatchFavorite(); advanceUntilIdle()
+        val seq = vm.selection.value.undo!!.seq
+        vm.onUndoExpired(seq - 1)
+        assertEquals(seq, vm.selection.value.undo?.seq)
+        vm.onUndoExpired(seq)
+        assertNull(vm.selection.value.undo)
     }
 
     // ====== 测试用例 ======

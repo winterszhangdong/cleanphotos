@@ -337,7 +337,7 @@ TrashScreenMode（枚举：Grid / Selection / Preview）
 
 ```text
 PhotoRepository（observeAllPhotos 排除 App 垃圾桶和 App 收藏中的照片；observeFavoritedPhotos 返回 App 收藏中且不在垃圾桶的照片；observeTrashedPhotos 返回 App 内垃圾桶照片；refreshPhotos 含一次性迁移和失效条目清理；只有部分照片访问权时两者都跳过，否则会把未选中照片的状态当成失效删掉）
-ReviewRepository（favoritePhoto / removeFavorite / moveToTrash / restoreFromTrash 直接写 DataStore 后返回 Success，不触发系统授权；deletePhotosPermanently 仍通过 MediaStore）
+ReviewRepository（favoritePhoto / removeFavorite / moveToTrash / restoreFromTrash 直接写 DataStore 后返回 Success，不触发系统授权；照片页多选另有 favoritePhotos / removeFavorites / movePhotosToTrash 批量接口，每个 Store 一次写入；deletePhotosPermanently 仍通过 MediaStore）
 UserPreferencesRepository
 ```
 

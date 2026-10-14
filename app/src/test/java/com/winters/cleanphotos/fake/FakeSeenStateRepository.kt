@@ -11,4 +11,9 @@ class FakeSeenStateRepository(initial: Set<Long> = emptySet()) : SeenStateReposi
     override suspend fun markSeen(photoId: Long) {
         seenIds.value = seenIds.value + photoId
     }
+    var batchMarkCalls = 0
+    override suspend fun markSeen(photoIds: Set<Long>) {
+        batchMarkCalls++
+        seenIds.value = seenIds.value + photoIds
+    }
 }

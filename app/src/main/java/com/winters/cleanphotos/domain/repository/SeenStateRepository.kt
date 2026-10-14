@@ -6,4 +6,6 @@ import kotlinx.coroutines.flow.Flow
 interface SeenStateRepository {
     fun observeSeenIds(): Flow<Set<Long>>
     suspend fun markSeen(photoId: Long)
+    /** 批量标记看过，一次写入。 */
+    suspend fun markSeen(photoIds: Set<Long>)
 }

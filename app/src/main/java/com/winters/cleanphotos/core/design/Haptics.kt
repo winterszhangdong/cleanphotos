@@ -12,6 +12,11 @@ object Haptics {
         view.performHapticFeedback(tier.thresholdDeactivateHaptic)
     }
 
+    /** 照片页长按进入多选。 */
+    fun longPress(view: View) {
+        view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+    }
+
     fun dayChange(view: View, tier: ApiTier = ApiTier.Current) {
         view.performHapticFeedback(tier.dayChangeHaptic)
     }

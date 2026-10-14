@@ -23,6 +23,7 @@ object DarkroomIcons {
     val Arrow = icon("arrow", "M5 12h14M13 6l6 6-6 6")
     val Undo = icon("undo", "M9 14L4.5 9.5 9 5M4.5 9.5H14a5.5 5.5 0 010 11h-3")
     val More = icon("more", "M6 12h.01M12 12h.01M18 12h.01", strokeWidth = 2.6f)
+    val Close = icon("close", "M6.5 6.5l11 11M17.5 6.5l-11 11")
     val Check = icon("check", "M5.5 12.5l4 4 9-9")
     /** .tile .ck .i：勾选徽标里线宽 2.4。 */
     val CheckBold = icon("check-bold", "M5.5 12.5l4 4 9-9", strokeWidth = 2.4f)

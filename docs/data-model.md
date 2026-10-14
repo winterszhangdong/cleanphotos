@@ -571,8 +571,15 @@ interface ReviewRepository {
     suspend fun restorePhotoFromTrash(photo: PhotoItem): PhotoOperationResult
     suspend fun restorePhotosFromTrash(photos: List<PhotoItem>): PhotoOperationResult
     suspend fun deletePhotosPermanently(photos: List<PhotoItem>): PhotoOperationResult
+
+    // 照片页多选批量接口：每个 Store 一次 edit；不标记看过（由批量 UseCase 统一 markSeen(ids)）
+    suspend fun favoritePhotos(photos: List<PhotoItem>): PhotoOperationResult
+    suspend fun removeFavorites(photos: List<PhotoItem>): PhotoOperationResult
+    suspend fun movePhotosToTrash(photos: List<PhotoItem>): PhotoOperationResult  // 逐张快照 wasFavorited / favoritedAt
 }
 ```
+
+批量 UseCase（`BatchPhotoActionUseCases.kt`）：`ResolveBatchFavoriteUseCase`（混合选择只收藏未收藏的，全部已收藏才取消收藏）、`BatchFavoritePhotosUseCase`、`BatchMovePhotosToTrashUseCase`、`UndoBatchActionUseCase`（只撤 `BatchAction.photos`，移入垃圾桶的撤回走 `restorePhotosFromTrash`）。`SeenStateRepository` 新增 `markSeen(photoIds: Set<Long>)`。
 
 规则：
 

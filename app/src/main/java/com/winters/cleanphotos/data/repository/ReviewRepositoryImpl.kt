@@ -123,6 +123,35 @@ class ReviewRepositoryImpl @Inject constructor(
         return PhotoOperationResult.Success
     }
 
+    override suspend fun favoritePhotos(photos: List<PhotoItem>): PhotoOperationResult {
+        val now = System.currentTimeMillis()
+        appFavoriteStateDataSource.upsertEntries(photos.associate { it.id to now })
+        return PhotoOperationResult.Success
+    }
+
+    override suspend fun removeFavorites(photos: List<PhotoItem>): PhotoOperationResult {
+        appFavoriteStateDataSource.removeEntries(photos.map { it.id }.toSet())
+        return PhotoOperationResult.Success
+    }
+
+    /**
+     * 批量移入垃圾桶：和单张一样把收藏状态快照进垃圾桶条目再移除收藏条目，
+     * 所以收藏页看不到它，从垃圾桶恢复时收藏跟着回来。
+     */
+    override suspend fun movePhotosToTrash(photos: List<PhotoItem>): PhotoOperationResult {
+        if (photos.isEmpty()) return PhotoOperationResult.Success
+        val favorites = appFavoriteStateDataSource.observeEntries().first().associateBy { it.photoId }
+        val now = System.currentTimeMillis()
+        appTrashStateDataSource.upsertEntries(
+            photos.map { photo ->
+                val fav = favorites[photo.id]
+                AppTrashEntry(photoId = photo.id, movedToTrashAt = now, wasFavorited = fav != null, favoritedAt = fav?.favoritedAt)
+            },
+        )
+        appFavoriteStateDataSource.removeEntries(photos.map { it.id }.filter { it in favorites }.toSet())
+        return PhotoOperationResult.Success
+    }
+
     /**
      * 永久删除照片。
      * 继续使用系统授权流程（MediaStore.createDeleteRequest）。

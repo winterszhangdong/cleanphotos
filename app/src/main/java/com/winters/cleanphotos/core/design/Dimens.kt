@@ -106,6 +106,13 @@ object Dimens {
     val CheckRing = 2.dp
     /** 多选：选中缩到 0.86、圆角 6（决定 8）。 */
     val SelectedCorner = 6.dp
+    /** 照片页拖选：手指进入列表上下边缘 64dp 内开始自动滚动，贴边时最快 14dp / 帧。 */
+    val DragSelectEdge = 64.dp
+    val DragSelectMaxStep = 14.dp
+    /** 照片页多选底栏：两项各 112×36dp（与导航同一枚 44dp 玻璃胶囊）。 */
+    val SelectActionWidth = 112.dp
+    /** 照片页撤回胶囊底边距导航胶囊顶 16dp。 */
+    val UndoAboveNav = 16.dp
     /** .menu：距顶（状态栏下）80，右 16。 */
     val MenuTopBelowStatus = 80.dp
     val MenuHeaderPadding = 12.dp
