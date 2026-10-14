@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-14
+
+### Added
+
+- Long-press multi-select on the photo grid, with drag-select (auto-scrolls near the edges) and per-day select-all.
+- Batch favorite and batch move to the in-app trash from the selection bar, with an undo capsule that reverts the whole batch.
+
+### Fixed
+
+- Emptying the trash on Android 8–10 now actually deletes the photos.
+
 ## [1.0.0] - 2026-10-13
 
 First public release.
@@ -24,5 +35,6 @@ First public release.
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/winterszhangdong/cleanphotos/releases/tag/v1.0.0
