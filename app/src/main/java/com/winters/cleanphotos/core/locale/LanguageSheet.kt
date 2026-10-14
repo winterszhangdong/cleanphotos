@@ -1,11 +1,5 @@
 package com.winters.cleanphotos.core.locale
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -55,23 +49,8 @@ fun AppLanguage.labelRes(): Int = when (this) {
 }
 
 /**
- * Android 13+ 打开系统的「应用语言」设置页（清单里声明了 localeConfig）。
- * 打不开（低版本或厂商删了这个页面）返回 false，由调用处退回 App 内弹层。
- */
-fun openSystemAppLanguageSettings(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
-    val intent = Intent(Settings.ACTION_APP_LOCALE_SETTINGS, Uri.fromParts("package", context.packageName, null))
-    return try {
-        context.startActivity(intent)
-        true
-    } catch (_: ActivityNotFoundException) {
-        false
-    }
-}
-
-/**
  * 语言底部弹层：64% 压暗 + 托盘色面板（上圆角 24），标题「语言」+ 三行选项（56dp），当前项相纸白 500 + 琥珀勾。
- * 从底部滑入 / 淡入 180ms，点压暗或返回关闭。选中后立即生效（Android 8–12 由 AppCompat 重建界面）。
+ * 从底部滑入 / 淡入 180ms，点压暗或返回关闭。所有系统版本都用这个弹层，不跳系统设置；选中后立即生效（系统 / AppCompat 重建界面）。
  */
 @Composable
 fun LanguageSheet(

@@ -137,6 +137,7 @@
     <string name="photo_load_failed">图片加载失败</string>
     <string name="language_title">语言</string>
     <string name="language_follow_system">跟随系统</string>
+    <string name="header_count_unit">张</string>
     <plurals name="count_unit">
         <item quantity="other">张</item>
     </plurals>

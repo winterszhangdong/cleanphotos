@@ -2,7 +2,6 @@ package com.winters.cleanphotos.core.design
 
 import com.winters.cleanphotos.core.locale.currentLocale
 import com.winters.cleanphotos.R
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.State
 import androidx.compose.ui.draw.drawBehind
@@ -53,6 +52,14 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.winters.cleanphotos.core.util.NumberFormatter
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 
 /** 透明点击（暗房里按压反馈由各组件自己画，不用涟漪）。 */
 @Composable
@@ -88,7 +95,7 @@ fun ScreenHeader(
         Column(Modifier.weight(1f).alpha(leftAlpha)) {
             Row(Modifier.padding(bottom = Dimens.EyebrowGap), verticalAlignment = Alignment.CenterVertically, content = eyebrow)
             Row(
-                Modifier.height(Dimens.CountHeight),
+                Modifier.heightIn(min = Dimens.CountHeight),
                 horizontalArrangement = Arrangement.spacedBy(Dimens.CountGap),
                 verticalAlignment = Alignment.Bottom,
                 content = count,
@@ -123,19 +130,59 @@ fun FavPip() {
     )
 }
 
-/** .count：大数字（里程表）+「张」+ 可选 .sub（左距 8 = gap 4 + 4）。 */
+/**
+ * .count：大数字（里程表）+ 单位（中文「张」，英文不写）+ 可选 .sub（左距 8 = gap 4 + 4）。
+ * 放得下时三者同一行按基线对齐；宽度不够（大数字、英文、大字号）时 .sub 换到数字下方单独一行，
+ * 仍放不下才省略号截断。占满标题区剩余宽度，不会挤到右侧按钮。
+ */
 @Composable
 fun RowScope.HeaderCount(count: Int, sub: String? = null) {
     val locale = currentLocale()
-    OdometerText(
-        value = count.toLong(),
-        style = DarkroomText.CountBig,
-        format = { NumberFormatter.formatCount(it.toInt(), locale) },
-        modifier = Modifier.alignByBaseline(),
-    )
-    Text(pluralStringResource(R.plurals.count_unit, count), style = DarkroomText.CountUnit, modifier = Modifier.alignByBaseline())
-    if (sub != null) {
-        Text(sub, style = DarkroomText.CountSub, modifier = Modifier.alignByBaseline().padding(start = Dimens.CountSubGap - Dimens.CountGap))
+    val unit = stringResource(R.string.header_count_unit)
+    val gapPx = with(LocalDensity.current) { Dimens.CountGap.roundToPx() }
+    val subGapPx = with(LocalDensity.current) { Dimens.CountSubGap.roundToPx() }
+    Layout(
+        modifier = Modifier.weight(1f, fill = false),
+        content = {
+            OdometerText(
+                value = count.toLong(),
+                style = DarkroomText.CountBig,
+                format = { NumberFormatter.formatCount(it.toInt(), locale) },
+            )
+            // 英文不写单位（标题已说明是照片），中文保留「张」；空串时量出 0 宽
+            Text(
+                unit, style = DarkroomText.CountUnit,
+                maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+            )
+            if (sub != null) {
+                Text(sub, style = DarkroomText.CountSub, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            }
+        },
+    ) { measurables, constraints ->
+        val maxW = constraints.maxWidth
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val num = measurables[0].measure(loose)
+        val unitM = measurables[1].measure(loose.copy(maxWidth = (maxW - num.width - gapPx).coerceAtLeast(0)))
+        val unitGap = if (unit.isEmpty()) 0 else gapPx
+        val subM = measurables.getOrNull(2)
+        fun Placeable.base(): Int = this[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: height
+        val lineW = num.width + unitGap + unitM.width
+        // 先用固有宽度判断一行能否放下（每个子项只能 measure 一次）
+        val oneLine = subM == null || lineW + subGapPx + subM.maxIntrinsicWidth(Constraints.Infinity) <= maxW
+        val subP = subM?.measure(loose.copy(maxWidth = if (oneLine) (maxW - lineW - subGapPx).coerceAtLeast(0) else maxW))
+        val firstRow = if (oneLine) listOfNotNull(num, unitM, subP) else listOf(num, unitM)
+        val baseline = firstRow.maxOf { it.base() }
+        val rowH = firstRow.maxOf { baseline - it.base() + it.height }
+        val width = if (oneLine) lineW + (subP?.let { subGapPx + it.width } ?: 0) else maxOf(lineW, subP!!.width)
+        val height = if (oneLine) rowH else rowH + subP!!.height
+        layout(width.coerceAtMost(maxW), height) {
+            num.placeRelative(0, baseline - num.base())
+            unitM.placeRelative(num.width + unitGap, baseline - unitM.base())
+            if (subP != null) {
+                if (oneLine) subP.placeRelative(lineW + subGapPx, baseline - subP.base())
+                else subP.placeRelative(0, rowH)
+            }
+        }
     }
 }
 

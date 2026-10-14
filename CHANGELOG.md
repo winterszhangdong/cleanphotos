@@ -7,6 +7,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-15
+
+### Fixed
+
+- 照片页顶栏张数很大时（如英文「12,655 photos · 12,655 unseen」）文字重叠、挤到右侧按钮下面：标题区占满按钮左侧剩余宽度，放不下时「未看 / 共」小字换到大数字下方一行。
+- Android 13+ 点「⋯ → 语言」会跳到系统语言设置，部分 ROM 落到「添加语言」页并提示更改系统语言：现在所有版本都用 App 内语言弹层。
+- 切到英文后无法切回中文：13+ 直接读写系统应用语言设置，弹层始终显示当前实际语言，跟随系统 / English / 简体中文可任意来回切，包括在系统设置或 adb 里改过之后。
+
+### Changed
+
+- 英文界面顶栏（照片 / 收藏 / 垃圾桶 / 多选）的大数字后不再写「photos」，小标题已说明；中文保留「张」。
+
+---
+
+### Fixed
+
+- Large counts in the Photos header (e.g. "12,655 photos · 12,655 unseen") overlapped and slid under the header buttons: the title area now takes the remaining width and the unseen/total text moves to its own line when it doesn't fit.
+- On Android 13+, "⋯ → Language" opened system language settings, which on some ROMs landed on the "Add language" list offering to change the system language: the in-app language sheet is now used on every version.
+- After switching to English it was impossible to switch back to Chinese: on 13+ the app now reads and writes the system per-app locale directly, the sheet always shows the actual current language, and Follow system / English / 简体中文 round-trip freely, including after changes made in system settings or via adb.
+
+### Changed
+
+- In English, the big number in the Photos / Favorites / Trash / selection headers no longer repeats "photos" (the title already says it); Chinese keeps 张.
+
 ## [1.2.0] - 2026-10-15
 
 ### Added
@@ -75,7 +99,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/winterszhangdong/cleanphotos/releases/tag/v1.0.0

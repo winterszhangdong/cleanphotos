@@ -19,7 +19,7 @@ class LanguageViewModel @Inject constructor(
     private val _current = MutableStateFlow(getAppLanguage())
     val current: StateFlow<AppLanguage> = _current.asStateFlow()
 
-    /** 从系统设置页回来（Android 13+）时重新读一次。 */
+    /** 回到前台时重新读一次（语言可能在系统设置或 adb 里被外部改过）。 */
     fun refresh() {
         _current.value = getAppLanguage()
     }
