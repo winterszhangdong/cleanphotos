@@ -14,10 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Long-press multi-select on the photo grid, with drag-select (auto-scrolls near the edges) and per-day select-all.
 - Batch favorite and batch move to the in-app trash from the selection bar, with an undo capsule that reverts the whole batch.
 
-### Fixed
-
-- Emptying the trash on Android 8–10 now actually deletes the photos.
-
 ## [1.0.0] - 2026-10-13
 
 First public release.
