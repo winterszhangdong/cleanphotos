@@ -47,6 +47,17 @@ import com.winters.cleanphotos.domain.model.DaySummary
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.ReviewPage
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.DpSize
 
 /** 页在舞台上的角色。 */
 internal enum class PageRole { Previous, Next, Beneath, Current, Exit, Recede }
@@ -96,7 +107,7 @@ internal fun ReviewStage(
                 PageLayer(state, entry, tutorialDim, imageSize, summaries, summaryContent)
             }
         }
-        state.flights.forEach { f -> if (f.kind == ExitKind.Up) AmberAfterimages(f) }
+        state.flights.forEach { f -> if (f.kind == ExitKind.Up) androidx.compose.runtime.key(f) { AmberAfterimages(f, imageSize) } }
     }
 }
 
@@ -347,39 +358,75 @@ private fun SwipeGlow(state: ReviewStageState, modifier: Modifier) {
     )
 }
 
-/** 两层琥珀余影，延迟 50 / 100ms，透明度 0.4 / 0.18（读同一离场路径的延迟样本）。 */
+/**
+ * 两层余影（b-darkroom-motion 卡 04 `.c4-trail`）：照片本身的半透明副本，延迟 50 / 100ms、透明度 0.4 / 0.18，
+ * 走同一条离场路径（读延迟样本）。每层和飞走的照片一样带琥珀光：1dp 琥珀 40% 外圈 + 琥珀 38% 外发光（下移 24dp、模糊 70dp），
+ * 光和外圈只画在照片外面（同 CSS box-shadow），所以按层整体透明度用 ModulateAlpha 逐笔乘上即可，不开离屏层。
+ * 图片复用当前页同一个请求 / 内存缓存键，不额外解码。
+ */
 @Composable
-private fun AmberAfterimages(f: ExitFlight) {
-    val corner = with(androidx.compose.ui.platform.LocalDensity.current) { LIFT_CORNER.toPx() }
-    Box(
-        Modifier
-            .zIndex(3.5f)
-            .fillMaxSize()
-            .drawWithCache {
-                // 余影跟照片本身一样大（不含上下环境光）
-                val photo = (f.page as? ReviewPage.Photo)?.photo
-                val fit = ReviewGestureMath.fitSize(photo?.width, photo?.height, size.width, size.height)
-                onDrawBehind {
-                    val t = f.progress.value
-                    AFTERIMAGES.forEach { (delayFraction, alpha) ->
-                        val pt = t - delayFraction
-                        if (pt <= 0f) return@forEach
-                        val pose = ExitPath.pose(f, pt)
-                        val w = fit.width * pose.scale
-                        val h = fit.height * pose.scale
-                        val cx = size.width / 2f + pose.x
-                        val cy = size.height / 2f + pose.y
-                        drawRoundRect(
-                            color = DarkroomColors.Amber,
-                            topLeft = Offset(cx - w / 2f, cy - h / 2f),
-                            size = Size(w, h),
-                            cornerRadius = CornerRadius(corner * pose.scale * 4f),
-                            alpha = alpha * pose.alpha,
-                        )
+private fun AmberAfterimages(f: ExitFlight, imageSize: IntSize) {
+    val photo = (f.page as? ReviewPage.Photo)?.photo ?: return
+    val context = LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val request = remember(photo.id, photo.uri, imageSize) { reviewImageRequest(context, photo, imageSize) }
+    val fit = remember(photo.width, photo.height, imageSize) {
+        ReviewGestureMath.fitSize(photo.width, photo.height, imageSize.width.toFloat(), imageSize.height.toFloat())
+    }
+    val fitDp = with(density) { DpSize(fit.width.toDp(), fit.height.toDp()) }
+    val shape = RoundedCornerShape(LIFT_CORNER)
+    // 后一层（0.18）先画、在下面，和设计稿 t2 / t1 的叠放顺序一致
+    AFTERIMAGES.asReversed().forEach { (delayFraction, layerAlpha) ->
+        Box(
+            Modifier
+                .zIndex(3.5f)
+                .fillMaxSize()
+                .graphicsLayer {
+                    val pt = f.progress.value - delayFraction
+                    if (pt <= 0f) {
+                        alpha = 0f
+                        return@graphicsLayer
                     }
-                }
-            },
-    )
+                    val pose = ExitPath.pose(f, pt)
+                    translationX = pose.x
+                    translationY = pose.y
+                    scaleX = pose.scale; scaleY = pose.scale
+                    alpha = layerAlpha * pose.alpha
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            // 琥珀外发光 + 1dp 外圈：裁掉照片区域，只留照片外面
+            Box(
+                Modifier
+                    .size(fitDp)
+                    .drawWithCache {
+                        val r = LIFT_CORNER.toPx()
+                        val hole = Path().apply { addRoundRect(RoundRect(0f, 0f, size.width, size.height, CornerRadius(r))) }
+                        val ring = 1.dp.toPx()
+                        onDrawWithContent {
+                            clipPath(hole, ClipOp.Difference) {
+                                this@onDrawWithContent.drawContent()
+                                drawRoundRect(
+                                    color = AFTERIMAGE_RING,
+                                    topLeft = Offset(-ring / 2f, -ring / 2f),
+                                    size = Size(size.width + ring, size.height + ring),
+                                    cornerRadius = CornerRadius(r + ring / 2f),
+                                    style = Stroke(ring),
+                                )
+                            }
+                        }
+                    }
+                    .dropShadow(shape, Shadow(radius = 70.dp, color = AFTERIMAGE_GLOW, offset = DpOffset(0.dp, 24.dp))),
+            )
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(fitDp).clip(shape),
+            )
+        }
+    }
 }
 
 /**
@@ -422,6 +469,9 @@ internal val LIFT_CORNER = 32.dp
 private const val UP_GLOW_PRE = 0.38f
 private const val DOWN_VIGNETTE_PRE = 0.5f
 private val AFTERIMAGES = listOf(50f / 250f to 0.4f, 100f / 250f to 0.18f)
+/** .c4-trail box-shadow：0 0 0 1px rgba(242,169,59,.4)、0 24px 70px rgba(242,169,59,.38)。 */
+private val AFTERIMAGE_RING = DarkroomColors.Amber.copy(alpha = 0.4f)
+private val AFTERIMAGE_GLOW = DarkroomColors.Amber.copy(alpha = 0.38f)
 /** 教学期间照片压暗到 32%、饱和 0.6。 */
 private const val TUTORIAL_BRIGHTNESS = 0.32f
 private const val TUTORIAL_SATURATION = 0.6f

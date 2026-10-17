@@ -32,8 +32,6 @@ import kotlinx.coroutines.launch
 enum class DockMode {
     /** 照片 / 收藏 / 垃圾桶网格、多选：常驻、可点。 */
     Visible,
-    /** 清理页：平时隐藏、不可点；离场 / 撤回时作为落点短暂浮现。 */
-    Landing,
     /** 授权页、垃圾桶预览等：不显示。 */
     Hidden,
 }
@@ -48,38 +46,10 @@ data class DockScrim(val color: Color, val enterMs: Int, val exitMs: Int, val on
  */
 data class DockConfig(val mode: DockMode, val scrim: DockScrim? = null, val hazeState: HazeState? = null)
 
-/** 落点导航浮现 → 停留约 1.6s → 淡出；同时让目标项弹一下。 */
-@Stable
-class LandingNavState {
-    val alpha = Animatable(0f)
-    var tab: BottomTab? by mutableStateOf(null)
-        private set
-    var seq by mutableIntStateOf(0)
-        private set
-    private var job: Job? = null
-
-    fun show(scope: CoroutineScope, target: BottomTab) {
-        tab = target
-        seq++
-        job?.cancel()
-        job = scope.launch {
-            alpha.animateTo(1f, tween(MotionDurations.SHORT, easing = MotionEasings.Standard))
-            delay(MotionDurations.NAV_LANDING_HOLD.toLong())
-            alpha.animateTo(0f, tween(MotionDurations.MEDIUM, easing = MotionEasings.Standard))
-        }
-    }
-
-    suspend fun reset() {
-        job?.cancel()
-        alpha.snapTo(0f)
-    }
-}
-
 @Stable
 class AppDockState {
     /** 每个目的地（backStackEntry id）各自登记的配置；导航只看当前目的地那一份，切页时两页同时在组合里也不会互相覆盖。 */
     internal val configs = mutableStateMapOf<String, DockConfig>()
-    val landing = LandingNavState()
 }
 
 val LocalAppDock = staticCompositionLocalOf<AppDockState> { error("AppDock 只能在 NavGraph 内使用") }

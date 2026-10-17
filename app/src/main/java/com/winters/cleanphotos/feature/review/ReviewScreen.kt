@@ -116,8 +116,6 @@ fun ReviewScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stage = remember { ReviewStageState(scope) }
-    val landing = LocalAppDock.current.landing
-    LaunchedEffect(Unit) { landing.reset() }
     var menuOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = menuOpen) { menuOpen = false }
     val back = rememberPredictiveBack(enabled = !menuOpen, onBack = onNavigateBack)
@@ -162,7 +160,6 @@ fun ReviewScreen(
     }
     stage.onThresholdChanged = { past -> if (past) Haptics.thresholdActivate(view) else Haptics.thresholdDeactivate(view) }
     stage.onDayChanged = { Haptics.dayChange(view) }
-    stage.onExitStarted = { kind -> landing.show(scope, if (kind == ExitKind.Up) BottomTab.Favorites else BottomTab.Trash) }
     stage.exitTarget = { kind -> navTarget(kind, size, density, navBottom) }
 
     // 会话结束且没有小结：等离场主体结束后回到入口页
@@ -192,7 +189,7 @@ fun ReviewScreen(
     val upDrag by remember { derivedStateOf { stage.dy < 0f } }
 
     GlassBackdropHost {
-        AppDockEffect(DockMode.Landing)
+        AppDockEffect(DockMode.Hidden) // 用户决定（2026-10-17）：清理页离场 / 撤回不再浮现落点导航
         Box(
             modifier
                 .fillMaxSize()
@@ -361,7 +358,7 @@ fun ReviewScreen(
                             end = 16.dp,
                             bottom = navBottom + if (landscape) 20.dp else 32.dp,
                         )
-                        .graphicsLayer { alpha = stage.chromeAlpha.value * (1f - landing.alpha.value) /* 落点导航浮现时让开 */ },
+                        .graphicsLayer { alpha = stage.chromeAlpha.value },
                 ) {
                     ReviewMeta(currentPhoto, showHints = uiState.showDirectionHints && !landscape, scope = uiState.scope)
                 }
@@ -377,7 +374,6 @@ fun ReviewScreen(
                     if (key != null && type != null) {
                         stage.sessionEndedLocally = false
                         stage.undo(ReviewPage.Photo(info.photo), if (type == PhotoActionType.MoveToTrash) ExitKind.Down else ExitKind.Up)
-                        landing.show(scope, if (type == PhotoActionType.MoveToTrash) BottomTab.Trash else BottomTab.Favorites)
                     }
                 },
                 onExpired = onUndoExpired,
@@ -389,9 +385,7 @@ fun ReviewScreen(
                         end = if (landscape) 24.dp else 16.dp,
                         bottom = navBottom + if (landscape) 20.dp else 32.dp,
                     )
-                    .then(if (landscape) Modifier.width(320.dp) else Modifier.fillMaxWidth())
-                    // 落点导航浮现时撤回条让到导航胶囊上方，两者不重叠
-                    .graphicsLayer { translationY = -UNDO_LIFT_OVER_NAV.toPx() * landing.alpha.value },
+                    .then(if (landscape) Modifier.width(320.dp) else Modifier.fillMaxWidth()),
             )
 
             // 会话首尾越界提示
@@ -499,6 +493,3 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 private const val ERROR_VISIBLE_MS = 2500L
-
-/** 导航胶囊顶边（24 + 44dp）+ 12dp 间距 − 撤回条原底距 32dp。 */
-private val UNDO_LIFT_OVER_NAV = Dimens.NavBottom + Dimens.NavHeight + 12.dp - 32.dp

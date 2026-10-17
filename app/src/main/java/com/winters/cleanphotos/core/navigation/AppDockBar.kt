@@ -23,7 +23,7 @@ import com.winters.cleanphotos.core.design.plainClickable
 
 /**
  * 公共层里唯一的一份底部导航。照片 / 收藏 / 垃圾桶共用同一个实例，选中项变化时下划线拉伸着滑过去。
- * 清理页（[DockMode.Landing]）不可点，只按 [LandingNavState.alpha] 作为离场落点浮现。
+ * 清理页用 [DockMode.Hidden]：离场 / 撤回时不再浮现落点导航（用户决定 2026-10-17）。
  */
 @Composable
 internal fun AppDockBar(
@@ -40,7 +40,6 @@ internal fun AppDockBar(
     val effective = config ?: lastConfig[0]
     val mode = effective?.mode ?: DockMode.Hidden
     val hidden = mode == DockMode.Hidden
-    val landing = mode == DockMode.Landing
     val scrim = effective?.scrim
     val lastScrim = remember { arrayOfNulls<DockScrim>(1) }
     if (scrim != null) lastScrim[0] = scrim
@@ -57,11 +56,7 @@ internal fun AppDockBar(
             .navigationBarsPadding()
             .padding(bottom = Dimens.NavBottom)
             .graphicsLayer {
-                alpha = when {
-                    hidden -> 0f
-                    landing -> dock.landing.alpha.value
-                    else -> 1f
-                }
+                alpha = if (hidden) 0f else 1f
             },
     ) {
         // 导航始终在同一个组合位置（下划线 / 计数状态不丢）；只切换模糊取样的页面
@@ -71,8 +66,6 @@ internal fun AppDockBar(
                 trashCount = trashCount,
                 onSelect = onSelect,
                 enabled = mode == DockMode.Visible,
-                bounceTab = if (landing) dock.landing.tab else null,
-                bounceSeq = if (landing) dock.landing.seq else 0,
             )
         }
         val s = lastScrim[0]

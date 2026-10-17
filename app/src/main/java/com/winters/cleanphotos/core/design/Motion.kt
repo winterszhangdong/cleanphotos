@@ -61,8 +61,6 @@ object MotionDurations {
     const val DISSOLVE_COUNT_TO_ZERO = 900
     /** 最后一格溶解完 160ms 后空状态升起（T = 6800：最后一格 3676 + 380 → 空状态 62% = 4216）。 */
     const val DISSOLVE_EMPTY_DELAY = 160
-    /** 导航胶囊作为落点浮现时长。 */
-    const val NAV_LANDING_HOLD = 1600
     /** interaction.md：收藏 / 移走离场主体位移上限。 */
     const val EXIT_MAIN_MAX = 250
     /** 决定 9：共享元素 0–80 按下，80–400 放大，400–520 控件淡入。 */

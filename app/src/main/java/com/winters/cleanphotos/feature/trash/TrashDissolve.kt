@@ -53,9 +53,13 @@ internal fun TrashDissolveGrid(
     val bytes = remember(dissolve) { Animatable(dissolve.totalBytes.toFloat()) }
     val finished by rememberUpdatedState(onFinished)
     LaunchedEffect(dissolve) {
-        // 只排可见的格子：屏幕外的格子不参与步长，否则长列表要等很久
-        val visible = gridState.layoutInfo.visibleItemsInfo.count { it.key is Long }
-        val total = MotionDurations.DISSOLVE_ITEM + MotionDurations.DISSOLVE_STAGGER * (visible - 1).coerceAtLeast(0)
+        // 只排可见的格子：屏幕外的格子不参与步长，否则长列表要等很久。
+        // 时钟要走到最后一个可见格子的起点再加一整格时长，否则它停在半溶解，直到网格被清掉。
+        val first = gridState.firstVisibleItemIndex
+        val lastOrder = gridState.layoutInfo.visibleItemsInfo
+            .filter { it.key is Long }
+            .maxOfOrNull { it.index - first }
+        val total = dissolveClockMillis(lastOrder)
         coroutineScope {
             launch {
                 bytes.animateTo(0f, tween(MotionDurations.DISSOLVE_COUNT_TO_ZERO, easing = MotionEasings.CountDecelerate))
@@ -95,6 +99,14 @@ internal fun TrashDissolveGrid(
         }
     }
 }
+
+/**
+ * 溶解时钟总长（ms）：格子 order 的起点是 order × 步长，
+ * 时钟必须覆盖最后一格（[lastOrder]）的起点 + 一整格 [MotionDurations.DISSOLVE_ITEM]。
+ * 没有可见格子时只走一格时长。
+ */
+internal fun dissolveClockMillis(lastOrder: Int?): Int =
+    MotionDurations.DISSOLVE_ITEM + MotionDurations.DISSOLVE_STAGGER * (lastOrder ?: 0).coerceAtLeast(0)
 
 /** 溶解在单格上的表现（graphicsLayer 内读进度）。 */
 internal fun Modifier.dissolveLayer(progress: () -> Float, tier: ApiTier): Modifier = graphicsLayer {

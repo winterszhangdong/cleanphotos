@@ -68,11 +68,8 @@ fun AppBottomBar(
     onSelect: (BottomTab) -> Unit,
     modifier: Modifier = Modifier,
     trashCount: Int? = null,
-    /** false：不挂任何点击（清理页落点），胶囊不拦截下面的手势。 */
+    /** false：不挂任何点击，胶囊不拦截下面的手势。 */
     enabled: Boolean = true,
-    /** 清理页离场落点时，目标项弹一下（seq 每次 +1 触发一次）。 */
-    bounceTab: BottomTab? = null,
-    bounceSeq: Int = 0,
 ) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val itemWidthPx = with(density) { Dimens.NavItemWidth.toPx() }
@@ -108,7 +105,6 @@ fun AppBottomBar(
                     selected = tab == selected,
                     count = if (tab == BottomTab.Trash) trashCount else null,
                     onClick = if (enabled) ({ onSelect(tab) }) else null,
-                    bounceSeq = if (tab == bounceTab) bounceSeq else 0,
                 )
             }
         }
@@ -133,18 +129,7 @@ fun AppBottomBar(
 }
 
 @Composable
-private fun NavItem(tab: BottomTab, selected: Boolean, count: Int?, onClick: (() -> Unit)?, bounceSeq: Int = 0) {
-    val bounce = remember { Animatable(1f) }
-    LaunchedEffect(bounceSeq) {
-        if (bounceSeq > 0) {
-            bounce.snapTo(1f)
-            bounce.animateTo(NAV_BOUNCE_PEAK, tween(MotionDurations.MICRO, easing = MotionEasings.Decelerate))
-            bounce.animateTo(1f, MotionSprings.Bouncy.spec())
-        } else {
-            // 弹跳中途离开落点态（清理页退出）：seq 归零会打断上面的弹簧，这里接着弹回原大小，不留在放大态
-            bounce.animateTo(1f, MotionSprings.Bouncy.spec())
-        }
-    }
+private fun NavItem(tab: BottomTab, selected: Boolean, count: Int?, onClick: (() -> Unit)?) {
     val interaction = remember { MutableInteractionSource() }
     val color by animateColorAsState(
         targetValue = if (selected) DarkroomColors.Paper else DarkroomColors.Dim,
@@ -154,7 +139,6 @@ private fun NavItem(tab: BottomTab, selected: Boolean, count: Int?, onClick: (()
     Row(
         modifier = Modifier
             .size(Dimens.NavItemWidth, Dimens.NavItemHeight)
-            .graphicsLayer { scaleX = bounce.value; scaleY = bounce.value }
             .padding(bottom = Dimens.NavIndicatorHeight)
             .then(if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick) else Modifier),
         horizontalArrangement = Arrangement.spacedBy(Dimens.NavItemGap, Alignment.CenterHorizontally),
@@ -182,6 +166,3 @@ private fun NavItem(tab: BottomTab, selected: Boolean, count: Int?, onClick: (()
         }
     }
 }
-
-/** 「收藏」/「垃圾桶」作为落点时弹一下的峰值。 */
-private const val NAV_BOUNCE_PEAK = 1.18f

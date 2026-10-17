@@ -182,7 +182,7 @@ com.example.photocleaner
 * Motion（`Motion.kt`：时长档位、四条贝塞尔曲线、四档弹簧、显影参数、手势阈值；`AnimationScale` 读系统动画缩放）
 * API 分级（`ApiTier.kt`，唯一的 SDK_INT 判断处；`Haptics.kt` 按分级选择触感常量）
 * 玻璃背景模糊 `GlassBackdrop.kt`（Haze 1.7.0，按 `ApiTier.hasBlur` 分级）
-* 共享导航层（`core/navigation`）：`AppDock` / `AppDockBar` / `AppShellViewModel` 把底部导航提升到 NavHost 之外，各页用 `AppDockEffect` 声明显示、隐藏、落点和遮罩；`SharedPhoto.kt` 共享元素；`PredictiveBack.kt` 预测性返回
+* 共享导航层（`core/navigation`）：`AppDock` / `AppDockBar` / `AppShellViewModel` 把底部导航提升到 NavHost 之外，各页用 `AppDockEffect` 声明显示、隐藏和遮罩；`SharedPhoto.kt` 共享元素；`PredictiveBack.kt` 预测性返回
 * 启动时后台预载全部字重（`CleanPhotosApp`），避免首次用到某个中文字重时主线程同步加载
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
