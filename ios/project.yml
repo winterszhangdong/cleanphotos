@@ -1,0 +1,77 @@
+name: CleanPhotos
+options:
+  bundleIdPrefix: com.winters
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    MARKETING_VERSION: "1.2.2"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  CleanPhotos:
+    type: application
+    platform: iOS
+    sources:
+      - path: CleanPhotos
+        excludes:
+          - "**/.DS_Store"
+          - "**/Resources/**"
+      - path: CleanPhotos/Resources
+        buildPhase: resources
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.winters.cleanphotos
+        PRODUCT_NAME: CleanPhotos
+        INFOPLIST_FILE: CleanPhotos/Info.plist
+        GENERATE_INFOPLIST_FILE: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_EMIT_LOC_STRINGS: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+  CleanPhotosTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: CleanPhotosTests
+      - path: CleanPhotos/Domain
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.winters.cleanphotos.tests
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+  CleanPhotosUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: CleanPhotosUITests
+    dependencies:
+      - target: CleanPhotos
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.winters.cleanphotos.uitests
+        TEST_TARGET_NAME: CleanPhotos
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+schemes:
+  CleanPhotos:
+    build:
+      targets:
+        CleanPhotos: all
+        CleanPhotosUITests: [test]
+        CleanPhotosTests: [test]
+    test:
+      targets:
+        - CleanPhotosUITests
+        - CleanPhotosTests
+    run:
+      config: Debug

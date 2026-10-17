@@ -1,0 +1,8 @@
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+# XcodeGen 生成，本地签名团队等会写进去；用 `xcodegen generate` 重新生成
+CleanPhotos.xcodeproj/
+*.trace
+*.mp4
