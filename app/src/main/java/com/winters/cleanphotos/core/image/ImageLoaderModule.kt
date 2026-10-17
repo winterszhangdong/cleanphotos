@@ -16,7 +16,7 @@ import javax.inject.Singleton
  * Coil ImageLoader 的 Hilt 模块。
  *
  * 配置内存缓存（可用内存的 25%）和磁盘缓存，
- * 以及默认的 Crossfade 过渡效果，提升图片加载体验。
+ * 以及默认的 Crossfade 过渡效果；网格缩略图用 [GridThumbFetcher] 取系统缩略图（自己关掉 Crossfade）。
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -28,9 +28,10 @@ object ImageLoaderModule {
         @ApplicationContext context: Context
     ): ImageLoader {
         return ImageLoader.Builder(context)
+            .components { add(GridThumbFetcher.Factory()) }
             .memoryCache {
                 MemoryCache.Builder(context)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.30)
                     .build()
             }
             .diskCache {

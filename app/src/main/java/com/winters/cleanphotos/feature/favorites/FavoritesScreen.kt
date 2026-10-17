@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -44,6 +46,10 @@ import com.winters.cleanphotos.core.design.glassBackdropSource
 import com.winters.cleanphotos.core.util.NumberFormatter
 import com.winters.cleanphotos.feature.allphotos.photoDaySections
 import com.winters.cleanphotos.feature.allphotos.tileDevelopFor
+import com.winters.cleanphotos.feature.allphotos.rememberGridFirstScreen
+import com.winters.cleanphotos.core.design.rememberScrollSettled
+import com.winters.cleanphotos.core.design.gridScrollTapGuard
+import com.winters.cleanphotos.core.design.whenSettled
 
 /**
  * 收藏页与空状态。没有排序和筛选；eyebrow 旁一颗琥珀点。
@@ -73,10 +79,13 @@ fun FavoritesScreen(
                     val develop = remember { tileDevelopFor(initialLoad = false) }
                     val gridState = rememberLazyGridState()
                     val anchor = rememberReorderAnchor(gridState, uiState.sortOrder)
+                    val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "favorites")
+                    val tapsSettled = rememberScrollSettled(gridState)
+                    val openPhoto = tapsSettled.whenSettled(onPhotoClick)
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(PHOTO_GRID_COLUMNS),
                         state = gridState,
-                        modifier = Modifier.weight(1f).fillMaxSize(),
+                        modifier = Modifier.weight(1f).fillMaxSize().gridScrollTapGuard(),
                         horizontalArrangement = Arrangement.spacedBy(Dimens.GridGap),
                         contentPadding = PaddingValues(bottom = dockListBottomPadding()),
                     ) {
@@ -85,8 +94,9 @@ fun FavoritesScreen(
                             unseen = { false },
                             right = { section -> MonoWithBold(null, pluralStringResource(R.plurals.favorites_section_count, section.totalCount, section.totalCount)) },
                             develop = develop,
+                            firstScreen = firstScreen,
                             reorderAnchor = anchor,
-                            onPhotoClick = onPhotoClick,
+                            onPhotoClick = openPhoto,
                         )
                     }
                 }

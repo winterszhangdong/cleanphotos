@@ -24,7 +24,9 @@ import com.winters.cleanphotos.core.design.MotionSprings
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -88,6 +90,9 @@ import com.winters.cleanphotos.core.design.ToolIconButton
 import com.winters.cleanphotos.core.design.dockListBottomPadding
 import com.winters.cleanphotos.core.design.glassBackdropSource
 import com.winters.cleanphotos.core.design.plainClickable
+import com.winters.cleanphotos.core.design.rememberScrollSettled
+import com.winters.cleanphotos.core.design.gridScrollTapGuard
+import com.winters.cleanphotos.core.design.whenSettled
 import com.winters.cleanphotos.core.design.skeletonColor
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.core.util.NumberFormatter
@@ -325,16 +330,21 @@ private fun PhotoList(
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val gridState = rememberLazyGridState()
+    val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
     val anchor = rememberReorderAnchor(gridState, uiState.sortOrder to uiState.filterMode)
+    // 甩动中 / 停稳后约 280ms 内不响应点按与长按，避免惯性抬手误开清理页
+    val tapsSettled = rememberScrollSettled(gridState)
+    val openPhoto = tapsSettled.whenSettled(onPhotoClick)
     LazyVerticalGrid(
         columns = GridCells.Fixed(PHOTO_GRID_COLUMNS),
         state = gridState,
         modifier = Modifier
             .fillMaxSize()
+            .gridScrollTapGuard()
             .photoGridGestures(
                 state = gridState,
-                onTap = { id -> if (selecting) actions.onToggle(id) else onPhotoClick(id) },
-                onLongPress = { id ->
+                onTap = tapsSettled.whenSettled { id -> if (selecting) actions.onToggle(id) else onPhotoClick(id) },
+                onLongPress = tapsSettled.whenSettled { id ->
                     Haptics.longPress(view)
                     actions.onLongPress(id)
                 },
@@ -354,8 +364,9 @@ private fun PhotoList(
                 }
             },
             develop = develop,
+            firstScreen = firstScreen,
             reorderAnchor = anchor,
-            onPhotoClick = onPhotoClick,
+            onPhotoClick = openPhoto,
             selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay),
         )
     }

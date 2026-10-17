@@ -13,11 +13,16 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.request.ImageRequest
+import com.winters.cleanphotos.core.image.GridThumb
 import com.winters.cleanphotos.core.design.DayHeaderRow
 import com.winters.cleanphotos.core.design.DelayedSpec
 import com.winters.cleanphotos.core.design.DevelopProfile
@@ -58,6 +63,29 @@ fun tileDevelopFor(initialLoad: Boolean): TileDevelop =
     } else {
         TileDevelop(DevelopProfiles.GridFirstScreen, byDiagonal = true, DevelopProfiles.GRID_STAGGER, DevelopProfiles.GRID_MAX_STEPS)
     }
+
+/** 进程内已经播过首屏显影的网格（照片 / 收藏各一次）；切 Tab、进清理页再回来都不重播。 */
+internal object GridFirstScreenSession {
+    private val played = mutableSetOf<String>()
+
+    /** 本进程第一次出现这个网格时返回 true，并记下已播放。 */
+    fun claim(key: String): Boolean = played.add(key)
+}
+
+/**
+ * 网格是否还在首屏：只有本进程第一次出现 [sessionKey] 网格、且第一次滚动之前为 true。
+ * 首屏格子走错开显影；之后（或再次回到这个网格时）绑定的格子不再显影，命中内存缓存则直接显示。
+ */
+@Composable
+fun rememberGridFirstScreen(state: LazyGridState, sessionKey: String): () -> Boolean {
+    val first = remember(state) { mutableStateOf(GridFirstScreenSession.claim(sessionKey)) }
+    LaunchedEffect(state) {
+        if (!first.value) return@LaunchedEffect
+        snapshotFlow { state.isScrollInProgress || state.firstVisibleItemIndex > 0 }.first { it }
+        first.value = false
+    }
+    return remember(first) { { first.value } }
+}
 
 /**
  * 重排：每一格用 animateItem 从旧位置平滑滑到新位置（落定弹簧），相对首个可见项按 14ms 步长错开。
@@ -106,6 +134,8 @@ fun LazyGridScope.photoDaySections(
     unseen: (Long) -> Boolean,
     right: @Composable (PhotoDaySection) -> Unit,
     develop: TileDevelop,
+    /** 网格是否还在首屏（还没滚动过）：首屏格子用 [develop] 错开显影，之后进入的格子不显影（直接出图）。 */
+    firstScreen: () -> Boolean,
     reorderAnchor: () -> Int,
     onPhotoClick: (Long) -> Unit,
     selection: GridSelection? = null,
@@ -152,26 +182,37 @@ fun LazyGridScope.photoDaySections(
             val col = i % PHOTO_GRID_COLUMNS
             item(key = photo.id, contentType = "photo") {
                 val context = LocalContext.current
-                // 固定内存缓存键：进入清理页时大图解码完成前先用这张缩略图顶上，避免空帧
+                // 系统缩略图（GridThumb）+ 固定内存键（清理页占位）+ RGB_565；显影已负责过渡，关掉 Crossfade
                 val model = remember(photo.id, photo.uri) {
-                    ImageRequest.Builder(context).data(photo.uri).memoryCacheKey(photoThumbKey(photo.id)).build()
+                    ImageRequest.Builder(context)
+                        .data(GridThumb(photo.uri))
+                        .memoryCacheKey(photoThumbKey(photo.id))
+                        .placeholderMemoryCacheKey(photoThumbKey(photo.id))
+                        .allowRgb565(true)
+                        .crossfade(false)
+                        .build()
                 }
-                val picked = selection != null && photo.id in selection.selectedIds
-                val pick = animateSelectPick(picked, label = "grid-pick")
+                // 绑定时定一次：只有首屏才显影；滚动 / 再次进入直接出图（命中内存缓存更是瞬间）
+                val onFirstScreen = remember { firstScreen() }
+                val tileDevelop = if (onFirstScreen) develop else null
+                val selecting = selection?.selecting == true
+                val picked = selecting && photo.id in selection!!.selectedIds
+                // 非多选时不挂选中动画 / 缩层 / 勾，避免每格常驻 animateFloatAsState + graphicsLayer
+                val pick = if (selecting) animateSelectPick(picked, label = "grid-pick") else null
                 PhotoTile(
                     model = model,
                     contentDescription = photo.displayName,
                     // 同一天第二行起上方 2dp 间隔（.grid4 gap 2px）；天与天之间没有额外间隔
                     modifier = reorderModifier(tileIndex, reorderAnchor()).padding(top = if (row == 0) 0.dp else Dimens.GridGap),
-                    // 与清理页大图配对（必须在正方形尺寸确定之后）
+                    // 滚动中不注册共享元素；停稳后挂上，点进清理页仍能配对
                     sizedModifier = Modifier.sharedPhoto(photo.id, expandsHere = false),
                     unseen = unseen(photo.id),
-                    developProfile = develop.profile,
-                    developDelayMs = develop.delayFor(firstRow + row, col),
-                    imageModifier = if (selection != null) Modifier.selectedShrink { pick.value } else Modifier,
+                    developProfile = tileDevelop?.profile,
+                    developDelayMs = tileDevelop?.delayFor(firstRow + row, col) ?: 0,
+                    imageModifier = if (pick != null) Modifier.selectedShrink { pick.value } else Modifier,
                     onClick = if (selection != null) null else ({ onPhotoClick(photo.id) }),
                 ) {
-                    if (selection != null) SelectionCheck(picked)
+                    if (selecting) SelectionCheck(picked)
                 }
             }
         }

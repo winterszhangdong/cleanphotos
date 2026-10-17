@@ -12,6 +12,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Composable
 import com.winters.cleanphotos.core.design.Dimens
+import com.winters.cleanphotos.core.design.GridScrollClock
+import com.winters.cleanphotos.core.design.SCROLL_SETTLE_TAP_GUARD_MS
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
@@ -43,6 +45,8 @@ fun Modifier.photoGridGestures(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val hitId = photoAt(state, down.position)
+                val indexAtDown = state.firstVisibleItemIndex
+                val offsetAtDown = state.firstVisibleItemScrollOffset
                 // 长按超时前：抬起 = 点按；移出阈值或被滚动消费 = 放弃
                 var tapped = false
                 val beforeTimeout = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
@@ -54,13 +58,18 @@ fun Modifier.photoGridGestures(
                             return@withTimeoutOrNull true
                         }
                         if (change.isConsumed || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                            GridScrollClock.mark()
                             return@withTimeoutOrNull false
                         }
                     }
                     @Suppress("UNREACHABLE_CODE") false
                 }
                 if (beforeTimeout != null) {
-                    if (tapped && hitId != null) tap.value(hitId)
+                    // 按下到抬起之间列表动过、或仍在滑：当作甩动误触，不开清理页
+                    val scrolled = state.isScrollInProgress ||
+                        state.firstVisibleItemIndex != indexAtDown ||
+                        state.firstVisibleItemScrollOffset != offsetAtDown
+                    if (tapped && hitId != null && !scrolled && GridScrollClock.settled(SCROLL_SETTLE_TAP_GUARD_MS)) tap.value(hitId)
                     return@awaitEachGesture
                 }
                 val anchor = hitId ?: return@awaitEachGesture

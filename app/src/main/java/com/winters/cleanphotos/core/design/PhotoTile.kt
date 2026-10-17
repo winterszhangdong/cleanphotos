@@ -12,7 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
@@ -44,6 +48,8 @@ fun PhotoTile(
 ) {
     val scope = rememberCoroutineScope()
     val develop = developProfile?.let { rememberDevelopState(it, developed = true) }
+    // 只在真正显影时挂 graphicsLayer：静止态不留离屏合成层，滚动更顺
+    var developing by remember { mutableStateOf(false) }
     Box(
         modifier
             .aspectRatio(1f)
@@ -58,13 +64,17 @@ fun PhotoTile(
             colorFilter = colorFilter,
             onSuccess = { success ->
                 if (develop != null && success.result.dataSource.requiresDevelop()) {
-                    // UNDISPATCHED：同一帧先把进度压到 0，避免「先亮一帧再变暗」。
-                    scope.launch(start = CoroutineStart.UNDISPATCHED) { develop.develop(developDelayMs) }
+                    // UNDISPATCHED：同一帧先挂层并把进度压到 0，避免「先亮一帧再变暗」。
+                    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                        developing = true
+                        develop.develop(developDelayMs)
+                        developing = false
+                    }
                 }
             },
             modifier = imageModifier
                 .fillMaxSize()
-                .then(if (develop != null) Modifier.develop(develop) else Modifier),
+                .then(if (developing && develop != null) Modifier.develop(develop) else Modifier),
         )
         if (unseen) {
             UnseenDot(Modifier.align(Alignment.TopStart).offset(Dimens.UnseenInset, Dimens.UnseenInset))
