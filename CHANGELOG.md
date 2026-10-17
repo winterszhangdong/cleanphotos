@@ -7,19 +7,41 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-17
+
+### Added
+
+- 首个 iOS 版（`ios/`，SwiftUI，iOS 17+）：照片 / 收藏 / 垃圾桶三个页面、全屏清理（左右翻页、上滑收藏、下滑移入 App 内垃圾桶、撤回、当天小结页）、长按多选与拖选、清空垃圾桶走系统删除确认、简体中文和英文，交互与「暗房」视觉对齐安卓版。目前需用 Xcode 从源码构建，Release 不附 iOS 安装包。
+
 ### Fixed
 
-- 照片网格滚动时新格子先灰一下、很久才出图：显影错开只用于网格首屏，滚动进来的格子解码后直接显示（不再等最多 660ms 再花 520ms 从灰到彩）；缩略图改取系统缩略图（Android 10+），不再每格解码整张原图；网格格子去掉多余的淡入；首屏显影每次启动只播一次，切换 Tab 或从清理页返回时缩略图直接从内存显示，不再重新变灰显影；非多选时不挂选中动画层。
+- 照片网格滚动时新格子先灰一下、很久才出图：显影错开只用于网格首屏，滚动进来的格子解码后直接显示（不再等最多 660ms 再花 520ms 从灰到彩）；缩略图改取系统缩略图（Android 10+），不再每格解码整张原图；网格格子去掉多余的淡入；首屏显影每次启动只播一次，切换 Tab 或从清理页返回时缩略图直接从内存显示，不再重新变灰显影。
 - 照片 / 收藏网格快速上下甩动时，惯性抬手容易误点进清理页：滚动中及停稳后约 300ms 内忽略点按和长按。
 - 启动时申请屏幕最高刷新率，高刷机上滚动不再被锁在约 60fps。
+- 清空垃圾桶时最后一张照片停在半溶解、直到网格收起：溶解时钟少走了一个步长（60ms），现在时钟覆盖最后一个可见格子的起点再加完整的 380ms，每张都溶解完才收起；单格时长和 60ms 步长不变。
+
+### Changed
+
+- 清理页上滑收藏 / 下滑移到垃圾桶松手后（以及点撤回后），底部导航胶囊不再作为落点浮现约 1.6s；清理页全程不显示导航，离场动画、提示圆钮、琥珀光与下一张升起不变。
+- 上滑收藏离场的两层余影改为照片本身的半透明副本（透明度 0.4 / 0.18，延迟 50 / 100ms），带 1px 琥珀描边与向下偏移的琥珀光晕（对应设计稿动效 04），不再是两块纯色琥珀方块；时长与路径不变。
 
 ---
 
+### Added
+
+- First iOS version (`ios/`, SwiftUI, iOS 17+): Photos, Favorites and Trash tabs, full-screen review (left/right paging, swipe up to favorite, swipe down to the in-app trash, undo, day summary pages), long-press multi-select with drag-select, emptying the trash through the system delete prompt, and Simplified Chinese and English, matching the Android app's interactions and darkroom design. For now it must be built from source with Xcode; releases do not include an iOS build.
+
 ### Fixed
 
-- Scrolling the photo grid showed gray cells that took a long time to fill in: the staggered develop now only applies to the first screen, cells scrolled in show as soon as they decode (instead of waiting up to 660 ms and then fading from gray over 520 ms), thumbnails come from the system thumbnail cache on Android 10+ instead of decoding each full-size original, and the redundant crossfade on grid cells is gone. The first-screen develop now plays once per launch; switching tabs or coming back from review shows thumbnails straight from memory instead of graying them out again. Selection chrome is skipped when not selecting.
+- Scrolling the photo grid showed gray cells that took a long time to fill in: the staggered develop now only applies to the first screen, cells scrolled in show as soon as they decode (instead of waiting up to 660 ms and then fading from gray over 520 ms), thumbnails come from the system thumbnail cache on Android 10+ instead of decoding each full-size original, and the redundant crossfade on grid cells is gone. The first-screen develop now plays once per launch; switching tabs or coming back from review shows thumbnails straight from memory instead of graying them out again.
 - Fast vertical flings on the Photos / Favorites grids no longer open review by accident: taps and long-presses are ignored while scrolling and for about 300 ms after the grid settles.
 - On launch the app requests the display's highest refresh rate so scrolling is not capped near 60 fps on high-refresh phones.
+- Emptying the trash left the last photo frozen half-dissolved until the grid cleared: the dissolve clock stopped one stagger step (60 ms) early. It now runs to the last visible tile's start plus the full 380 ms, so every tile finishes before the grid clears; per-tile duration and the 60 ms stagger are unchanged.
+
+### Changed
+
+- In review, releasing a swipe up (favorite) or down (trash), or tapping Undo, no longer floats the bottom nav capsule in as a landing cue for about 1.6 s; the nav stays hidden throughout review. The exit animation, release cue, amber glow and next-photo rise are unchanged.
+- The two afterimages trailing a swipe-up favorite are now semi-transparent copies of the photo itself (opacity 0.4 / 0.18, delayed 50 / 100 ms) with a 1 px amber ring and a downward amber glow, matching motion mockup 04, instead of two solid amber blocks. Timing and path are unchanged.
 
 ## [1.2.1] - 2026-10-15
 
@@ -113,7 +135,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.0.0...v1.1.0
