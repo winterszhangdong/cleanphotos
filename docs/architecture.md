@@ -181,11 +181,12 @@ com.example.photocleaner
 * 尺寸与圆角（`Dimens`）
 * Motion（`Motion.kt`：时长档位、四条贝塞尔曲线、四档弹簧、显影参数、手势阈值；`AnimationScale` 读系统动画缩放）
 * API 分级（`ApiTier.kt`，唯一的 SDK_INT 判断处；`Haptics.kt` 按分级选择触感常量）
-* 玻璃背景模糊 `GlassBackdrop.kt`（Haze 1.7.0，按 `ApiTier.hasBlur` 分级）
+* 玻璃背景模糊 `GlassBackdrop.kt`（Haze 1.7.0，按 `ApiTier.hasBlur` 分级）。`hazeSource` 每帧 `GraphicsLayer.record` 整棵子树，所以只包导航底下那条实色带，不包网格；预测性返回的上一页快照只在离开前那一帧录一次（`captureBackdropOnce`）
 * 共享导航层（`core/navigation`）：`AppDock` / `AppDockBar` / `AppShellViewModel` 把底部导航提升到 NavHost 之外，各页用 `AppDockEffect` 声明显示、隐藏和遮罩；`SharedPhoto.kt` 共享元素；`PredictiveBack.kt` 预测性返回
 * 启动时后台预载全部字重（`CleanPhotosApp`），避免首次用到某个中文字重时主线程同步加载
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
+* Coil：内存缓存 30%，解码限 2 个并发；网格缩略图和清理页大图都用 `RGB_565`。清理页环境光（全屏模糊）只画当前页、离场页和撤回让位页，左右邻页和 alpha 为 0 的垫底页不画
 * 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、未看光点 `UnseenDot`
 * 间距
 * 通用组件
