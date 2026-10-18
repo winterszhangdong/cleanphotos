@@ -28,6 +28,9 @@ data class ReviewLedger(
 
     fun photo(photoId: Long): PhotoItem = orderedPhotos[indexOf(photoId)]
 
+    /** 不在本次会话中时返回 null。 */
+    fun indexOrNull(photoId: Long): Int? = index.indexById[photoId]
+
     /** 会话中这一天的照片，保持会话顺序。 */
     fun photosOfDay(dayKey: String): List<PhotoItem> = index.photosByDay[dayKey].orEmpty()
 

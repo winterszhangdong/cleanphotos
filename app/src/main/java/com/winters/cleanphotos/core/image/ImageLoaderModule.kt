@@ -5,6 +5,7 @@ import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import kotlinx.coroutines.Dispatchers
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -15,8 +16,8 @@ import javax.inject.Singleton
 /**
  * Coil ImageLoader 的 Hilt 模块。
  *
- * 配置内存缓存（可用内存的 25%）和磁盘缓存，
- * 以及默认的 Crossfade 过渡效果；网格缩略图用 [GridThumbFetcher] 取系统缩略图（自己关掉 Crossfade）。
+ * 内存缓存 30%、磁盘缓存 2%。解码限在 2 个线程：大图解码是 CPU 活，
+ * 和默认的线程池抢在一起会让翻页那几帧掉帧。网格缩略图用 [GridThumbFetcher]（自己关掉 Crossfade）。
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -42,7 +43,11 @@ object ImageLoaderModule {
             }
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
-            .crossfade(true)
+            .crossfade(false)
+            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+            .allowHardware(true)
+            .fetcherDispatcher(Dispatchers.IO.limitedParallelism(2))
+            .decoderDispatcher(Dispatchers.IO.limitedParallelism(2))
             .build()
     }
 }

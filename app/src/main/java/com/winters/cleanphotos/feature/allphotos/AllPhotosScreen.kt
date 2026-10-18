@@ -24,9 +24,7 @@ import com.winters.cleanphotos.core.design.MotionSprings
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -41,7 +39,7 @@ import androidx.compose.foundation.layout.paddingFromBaseline
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import com.winters.cleanphotos.core.design.rememberPhotoGridState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -164,7 +162,7 @@ fun AllPhotosScreen(
             } else null,
         )
         Box(modifier.fillMaxSize().background(DarkroomColors.Room)) {
-            Column(Modifier.fillMaxSize().glassBackdropSource()) {
+            Column(Modifier.fillMaxSize()) {
                 ScreenHeaderSpacer()
                 Box(Modifier.weight(1f)) {
                     when {
@@ -184,6 +182,16 @@ fun AllPhotosScreen(
                 )
             }
             if (!allSeen) ListFade()
+            // 导航玻璃只取样这一条实色带。Haze 每帧 record 整棵子树，包在网格上会让滚动重画所有可见格子。
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .height(Dimens.NavHeight + Dimens.NavBottom)
+                    .background(DarkroomColors.Room)
+                    .glassBackdropSource(),
+            )
 
             MenuScrim(visible = openMenu != OpenMenu.None, onDismiss = { openMenu = OpenMenu.None })
 
@@ -329,7 +337,7 @@ private fun PhotoList(
     val view = LocalView.current
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
-    val gridState = rememberLazyGridState()
+    val gridState = rememberPhotoGridState()
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
     val anchor = rememberReorderAnchor(gridState, uiState.sortOrder to uiState.filterMode)
     // 甩动中 / 停稳后约 280ms 内不响应点按与长按，避免惯性抬手误开清理页
@@ -344,9 +352,10 @@ private fun PhotoList(
             .photoGridGestures(
                 state = gridState,
                 onTap = tapsSettled.whenSettled { id -> if (selecting) actions.onToggle(id) else onPhotoClick(id) },
-                onLongPress = tapsSettled.whenSettled { id ->
-                    Haptics.longPress(view)
-                    actions.onLongPress(id)
+                onLongPress = { id ->
+                    val started = tapsSettled() && actions.onLongPress(id)
+                    if (started) Haptics.longPress(view)
+                    started
                 },
                 onDrag = actions.onDrag,
             ),
@@ -367,7 +376,7 @@ private fun PhotoList(
             firstScreen = firstScreen,
             reorderAnchor = anchor,
             onPhotoClick = openPhoto,
-            selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay),
+            selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay, actions.onToggle, actions.onLongPress),
         )
     }
 }

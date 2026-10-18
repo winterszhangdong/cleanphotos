@@ -28,6 +28,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.winters.cleanphotos.R
@@ -99,6 +103,11 @@ fun LanguageSheet(
                             .height(56.dp)
                             .clip(RoundedCornerShape(Dimens.MenuItemCorner))
                             .background(if (selected) DarkroomColors.MenuItemOn else Color.Transparent)
+                            // 读屏：单选项，读出「已选中」（琥珀勾是装饰，不单独朗读）
+                            .semantics(mergeDescendants = true) {
+                                role = Role.RadioButton
+                                this.selected = selected
+                            }
                             .plainClickable(onClick = { onSelect(language) })
                             .padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,

@@ -15,7 +15,10 @@ import com.winters.cleanphotos.data.datasource.MediaStorePhotoDataSource
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -53,6 +56,12 @@ class PhotoRepositoryImpl @Inject constructor(
     /** MediaStore 全部照片（未过滤） */
     private val allMediaStorePhotos = MutableStateFlow<List<PhotoItem>>(emptyList())
 
+    private val refreshMutex = Mutex()
+
+    /** 上次成功查询 MediaStore 的时刻（单调时钟 ms）；null = 本进程还没加载过。 */
+    @Volatile
+    private var lastRefreshAt: Long? = null
+
     /** 迁移是否已执行（内存缓存，避免每次 refresh 都读 DataStore） */
     private var migrationChecked = false
 
@@ -66,11 +75,14 @@ class PhotoRepositoryImpl @Inject constructor(
             appTrashStateDataSource.observeEntries(),
             appFavoriteStateDataSource.observeEntries()
         ) { photos, trashEntries, favoriteEntries ->
-            val trashedIds = trashEntries.map { it.photoId }.toSet()
-            val favoriteIds = favoriteEntries.map { it.photoId }.toSet()
-            photos
-                .filter { it.id !in trashedIds && it.id !in favoriteIds }
-                .map { it.copy(isFavorite = it.id in favoriteIds) }
+            val trashedIds = HashSet<Long>(trashEntries.size).apply { trashEntries.forEach { add(it.photoId) } }
+            val favoriteIds = HashSet<Long>(favoriteEntries.size).apply { favoriteEntries.forEach { add(it.photoId) } }
+            buildList {
+                for (photo in photos) {
+                    if (photo.id in trashedIds || photo.id in favoriteIds) continue
+                    add(if (photo.isFavorite) photo.copy(isFavorite = false) else photo)
+                }
+            }
         }
     }
 
@@ -83,11 +95,14 @@ class PhotoRepositoryImpl @Inject constructor(
             appTrashStateDataSource.observeEntries(),
             appFavoriteStateDataSource.observeEntries()
         ) { photos, trashEntries, favoriteEntries ->
-            val trashedIds = trashEntries.map { it.photoId }.toSet()
-            val favoriteIds = favoriteEntries.map { it.photoId }.toSet()
-            photos
-                .filter { it.id in favoriteIds && it.id !in trashedIds }
-                .map { it.copy(isFavorite = true) }
+            val trashedIds = HashSet<Long>(trashEntries.size).apply { trashEntries.forEach { add(it.photoId) } }
+            val favoriteIds = HashSet<Long>(favoriteEntries.size).apply { favoriteEntries.forEach { add(it.photoId) } }
+            buildList {
+                for (photo in photos) {
+                    if (photo.id !in favoriteIds || photo.id in trashedIds) continue
+                    add(if (photo.isFavorite) photo else photo.copy(isFavorite = true))
+                }
+            }
         }
     }
 
@@ -103,24 +118,58 @@ class PhotoRepositoryImpl @Inject constructor(
      *    拿它当整个图库会把其余照片的垃圾桶 / 收藏 / 看过状态全部删掉
      */
     override suspend fun refreshPhotos() {
+        // 串行：照片页 / 收藏页 / 垃圾桶 / 回到前台可能同时刷新，并发时先发起但后返回的旧查询会覆盖新结果
+        refreshMutex.withLock { refreshLocked() }
+    }
+
+    /** 回到前台：距上次刷新完成不足 [minIntervalMs] 就跳过（刚启动、刚从系统删除确认回来时已经刷过）。 */
+    override suspend fun refreshPhotosIfStale(minIntervalMs: Long) {
+        refreshMutex.withLock {
+            val last = lastRefreshAt
+            if (last != null && elapsedMillis() - last < minIntervalMs) return
+            refreshLocked()
+        }
+    }
+
+    /** 进程被回收后清理页先于照片页重建：内存照片表还没加载过就先查一次（等待中别人加载完了就不重复）。 */
+    override suspend fun ensurePhotosLoaded() {
+        if (lastRefreshAt != null) return
+        refreshMutex.withLock {
+            if (lastRefreshAt == null) refreshLocked()
+        }
+    }
+
+    private suspend fun refreshLocked() {
         // MediaStore 主查询异常向上抛出，让 ViewModel 能展示错误状态
         val photos = withContext(Dispatchers.IO) {
             mediaStoreDataSource.queryAllPhotos()
         }
         allMediaStorePhotos.value = photos
+        lastRefreshAt = elapsedMillis()
         if (!PermissionChecker.hasFullPhotoAccess(context)) return
 
         // 迁移和清理失败不影响主流程
         try {
             migrateFavoritesIfNeeded(photos)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "迁移收藏失败", e)
         }
 
         // 系统垃圾桶查询是 binder 调用，不能留在调用方的主线程（P8 实测曾卡主线程 11–17ms）
         val existingIds = withContext(Dispatchers.IO) { buildExistingPhotoIds(photos) }
-        cleanupStores(existingIds)
+        try {
+            cleanupStores(existingIds)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: java.io.IOException) {
+            // 存储满等写入失败：照片已经加载好了，失效条目下次刷新再清
+            Log.w(TAG, "清理失效条目失败", e)
+        }
     }
+
+    private fun elapsedMillis(): Long = System.nanoTime() / 1_000_000L
 
     /**
      * 观察 App 内垃圾桶照片。
@@ -155,6 +204,7 @@ class PhotoRepositoryImpl @Inject constructor(
         val trashedPhotos = try {
             mediaStoreDataSource.queryTrashedPhotos()
         } catch (e: Exception) {
+            Log.w(TAG, "查询系统垃圾桶失败，跳过失效清理", e)
             return null
         }
         return (normalPhotos.map { it.id } + trashedPhotos.map { it.id }).toSet()
@@ -166,9 +216,12 @@ class PhotoRepositoryImpl @Inject constructor(
      */
     private suspend fun cleanupStores(existingIds: Set<Long>?) {
         if (existingIds == null) return
-        appFavoriteStateDataSource.removeMissingEntries(existingIds)
-        appSeenStateDataSource.removeMissingEntries(existingIds)
-        appTrashStateDataSource.removeMissingEntries(existingIds)
+        // 三项共用同一个 DataStore，合成一次写入；没有失效条目时 DataStore 内容不变，不会重写文件
+        dataStore.edit { p ->
+            appFavoriteStateDataSource.removeMissingIn(p, existingIds)
+            appSeenStateDataSource.removeMissingIn(p, existingIds)
+            appTrashStateDataSource.removeMissingIn(p, existingIds)
+        }
     }
 
     /**

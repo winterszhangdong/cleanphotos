@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.favorites
 
+import kotlinx.coroutines.CancellationException
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.R
 import androidx.lifecycle.ViewModel
@@ -69,6 +70,8 @@ class FavoritesViewModel @Inject constructor(
             try {
                 photoRepository.refreshPhotos()
                 _uiState.value = _uiState.value.copy(isLoading = false)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = UiText.Res(R.string.error_load_favorites))
             }

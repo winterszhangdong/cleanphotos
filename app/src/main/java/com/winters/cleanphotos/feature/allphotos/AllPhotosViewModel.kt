@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import kotlinx.coroutines.CancellationException
+import android.util.Log
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.R
 import android.app.Application
@@ -59,6 +61,8 @@ class AllPhotosViewModel @Inject constructor(
     private var visibleById: Map<Long, PhotoItem> = emptyMap()
     /** 长按开始拖选那一刻已选中的集合；拖选结果 = 它 ∪ 起点到当前格的区间。 */
     private var dragBase: Set<Long> = emptySet()
+    /** 本次拖选的起点；长按没生效（处理中 / 不在列表）时为 null，拖动回调直接忽略。 */
+    private var dragAnchor: Long? = null
     private var undoSeq = 0L
 
     /** 排序、筛选不持久化，进入页面时为默认值。 */
@@ -141,15 +145,24 @@ class AllPhotosViewModel @Inject constructor(
 
     // ---------------------------------------------------------------- 多选
 
-    /** 长按某一格：进入多选并选中它（已在多选中则只是加选），同时作为拖选起点。 */
-    fun onLongPressPhoto(photoId: Long) {
-        if (photoId !in visibleById || _selection.value.isProcessing) return
+    /**
+     * 长按某一格：进入多选并选中它（已在多选中则只是加选），同时作为拖选起点。
+     * 返回是否开始了拖选；没开始时网格不接管后续拖动（列表照常滚动），也不会拿旧的起点集合去拖选。
+     */
+    fun onLongPressPhoto(photoId: Long): Boolean {
+        if (photoId !in visibleById || _selection.value.isProcessing) {
+            dragAnchor = null
+            return false
+        }
         dragBase = _selection.value.selectedIds
+        dragAnchor = photoId
         updateSelection(dragBase + photoId)
+        return true
     }
 
     /** 长按后不松手拖动：选中 = 长按前已选 ∪ 起点到当前格（按列表顺序）。 */
     fun onDragSelect(anchorId: Long, currentId: Long) {
+        if (anchorId != dragAnchor || _selection.value.isProcessing) return
         val from = visiblePhotos.indexOfFirst { it.id == anchorId }
         val to = visiblePhotos.indexOfFirst { it.id == currentId }
         if (from < 0 || to < 0) return
@@ -183,8 +196,16 @@ class AllPhotosViewModel @Inject constructor(
         val undo = _selection.value.undo ?: return
         _selection.value = _selection.value.copy(undo = null)
         viewModelScope.launch {
-            val result = undoBatchActionUseCase(undo.action)
-            check(result is PhotoOperationResult.Success) { "撤回批量操作失败：$result" }
+            // 写入失败（存储满等）不闪退：照片停在批量操作后的状态，日志记下原因
+            val result = try {
+                undoBatchActionUseCase(undo.action)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "撤回批量操作失败", e)
+                return@launch
+            }
+            if (result !is PhotoOperationResult.Success) Log.e(TAG, "撤回批量操作失败：$result")
         }
     }
 
@@ -198,8 +219,21 @@ class AllPhotosViewModel @Inject constructor(
         val selected = visiblePhotos.filter { it.id in state.selectedIds }
         _selection.value = state.copy(isProcessing = true)
         viewModelScope.launch {
-            val (action, result) = block(selected)
-            check(result is PhotoOperationResult.Success) { "批量操作失败：$result" }
+            val outcome = try {
+                block(selected)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "批量操作失败", e)
+                null
+            }
+            if (outcome == null || outcome.second !is PhotoOperationResult.Success) {
+                // 失败（存储满等）不闪退：保留多选和选中项，可以再试一次
+                if (outcome != null) Log.e(TAG, "批量操作失败：${outcome.second}")
+                _selection.value = _selection.value.copy(isProcessing = false)
+                return@launch
+            }
+            val action = outcome.first
             // 动作完成后退出多选，并给出撤回胶囊
             _selection.value = PhotoSelectionState(undo = BatchUndo(++undoSeq, action, batchUndoTitle(action)))
         }
@@ -207,6 +241,11 @@ class AllPhotosViewModel @Inject constructor(
 
     private fun updateSelection(ids: Set<Long>) {
         val kept = ids.filterTo(LinkedHashSet()) { it in visibleById }
+        if (kept.isEmpty()) {
+            // 退出多选：拖选起点和起点集合一起作废，下次长按重新开始
+            dragBase = emptySet()
+            dragAnchor = null
+        }
         val current = _selection.value
         _selection.value = current.copy(
             selectedIds = kept,
@@ -220,6 +259,8 @@ class AllPhotosViewModel @Inject constructor(
             try {
                 photoRepository.refreshPhotos()
                 _uiState.value = _uiState.value.copy(isLoading = false)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = UiText.Res(R.string.error_load_photos))
             } finally {
@@ -229,6 +270,7 @@ class AllPhotosViewModel @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "AllPhotosViewModel"
         const val HANG_PHOTO_COUNT = 3
     }
 }

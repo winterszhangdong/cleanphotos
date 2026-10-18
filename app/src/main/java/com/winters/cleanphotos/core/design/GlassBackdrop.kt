@@ -31,6 +31,11 @@ fun GlassBackdropHost(tier: ApiTier = ApiTier.Current, content: @Composable () -
     CompositionLocalProvider(LocalGlassHazeState provides rememberHazeState(blurEnabled = tier.hasBlur), content = content)
 }
 
+/**
+ * 把这块内容录进玻璃模糊用的离屏层。Haze 每帧都 `GraphicsLayer.record` 整棵子树，
+ * 所以只包导航真正会模糊到的那一块（顶栏、列表底部），不要包整页网格：
+ * 整页录制会让滚动的每一帧都把所有可见格子重画进一张全屏缓冲。
+ */
 @Composable
 fun Modifier.glassBackdropSource(): Modifier = hazeSource(LocalGlassHazeState.current)
 

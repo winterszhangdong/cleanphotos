@@ -43,4 +43,50 @@ class BuildReviewPagesUseCase @Inject constructor(
         }
         return pages
     }
+
+    /**
+     * [photoId] 在 [invoke] 结果里的前一页和后一页，不生成整条序列（清理页每次滑动在主线程调用）。
+     * 返回 null 表示它不在序列里。结果与 `invoke(...)` 里取 index±1 完全一致（见单测）。
+     */
+    fun neighborsOf(
+        ledger: ReviewLedger,
+        removedIds: Set<Long>,
+        currentPhotoId: Long?,
+        activeSummaryDay: String?,
+        photoId: Long,
+    ): Neighbors? {
+        if (photoId in removedIds) return null
+        val i = ledger.indexOrNull(photoId) ?: return null
+        val photos = ledger.orderedPhotos
+        val nextPhoto = (i + 1 until photos.size).firstOrNull { photos[it].id !in removedIds }
+        val prevPhoto = (i - 1 downTo 0).firstOrNull { photos[it].id !in removedIds }
+        fun photoPage(j: Int?) = j?.let { ReviewPage.Photo(photos[it]) }
+
+        if (activeSummaryDay != null) {
+            val lastOfDay = photos.indexOfLast { it.dateGroup == activeSummaryDay }
+            // 小结插在「会话索引 > lastOfDay 的第一张剩余照片」之前（没有就放在最后）
+            val summary = ReviewPage.Summary(activeSummaryDay)
+            val next = if (i <= lastOfDay && (nextPhoto == null || nextPhoto > lastOfDay)) summary else photoPage(nextPhoto)
+            val prev = if (i > lastOfDay && (prevPhoto == null || prevPhoto <= lastOfDay)) summary else photoPage(prevPhoto)
+            return Neighbors(prev, next)
+        }
+        var next: ReviewPage? = photoPage(nextPhoto)
+        var prev: ReviewPage? = photoPage(prevPhoto)
+        if (currentPhotoId != null && currentPhotoId !in removedIds) {
+            val c = ledger.indexOrNull(currentPhotoId)
+            if (c != null) {
+                val afterCurrent = (c + 1 until photos.size).firstOrNull { photos[it].id !in removedIds }
+                val insert = (c == i || afterCurrent == i) && shouldInsertDaySummary(
+                    ledger.markViewed(currentPhotoId), currentPhotoId, afterCurrent?.let { photos[it].id },
+                )
+                if (insert) {
+                    val summary = ReviewPage.Summary(photos[c].dateGroup)
+                    if (c == i) next = summary else prev = summary
+                }
+            }
+        }
+        return Neighbors(prev, next)
+    }
+
+    data class Neighbors(val previous: ReviewPage?, val next: ReviewPage?)
 }

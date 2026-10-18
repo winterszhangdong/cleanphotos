@@ -2,6 +2,7 @@ package com.winters.cleanphotos.feature.review
 
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.R
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
@@ -19,6 +20,7 @@ import com.winters.cleanphotos.domain.model.ReviewLedger
 import com.winters.cleanphotos.domain.model.ReviewOutcome
 import com.winters.cleanphotos.domain.model.ReviewPage
 import com.winters.cleanphotos.domain.model.ReviewScope
+import com.winters.cleanphotos.domain.model.SwipeSideEffects
 import com.winters.cleanphotos.domain.usecase.BuildDaySummaryUseCase
 import com.winters.cleanphotos.domain.usecase.BuildReviewPagesUseCase
 import com.winters.cleanphotos.domain.usecase.BuildSessionDayProgressUseCase
@@ -31,12 +33,13 @@ import com.winters.cleanphotos.domain.usecase.ObserveShowDirectionHintsUseCase
 import com.winters.cleanphotos.domain.model.TrashSummary
 import com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTutorialStateUseCase
-import com.winters.cleanphotos.domain.usecase.RecordSwipeActionUseCase
 import com.winters.cleanphotos.domain.usecase.RemoveFavoritePhotoUseCase
 import com.winters.cleanphotos.domain.usecase.SetTutorialSeenUseCase
 import com.winters.cleanphotos.domain.usecase.StartReviewSessionUseCase
 import com.winters.cleanphotos.domain.usecase.UndoPhotoActionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
@@ -45,6 +48,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -78,9 +83,9 @@ class ReviewViewModel @Inject constructor(
     private val buildDaySummaryUseCase: BuildDaySummaryUseCase,
     private val observeLibraryDayStateUseCase: ObserveLibraryDayStateUseCase,
     private val observeShowDirectionHintsUseCase: ObserveShowDirectionHintsUseCase,
-    private val recordSwipeActionUseCase: RecordSwipeActionUseCase,
     private val observeTrashSummaryUseCase: ObserveTrashSummaryUseCase,
     @DefaultDispatcher computeDispatcher: CoroutineDispatcher,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     /** 会话核心状态，所有修改都在主线程同步完成。 */
@@ -94,6 +99,8 @@ class ReviewViewModel @Inject constructor(
         val undo: UndoInfo? = null,
         val error: UiText? = null,
         val tutorialDismissed: Boolean = false,
+        /** 会话没能建立（照片表加载失败 / 起点照片已不存在）：页面提示后返回入口。 */
+        val loadFailed: Boolean = false,
     )
 
     private val core = MutableStateFlow(Core())
@@ -126,7 +133,22 @@ class ReviewViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            for (op in operations) op()
+            for (op in operations) {
+                // 兜底：单个操作异常不能结束整个队列（否则之后的滑动都不再落盘）
+                try {
+                    op()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "清理操作执行失败", e)
+                }
+            }
+        }
+        // 记住正在看的照片：进程被回收后回到清理页从这张接着看，而不是回到入口那张（小结页不覆盖）
+        viewModelScope.launch {
+            core.map { photoIdOf(it.currentKey) }.distinctUntilChanged().collect { id ->
+                if (id != null) savedStateHandle[KEY_CURRENT_PHOTO] = id
+            }
         }
     }
 
@@ -138,8 +160,10 @@ class ReviewViewModel @Inject constructor(
         core.update { it.copy(scope = reviewScope) }
         viewModelScope.launch {
             try {
+                // 进程重建：从上次正在看的照片开始；它已被处理 / 不在列表里时由 UseCase 就近选一张
+                val startId = savedStateHandle.get<Long>(KEY_CURRENT_PHOTO) ?: photoId
                 val session = startReviewSessionUseCase(
-                    photoId, PhotoSortOrder.valueOf(sortOrder), PhotoFilterMode.valueOf(filterMode), reviewScope,
+                    startId, PhotoSortOrder.valueOf(sortOrder), PhotoFilterMode.valueOf(filterMode), reviewScope,
                 )
                 val start = session.photos[session.currentIndex]
                 core.update {
@@ -149,9 +173,12 @@ class ReviewViewModel @Inject constructor(
                         currentKey = ReviewPage.keyOf(start.id),
                     )
                 }
-                markPhotoSeenUseCase(start.id)
+                runCatchingNonCancel { markPhotoSeenUseCase(start.id) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                core.update { it.copy(loading = false, error = UiText.Res(R.string.error_load_photos)) }
+                Log.w(TAG, "清理会话启动失败", e)
+                core.update { it.copy(loading = false, loadFailed = true, error = UiText.Res(R.string.error_load_photos)) }
             }
         }
     }
@@ -178,7 +205,7 @@ class ReviewViewModel @Inject constructor(
         val summaryDay = summaryDayOf(key)
         if (summaryDay != null) newLedger = newLedger.markSummarized(summaryDay)
         core.value = c.copy(ledger = newLedger, currentKey = key, activeSummaryDay = summaryDay)
-        photoIdOf(key)?.let { id -> viewModelScope.launch { runCatching { markPhotoSeenUseCase(id) } } }
+        photoIdOf(key)?.let { id -> viewModelScope.launch { runCatchingNonCancel { markPhotoSeenUseCase(id) } } }
         dismissTutorial()
     }
 
@@ -200,7 +227,7 @@ class ReviewViewModel @Inject constructor(
             activeSummaryDay = null, undo = null,
         )
         enqueue {
-            val result = undoPhotoActionUseCase(PhotoAction(photo, undo.type, 0, System.currentTimeMillis()))
+            val result = safeOperation { undoPhotoActionUseCase(PhotoAction(photo, undo.type, 0, System.currentTimeMillis())) }
             if (!awaitSuccess(result)) {
                 core.update { s ->
                     val l = s.ledger ?: return@update s
@@ -232,7 +259,7 @@ class ReviewViewModel @Inject constructor(
     fun dismissTutorial() {
         if (core.value.tutorialDismissed) return
         core.update { it.copy(tutorialDismissed = true) }
-        viewModelScope.launch { runCatching { setTutorialSeenUseCase() } }
+        viewModelScope.launch { runCatchingNonCancel { setTutorialSeenUseCase() } }
     }
 
     // —— 内部 ——
@@ -241,11 +268,10 @@ class ReviewViewModel @Inject constructor(
         val c = core.value
         val ledger = c.ledger ?: return null
         if (photoId in c.removed) return null
-        val pages = pagesOf(c)
-        val index = pages.indexOfFirst { it.key == ReviewPage.keyOf(photoId) }
-        if (index < 0) return null
+        // 只取相邻两页，不在主线程重建整条序列（几千张时每次滑动都是 O(n) + 小结判断）
+        val neighbors = neighborsOf(c, photoId) ?: return null
         val photo = ledger.photo(photoId)
-        val next = pages.getOrNull(index + 1) ?: pages.getOrNull(index - 1)
+        val next = neighbors.next ?: neighbors.previous
         var newLedger = ledger.recordOutcome(photoId, outcomeOf(type))
         val summaryDay = (next as? ReviewPage.Summary)?.dayKey
         if (summaryDay != null) newLedger = newLedger.markSummarized(summaryDay)
@@ -254,17 +280,21 @@ class ReviewViewModel @Inject constructor(
             ledger = newLedger, removed = c.removed + photoId, currentKey = next?.key,
             activeSummaryDay = summaryDay, undo = undo,
         )
-        (next as? ReviewPage.Photo)?.let { p -> viewModelScope.launch { runCatching { markPhotoSeenUseCase(p.photo.id) } } }
+        val nextPhotoId = (next as? ReviewPage.Photo)?.photo?.id
         dismissTutorial()
         enqueue {
-            val result = when (type) {
-                PhotoActionType.Favorite -> favoritePhotoUseCase(photo)
-                PhotoActionType.Unfavorite -> removeFavoritePhotoUseCase(photo)
-                PhotoActionType.MoveToTrash -> movePhotoToTrashUseCase(photo)
+            // 操作 + 下一张看过 + 滑动计数在仓库里合成一次 DataStore 写入（一次滑动只重写一次文件）
+            val effects = SwipeSideEffects(markSeenId = nextPhotoId, countSwipe = true)
+            val result = safeOperation {
+                when (type) {
+                    PhotoActionType.Favorite -> favoritePhotoUseCase(photo, effects)
+                    PhotoActionType.Unfavorite -> removeFavoritePhotoUseCase(photo, effects)
+                    PhotoActionType.MoveToTrash -> movePhotoToTrashUseCase(photo, effects)
+                }
             }
-            if (awaitSuccess(result)) {
-                runCatching { recordSwipeActionUseCase() }
-            } else {
+            if (!awaitSuccess(result)) {
+                // 操作没写成，附带写入也没落盘：下一张照样记为看过（它已经显示出来了），计数不加
+                nextPhotoId?.let { id -> runCatchingNonCancel { markPhotoSeenUseCase(id) } }
                 // 插回原位（序列按会话初始顺序生成，移出 removed 即回到原位置）
                 core.update { s ->
                     val l = s.ledger ?: return@update s
@@ -284,6 +314,27 @@ class ReviewViewModel @Inject constructor(
         operations.trySend(op)
     }
 
+    /** 写入失败（存储满等）按普通失败处理：照片插回原位并提示，而不是让异常打断队列或闪退。 */
+    private suspend fun safeOperation(block: suspend () -> PhotoOperationResult): PhotoOperationResult = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e(TAG, "清理操作写入失败", e)
+        PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+    }
+
+    /** 尽力而为的附带写入（看过 / 计数）：失败忽略，但不吞掉取消。 */
+    private suspend fun runCatchingNonCancel(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "附带写入失败", e)
+        }
+    }
+
     /** NeedSystemApproval 时等用户在系统页的结果；取消算失败但不提示。 */
     private suspend fun awaitSuccess(result: PhotoOperationResult): Boolean = when (result) {
         is PhotoOperationResult.Success -> true
@@ -297,9 +348,13 @@ class ReviewViewModel @Inject constructor(
     }
 
     private fun nextKeyAfterRemoval(c: Core, photoId: Long): String? {
-        val pages = pagesOf(c)
-        val i = pages.indexOfFirst { it.key == ReviewPage.keyOf(photoId) }
-        return (pages.getOrNull(i + 1) ?: pages.getOrNull(i - 1))?.key
+        val n = neighborsOf(c, photoId) ?: return null
+        return (n.next ?: n.previous)?.key
+    }
+
+    private fun neighborsOf(c: Core, photoId: Long): BuildReviewPagesUseCase.Neighbors? {
+        val ledger = c.ledger ?: return null
+        return buildReviewPagesUseCase.neighborsOf(ledger, c.removed, photoIdOf(c.currentKey), c.activeSummaryDay, photoId)
     }
 
     private fun pagesOf(c: Core): List<ReviewPage> {
@@ -347,6 +402,7 @@ class ReviewViewModel @Inject constructor(
             undo = c.undo,
             trashCount = trashCount,
             errorMessage = c.error,
+            loadFailed = c.loadFailed,
             isCompleted = !c.loading && ledger != null && c.currentKey == null,
         )
     }
@@ -401,6 +457,8 @@ class ReviewViewModel @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "ReviewViewModel"
+        internal const val KEY_CURRENT_PHOTO = "review_current_photo"
         private val EMPTY_LIBRARY = LibraryDayState(emptyList(), emptySet(), emptySet())
 
         fun photoIdOf(key: String?): Long? =

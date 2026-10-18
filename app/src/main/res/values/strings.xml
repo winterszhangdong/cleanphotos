@@ -56,6 +56,8 @@
     <string name="action_favorite">Favorite</string>
     <string name="action_unfavorite">Unfavorite</string>
     <string name="action_move_to_trash">Move to trash</string>
+    <string name="a11y_next_page">Next</string>
+    <string name="a11y_previous_page">Previous</string>
     <string name="favorites_error_title">Couldn\'t read favorites</string>
     <string name="favorites_empty_title">No favorites yet</string>
     <string name="favorites_empty_body">While reviewing, swipe a photo up to keep it here.</string>

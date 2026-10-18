@@ -1,11 +1,13 @@
 package com.winters.cleanphotos.data.datasource
 
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.winters.cleanphotos.domain.model.AppFavoriteEntry
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,10 +34,30 @@ class AppFavoriteStateDataSource @Inject constructor(
      * 观察所有收藏条目，按 favoritedAt 倒序排列。
      */
     fun observeEntries(): Flow<List<AppFavoriteEntry>> {
-        return dataStore.data.map { preferences ->
-            val rawSet = preferences[ENTRIES_KEY] ?: emptySet()
-            parseEntries(rawSet).sortedByDescending { it.favoritedAt }
-        }
+        // 只在本键变化时重新解析（同垃圾桶）
+        return dataStore.safeData()
+            .map { preferences -> preferences[ENTRIES_KEY] ?: emptySet() }
+            .distinctUntilChanged()
+            .map { rawSet -> parseEntries(rawSet).sortedByDescending { it.favoritedAt } }
+    }
+
+    /** 当前条目（在一次 edit 内读取）。 */
+    internal fun entriesIn(preferences: Preferences): List<AppFavoriteEntry> =
+        parseEntries(preferences[ENTRIES_KEY] ?: emptySet())
+
+    /** 在调用方的 edit 里批量新增 / 覆盖（photoId → favoritedAt）。 */
+    internal fun upsertIn(preferences: MutablePreferences, entries: Map<Long, Long>) {
+        if (entries.isEmpty()) return
+        val currentSet = preferences[ENTRIES_KEY] ?: emptySet()
+        val filtered = currentSet.filterNot { parseEntry(it).photoId in entries }.toSet()
+        preferences[ENTRIES_KEY] = filtered + entries.map { (id, at) -> encodeEntry(id, at) }
+    }
+
+    /** 在调用方的 edit 里批量删除。 */
+    internal fun removeIn(preferences: MutablePreferences, photoIds: Set<Long>) {
+        if (photoIds.isEmpty()) return
+        val currentSet = preferences[ENTRIES_KEY] ?: return
+        preferences[ENTRIES_KEY] = currentSet.filterNot { parseEntry(it).photoId in photoIds }.toSet()
     }
 
     /**
@@ -126,5 +148,12 @@ class AppFavoriteStateDataSource @Inject constructor(
      */
     private fun parseEntries(rawSet: Set<String>): List<AppFavoriteEntry> {
         return rawSet.map { parseEntry(it) }
+    }
+
+    /** 在调用方的 edit 里清理失效条目。 */
+    internal fun removeMissingIn(preferences: MutablePreferences, existingPhotoIds: Set<Long>) {
+        val currentSet = preferences[ENTRIES_KEY] ?: return
+        val valid = currentSet.filter { parseEntry(it).photoId in existingPhotoIds }.toSet()
+        if (valid.size != currentSet.size) preferences[ENTRIES_KEY] = valid
     }
 }

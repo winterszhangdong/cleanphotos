@@ -508,4 +508,69 @@ class TrashViewModelTest {
             assertNull("dismissActionMessage 后消息应为 null", state.actionMessage)
         }
     }
+
+    // ====== 清空垃圾桶收尾（A-D7 / A-D8 / A-D10）======
+
+    @Test
+    fun `直接删除部分失败_刷新列表并清掉已删掉照片的记录_提示失败`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(3).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        fakeReviewRepository.deletePermanentlyResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        // 删掉了 1、2，3 删不掉
+        fakeReviewRepository.onDeletePermanently = { fakePhotoRepository.setTrashedPhotos(photos.filter { it.id == 3L }) }
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onShowEmptyTrashConfirm()
+        viewModel.onConfirmEmptyTrash()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(UiText.Res(R.string.fail_generic), state.errorMessage)
+        assertFalse(state.isProcessingAction)
+        assertEquals(listOf(3L), state.photos.map { it.id })
+        assertEquals(listOf(setOf(1L, 2L)), fakeReviewRepository.forgotten)
+    }
+
+    @Test
+    fun `系统授权删除成功_清掉被删照片的记录_部分照片权限下也不残留`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(3).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        fakeReviewRepository.deletePermanentlyResult = PhotoOperationResult.NeedSystemApproval(
+            com.winters.cleanphotos.domain.model.SystemMediaActionRequest(
+                photos = photos,
+                actionType = com.winters.cleanphotos.domain.model.SystemMediaActionType.DeletePermanently,
+                requestToken = "t",
+                intentSender = mockk(relaxed = true),
+            ),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.effects.test {
+            viewModel.onShowEmptyTrashConfirm()
+            viewModel.onConfirmEmptyTrash()
+            advanceUntilIdle()
+            awaitItem()
+        }
+        fakePhotoRepository.setTrashedPhotos(emptyList())
+        viewModel.onSystemMediaActionResult(true)
+        advanceUntilIdle()
+
+        assertEquals(listOf(setOf(1L, 2L, 3L)), fakeReviewRepository.forgotten)
+        assertEquals(UiText.Res(R.string.msg_trash_emptied), viewModel.uiState.value.actionMessage)
+    }
+
+    @Test
+    fun `系统删除确认期间进程重建_收到授权结果仍刷新并提示已清空`() = runTest(testDispatcher) {
+        fakePhotoRepository.setTrashedPhotos(emptyList())
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onSystemMediaActionResult(true)
+        advanceUntilIdle()
+
+        assertEquals(UiText.Res(R.string.msg_trash_emptied), viewModel.uiState.value.actionMessage)
+        assertFalse(viewModel.uiState.value.isProcessingAction)
+    }
 }

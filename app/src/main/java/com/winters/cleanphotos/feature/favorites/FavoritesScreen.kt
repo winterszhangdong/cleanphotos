@@ -10,14 +10,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import com.winters.cleanphotos.core.design.rememberPhotoGridState
 import com.winters.cleanphotos.feature.allphotos.PHOTO_GRID_COLUMNS
 import com.winters.cleanphotos.feature.allphotos.rememberReorderAnchor
 import androidx.compose.runtime.Composable
@@ -67,7 +67,7 @@ fun FavoritesScreen(
     GlassBackdropHost {
         AppDockEffect(DockMode.Visible)
         Box(modifier.fillMaxSize().background(DarkroomColors.Room)) {
-            Column(Modifier.fillMaxSize().glassBackdropSource()) {
+            Column(Modifier.fillMaxSize()) {
                 ScreenHeader(
                     eyebrow = {
                         Eyebrow(stringResource(R.string.tab_favorites))
@@ -77,7 +77,7 @@ fun FavoritesScreen(
                 )
                 if (!empty) {
                     val develop = remember { tileDevelopFor(initialLoad = false) }
-                    val gridState = rememberLazyGridState()
+                    val gridState = rememberPhotoGridState()
                     val anchor = rememberReorderAnchor(gridState, uiState.sortOrder)
                     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "favorites")
                     val tapsSettled = rememberScrollSettled(gridState)
@@ -113,6 +113,15 @@ fun FavoritesScreen(
                 }
             } else {
                 ListFade()
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .height(Dimens.NavHeight + Dimens.NavBottom)
+                        .background(DarkroomColors.Room)
+                        .glassBackdropSource(),
+                )
             }
 
         }

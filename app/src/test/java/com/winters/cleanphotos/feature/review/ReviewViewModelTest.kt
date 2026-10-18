@@ -14,6 +14,7 @@ import com.winters.cleanphotos.domain.model.ReviewEffect
 import com.winters.cleanphotos.domain.model.ReviewPage
 import com.winters.cleanphotos.domain.model.SystemMediaActionRequest
 import com.winters.cleanphotos.domain.model.SystemMediaActionType
+import com.winters.cleanphotos.domain.model.SwipeSideEffects
 import com.winters.cleanphotos.domain.repository.ReviewRepository
 import com.winters.cleanphotos.domain.usecase.BuildDaySummaryUseCase
 import com.winters.cleanphotos.domain.usecase.BuildMonthProgressUseCase
@@ -27,7 +28,6 @@ import com.winters.cleanphotos.domain.usecase.ObserveLibraryDayStateUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveShowDirectionHintsUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTutorialStateUseCase
-import com.winters.cleanphotos.domain.usecase.RecordSwipeActionUseCase
 import com.winters.cleanphotos.domain.usecase.RemoveFavoritePhotoUseCase
 import com.winters.cleanphotos.domain.usecase.RestorePhotoFromTrashUseCase
 import com.winters.cleanphotos.domain.usecase.SetTutorialSeenUseCase
@@ -69,18 +69,23 @@ class ReviewViewModelTest {
     private lateinit var reviewRepository: CountingReviewRepository
     private lateinit var preferences: FakeUserPreferencesRepository
     private lateinit var seen: FakeSeenStateRepository
+    private var savedState = androidx.lifecycle.SavedStateHandle()
 
     /** 记录每次实际执行到仓库的操作，用于验证连续快滑不丢操作。 */
     private class CountingReviewRepository(val fake: FakeReviewRepository = FakeReviewRepository()) : ReviewRepository by fake {
         val calls = mutableListOf<Pair<String, Long>>()
-        override suspend fun favoritePhoto(photo: PhotoItem): PhotoOperationResult {
-            calls += "fav" to photo.id; return fake.favoritePhoto(photo)
+        override suspend fun favoritePhoto(photo: PhotoItem, effects: SwipeSideEffects): PhotoOperationResult {
+            calls += "fav" to photo.id; return fake.favoritePhoto(photo, effects)
         }
-        override suspend fun removeFavorite(photo: PhotoItem): PhotoOperationResult {
-            calls += "unfav" to photo.id; return fake.removeFavorite(photo)
+        override suspend fun removeFavorite(photo: PhotoItem, effects: SwipeSideEffects): PhotoOperationResult {
+            calls += "unfav" to photo.id; return fake.removeFavorite(photo, effects)
         }
-        override suspend fun movePhotoToTrash(photo: PhotoItem): PhotoOperationResult {
-            calls += "trash" to photo.id; return fake.movePhotoToTrash(photo)
+        /** 模拟 DataStore 写入抛异常（存储满）。 */
+        var throwOnTrash: Boolean = false
+        override suspend fun movePhotoToTrash(photo: PhotoItem, effects: SwipeSideEffects): PhotoOperationResult {
+            calls += "trash" to photo.id
+            if (throwOnTrash) throw java.io.IOException("No space left on device")
+            return fake.movePhotoToTrash(photo, effects)
         }
         override suspend fun restorePhotoFromTrash(photo: PhotoItem): PhotoOperationResult {
             calls += "restore" to photo.id; return fake.restorePhotoFromTrash(photo)
@@ -122,9 +127,9 @@ class ReviewViewModelTest {
             buildDaySummaryUseCase = BuildDaySummaryUseCase(BuildMonthProgressUseCase()),
             observeLibraryDayStateUseCase = ObserveLibraryDayStateUseCase(photoRepository, seen),
             observeShowDirectionHintsUseCase = ObserveShowDirectionHintsUseCase(preferences),
-            recordSwipeActionUseCase = RecordSwipeActionUseCase(preferences),
             observeTrashSummaryUseCase = ObserveTrashSummaryUseCase(photoRepository),
             computeDispatcher = testDispatcher,
+            savedStateHandle = savedState,
         )
     }
 
@@ -368,5 +373,61 @@ class ReviewViewModelTest {
             assertEquals(k, vm.uiState.value.currentKey)
         }
         assertEquals(listOf(5L, 4L, 3L, 2L, 1L), photoKeys(vm.uiState.value))
+    }
+
+    @Test
+    fun `写入抛异常_照片插回原位并提示_队列继续执行后面的操作`() = runTest(testDispatcher) {
+        reviewRepository.throwOnTrash = true
+        val vm = start(count = 3, startId = 2L)
+        advanceUntilIdle()
+        vm.onSwipeDown(2L)
+        advanceUntilIdle()
+        assertEquals(listOf(3L, 2L, 1L), photoKeys(vm.uiState.value))
+        assertEquals(UiText.Res(R.string.fail_trash), vm.uiState.value.errorMessage)
+
+        reviewRepository.throwOnTrash = false
+        vm.onSwipeUp(vm.uiState.value.currentKey!!.removePrefix("p").toLong())
+        advanceUntilIdle()
+        assertEquals("异常之后的操作照常落盘", "fav", reviewRepository.calls.last().first)
+    }
+
+    @Test
+    fun `会话没能建立_标记加载失败让页面返回入口`() = runTest(testDispatcher) {
+        val vm = start(count = 3, startId = 99L)
+        advanceUntilIdle()
+        val s = vm.uiState.value
+        assertTrue(s.loadFailed)
+        assertFalse(s.isLoading)
+        assertNotNull(s.errorMessage)
+        assertFalse("没有会话不算处理完", s.isCompleted)
+    }
+
+    @Test
+    fun `滑动的附带写入随操作一起交给仓库_失败时下一张单独记看过`() = runTest(testDispatcher) {
+        val vm = start()
+        advanceUntilIdle()
+        vm.onSwipeUp(3L)
+        advanceUntilIdle()
+        assertEquals(listOf(SwipeSideEffects(markSeenId = 2L, countSwipe = true)), reviewRepository.fake.effectsLog)
+        assertFalse("成功路径不再单独写看过（已合进仓库那次写入）", 2L in seen.seenIds.value)
+
+        reviewRepository.fake.moveTrashResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        vm.onSwipeDown(2L)
+        advanceUntilIdle()
+        assertTrue("失败时下一张照样记为看过", 1L in seen.seenIds.value)
+    }
+
+    @Test
+    fun `进程重建_从上次正在看的照片接着看_不回到入口`() = runTest(testDispatcher) {
+        val vm = start()
+        advanceUntilIdle()
+        vm.onPageSettled("p2")
+        advanceUntilIdle()
+        assertEquals(2L, savedState.get<Long>(ReviewViewModel.KEY_CURRENT_PHOTO))
+
+        // 模拟进程回收：同一份 SavedStateHandle、新的 ViewModel、入口参数仍是 3
+        val restored = createViewModel().also { it.initialize(3L, "NewestFirst", "AllPhotos", "AllPhotos") }
+        advanceUntilIdle()
+        assertEquals("p2", restored.uiState.value.currentKey)
     }
 }

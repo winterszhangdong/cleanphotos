@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
@@ -27,6 +28,10 @@ class MediaStoreTrashDataSource @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val contentResolver: ContentResolver get() = context.contentResolver
+
+    private companion object {
+        const val TAG = "MediaStoreTrash"
+    }
 
     /**
      * 批量永久删除照片。
@@ -54,18 +59,21 @@ class MediaStoreTrashDataSource @Inject constructor(
      * 直接删除照片（Android 11 以下）。
      */
     private fun deleteDirectly(photos: List<PhotoItem>): PhotoOperationResult {
-        return try {
-            var allDeleted = true
-            for (photo in photos) {
-                val deleted = contentResolver.delete(photo.uri, null, null)
-                if (deleted <= 0) allDeleted = false
+        // 单张失败（文件被占用、已被别的 App 删掉）不中断后面的：能删的都删掉，结果按「有没有删不掉的」算；
+        // 调用方失败后也会刷新列表并清掉已经消失的照片（TrashViewModel）
+        var allDeleted = true
+        for (photo in photos) {
+            val deleted = try {
+                contentResolver.delete(photo.uri, null, null)
+            } catch (e: Exception) {
+                Log.w(TAG, "删除照片 ${photo.id} 失败", e)
+                0
             }
-            if (allDeleted) {
-                PhotoOperationResult.Success
-            } else {
-                PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
-            }
-        } catch (e: Exception) {
+            if (deleted <= 0) allDeleted = false
+        }
+        return if (allDeleted) {
+            PhotoOperationResult.Success
+        } else {
             PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
         }
     }

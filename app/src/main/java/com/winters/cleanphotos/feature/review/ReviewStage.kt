@@ -1,5 +1,8 @@
 package com.winters.cleanphotos.feature.review
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -76,6 +79,7 @@ internal fun ReviewStage(
     summaries: Map<String, DaySummary>,
     summaryContent: @Composable (DaySummary, isCurrent: Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
 ) {
     val entries = buildList {
         val current = state.currentPage
@@ -84,7 +88,7 @@ internal fun ReviewStage(
         fun add(page: ReviewPage?, role: PageRole, flight: ExitFlight? = null) {
             if (page != null && taken.add(page.key)) add(StageEntry(page, role, flight))
         }
-        state.flights.forEach { add(it.page, PageRole.Exit, it) }
+        state.flights.forEach { if (!it.mainDone) add(it.page, PageRole.Exit, it) }
         add(current, PageRole.Current)
         if (undo?.recedeKey != null) add(state.pages.firstOrNull { it.key == undo.recedeKey }, PageRole.Recede)
         if (state.axis == DragAxis.Vertical) {
@@ -98,7 +102,9 @@ internal fun ReviewStage(
         modifier
             .fillMaxSize()
             .background(DarkroomColors.Room)
-            .pointerInput(state) { detectReviewGestures(state.handler) },
+            .pointerInput(state) { detectReviewGestures(state.handler) }
+            // 读屏用户没法做上下滑 / 左右翻页手势：同样的操作以自定义操作提供
+            .semantics { customActions = accessibilityActions },
     ) {
         // 上滑琥珀显影光 / 下滑中性暗角：在当前页之下、垫底页之上
         SwipeGlow(state, Modifier.zIndex(1f))
@@ -239,6 +245,8 @@ private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStag
     }
     val knownRatio = photo.width != null && photo.height != null
     val letterboxed = !knownRatio || fit.width < imageSize.width - 1f || fit.height < imageSize.height - 1f
+    // 环境光是全屏 RenderEffect 模糊。垫底页 alpha = 0、左右邻页在屏外，模糊它们只是白占 GPU。
+    val ambientVisible = letterboxed && ApiTier.Current.hasBlur && (role == PageRole.Current || role == PageRole.Exit || role == PageRole.Recede)
     // 决定 7：只在「第一次从磁盘解码」时显影。组合时就能判断：大图不在内存缓存 → 这次一定走磁盘。
     // 若此刻它就是当前页，立即开始显影（同一帧压暗），解码期间显示网格缩略图占位，避免空帧，也不会「亮一帧再变暗」。
     val memoryCache = remember { coil.Coil.imageLoader(context).memoryCache }
@@ -258,10 +266,17 @@ private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStag
         }
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        if (letterboxed && ApiTier.Current.hasBlur) {
+        if (ambientVisible) {
             // 没铺满的地方用同一张照片放大 1.2、模糊 36dp、亮度 40% 做环境光；31 以下按分级表不画，露出暗房底色
             val ambient = remember(photo.id, photo.uri) {
-                ImageRequest.Builder(context).data(photo.uri).size(AMBIENT_SIZE).memoryCacheKey("review-amb-${photo.id}").crossfade(false).build()
+                ImageRequest.Builder(context)
+                    .data(photo.uri)
+                    .size(AMBIENT_SIZE)
+                    .precision(Precision.INEXACT)
+                    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                    .memoryCacheKey("review-amb-${photo.id}")
+                    .crossfade(false)
+                    .build()
             }
             AsyncImage(
                 model = ambient,
@@ -307,7 +322,9 @@ internal fun reviewImageRequest(context: android.content.Context, photo: PhotoIt
         .data(photo.uri)
         .size(size.width.coerceAtLeast(1), size.height.coerceAtLeast(1))
         .precision(Precision.INEXACT)
-        // 照片按原比例 Fit 显示，解码不必大过屏幕
+        // 照片按原比例 Fit 显示，解码不必大过屏幕。
+        // 清理页同时有当前页、邻页和离场页，每张都是接近屏幕大小的位图；RGB_565 把每张的内存和带宽减半。
+        .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
         .scale(Scale.FIT)
         .memoryCacheKey("review-${photo.id}-${size.width}x${size.height}")
         .diskCacheKey(photo.uri.toString())
@@ -468,7 +485,7 @@ internal fun Modifier.tone(saturation: () -> Float, brightness: () -> Float): Mo
 internal val LIFT_CORNER = 32.dp
 private const val UP_GLOW_PRE = 0.38f
 private const val DOWN_VIGNETTE_PRE = 0.5f
-private val AFTERIMAGES = listOf(50f / 250f to 0.4f, 100f / 250f to 0.18f)
+private val AFTERIMAGES = listOf(50f / 250f to 0.4f, ExitPath.TRAIL_TAIL to 0.18f)
 /** .c4-trail box-shadow：0 0 0 1px rgba(242,169,59,.4)、0 24px 70px rgba(242,169,59,.38)。 */
 private val AFTERIMAGE_RING = DarkroomColors.Amber.copy(alpha = 0.4f)
 private val AFTERIMAGE_GLOW = DarkroomColors.Amber.copy(alpha = 0.38f)

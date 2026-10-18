@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -47,8 +48,9 @@ internal fun TrashDissolveGrid(
     onFinished: () -> Unit,
     modifier: Modifier = Modifier,
     tier: ApiTier = ApiTier.Current,
+    /** 传入垃圾桶网格自己的滚动状态：溶解从清空前停留的位置开始，而不是跳回顶部。 */
+    gridState: LazyGridState = rememberLazyGridState(),
 ) {
-    val gridState = rememberLazyGridState()
     val clock = remember(dissolve) { Animatable(0f) }
     val bytes = remember(dissolve) { Animatable(dissolve.totalBytes.toFloat()) }
     val finished by rememberUpdatedState(onFinished)

@@ -20,6 +20,7 @@ import com.winters.cleanphotos.domain.model.ReviewPage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** 离场去向：上滑（收藏 / 取消收藏）或下滑（移到垃圾桶）。 */
 internal enum class ExitKind { Up, Down }
@@ -42,6 +43,8 @@ internal class ExitFlight(
     val rise: Float,
 ) {
     val progress = Animatable(0f)
+    /** 主体已经到位（进度 1）：舞台不再画主体层，只剩余影收尾。 */
+    var mainDone by mutableStateOf(false)
 }
 
 /** 撤回飞回：照片从去处减速飞回中央 450ms，飞到一半开始重新显影；原当前页退后压暗让位。 */
@@ -53,6 +56,9 @@ internal class UndoFlight(val key: String, val kind: ExitKind, val from: Offset,
 internal object ExitPath {
     /** 收藏离场里「顺惯性上冲」所占的时间比例。 */
     const val RISE_FRACTION = 0.28f
+
+    /** 余影最晚一层的延迟（100ms / 250ms）：主体结束后时间轴再走这么多，余影才走完路径。 */
+    const val TRAIL_TAIL = 100f / 250f
 
     data class Pose(val x: Float, val y: Float, val scale: Float, val saturation: Float, val brightness: Float, val alpha: Float)
 
@@ -199,6 +205,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     var sessionEndedLocally: Boolean = false
 
     private var settleJob: Job? = null
+    /** 上下拖动开始时残留横向位移的回弹（独立于 settleJob，竖拖期间继续）。 */
+    private var dxSettleJob: Job? = null
     private var zoomJob: Job? = null
     /** 手指实际捏合的倍率；低于 1× 时显示值走阻尼，最多到 0.8。 */
     private var rawZoom = 1f
@@ -240,6 +248,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         override fun onDown() {
             settleJob?.cancel()
             settleJob = null
+            dxSettleJob?.cancel()
+            dxSettleJob = null
             pendingCommitKey?.let { key ->
                 // 翻页动画还没落定就按下：直接落定到目标页，位移连续接上
                 pendingCommitKey = null
@@ -254,7 +264,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             dragging = true
             when (axis) {
                 DragAxis.Vertical -> {
-                    dx = 0f
+                    // 翻页动画中途按下又改成上下拖：剩下的横向位移弹回 0，而不是一帧跳回中间
+                    if (dx != 0f) settleDx() else dx = 0f
                     rawDx = 0f
                     // 回弹中又按住上下拖：从当前位置接着跟手，不跳
                     bounceJob?.cancel()
@@ -265,6 +276,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
                 DragAxis.Horizontal -> {
                     dy = 0f
                     rawDx = dx
+                    // 竖拖淡出后被打断（回弹中改成横滑）：横滑不淡出顶栏，确保它回到不透明
+                    restoreChrome()
                 }
                 else -> Unit
             }
@@ -427,6 +440,13 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         flights.add(flight)
         scope.launch {
             flight.progress.animateTo(1f, tween(MotionDurations.EXIT_MAIN_MAX, easing = LinearEasing))
+            // 主体到位即撤掉主体层；收藏的两层余影比主体晚 50 / 100ms，同速继续走完各自的路径和淡出再移除
+            // （原先在主体结束时整体移除，余影停在 0.4 / 0.18 透明度一帧消失）
+            flight.mainDone = true
+            if (kind == ExitKind.Up) {
+                val tail = ExitPath.TRAIL_TAIL
+                flight.progress.animateTo(1f + tail, tween((MotionDurations.EXIT_MAIN_MAX * tail).roundToInt(), easing = LinearEasing))
+            }
             flights.remove(flight)
         }
         onExitStarted(kind)
@@ -436,6 +456,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             releaseCue.animateTo(0f, tween(MotionDurations.RELEASE_CUE_FADE, easing = LinearEasing))
         }
         val newKey = onSwipe(release, photoPage.photo.id)
+        dxSettleJob?.cancel()
+        dxSettleJob = null
         dy = 0f
         dx = 0f
         rawDx = 0f
@@ -451,6 +473,13 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         scope.launch { chromeAlpha.animateTo(1f, tween(MotionDurations.SHORT, easing = MotionEasings.Standard)) }
     }
 
+    /** 顶栏 / 渐变 / 元信息回到不透明（已在还原或已是 1 时不重启动画）。 */
+    private fun restoreChrome() {
+        if (chromeAlpha.targetValue == 1f && chromeAlpha.value == 1f) return
+        if (chromeAlpha.isRunning && chromeAlpha.targetValue == 1f) return
+        scope.launch { chromeAlpha.animateTo(1f, tween(MotionDurations.SHORT, easing = MotionEasings.Standard)) }
+    }
+
     /** 撤回：照片从去处飞回，原当前页退后压暗让位。 */
     fun undo(page: ReviewPage, kind: ExitKind) {
         val key = page.key
@@ -458,6 +487,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         settleJob?.cancel()
         pendingCommitKey = null
         flights.removeAll { it.page.key == key }
+        dxSettleJob?.cancel()
+        dxSettleJob = null
         val recede = currentKey
         val flight = UndoFlight(key, kind, exitTarget(kind), recede)
         undoFlight = flight
@@ -469,10 +500,29 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         resetZoom()
         entryKey = null
         noteCurrentDay(tick = false)
+        restoreChrome()
         scope.launch {
             flight.progress.animateTo(1f, tween(MotionDurations.LONG, easing = LinearEasing))
             if (undoFlight === flight) undoFlight = null
         }
+    }
+
+    /**
+     * TalkBack 自定义操作「收藏 / 移入垃圾桶」：与上下滑过阈值松手走同一条路径（离场动画 + 同一个回调）。
+     * 返回是否执行。
+     */
+    fun accessibilitySwipe(up: Boolean): Boolean {
+        val photo = currentPage as? ReviewPage.Photo ?: return false
+        if (dragging || !verticalEnabled()) return false
+        trigger(photo, if (up) VerticalRelease.Up else VerticalRelease.Down, 0f)
+        return true
+    }
+
+    /** TalkBack「上一张」：与右滑一样走翻页动画。 */
+    fun goPrevious() {
+        if (previousPage == null || pendingCommitKey != null) return
+        axis = DragAxis.Horizontal
+        releaseHorizontal(thresholds.horizontalFlingVelocity * 2f, dir = 1)
     }
 
     /** 小结「下一天」：与左滑一样走翻页动画。 */
@@ -493,7 +543,17 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         }
     }
 
+    private fun settleDx() {
+        dxSettleJob?.cancel()
+        dxSettleJob = scope.launch {
+            val a = Animatable(dx)
+            a.animateTo(0f, MotionSprings.Settle.spec()) { dx = value }
+        }
+    }
+
     private fun settleBack(vx: Float, vy: Float) {
+        dxSettleJob?.cancel()
+        dxSettleJob = null
         settleJob = scope.launch {
             launch {
                 val a = Animatable(dx)
@@ -504,8 +564,9 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
                 val a = Animatable(dy)
                 a.animateTo(0f, MotionSprings.Settle.spec(), initialVelocity = vy) { dy = value }
             }
-            launch { chromeAlpha.animateTo(1f, tween(MotionDurations.SHORT, easing = MotionEasings.Standard)) }
         }.also { job -> job.invokeOnCompletion { if (!dragging) axis = DragAxis.None } }
+        // 顶栏等的还原不挂在 settleJob 下：回弹中再次按下会取消 settleJob，挂在下面会让它们停在半透明 / 全透明
+        restoreChrome()
     }
 
     private fun commit(key: String) {

@@ -15,6 +15,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
 
@@ -53,7 +55,8 @@ fun OdometerText(
     val previous = remember { longArrayOf(value) }
     val direction = Odometer.direction(previous[0], value)
     val text = format(value)
-    Row(modifier = modifier.clipToBounds()) {
+    // 逐位的 Text（滚动时新旧两位同时在场）对读屏是一串零散数字：整体读成一个数
+    Row(modifier = modifier.clipToBounds().clearAndSetSemantics { contentDescription = text }) {
         text.forEachIndexed { indexFromStart, ch ->
             val keyFromEnd = text.length - indexFromStart
             androidx.compose.runtime.key(keyFromEnd) {

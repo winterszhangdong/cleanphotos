@@ -1,11 +1,13 @@
 package com.winters.cleanphotos.data.datasource
 
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.winters.cleanphotos.domain.model.AppTrashEntry
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,7 +25,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class AppTrashStateDataSource @Inject constructor(
-    private val dataStore: DataStore<Preferences>
+    /** 和收藏 / 看过共用同一个 DataStore：仓库用它把一次操作的几处改动合成一次写入（见 [ReviewRepositoryImpl]）。 */
+    internal val dataStore: DataStore<Preferences>
 ) {
     companion object {
         private val ENTRIES_KEY = stringSetPreferencesKey("app_trash_entries")
@@ -35,10 +38,33 @@ class AppTrashStateDataSource @Inject constructor(
      * 观察所有垃圾桶条目，按 movedToTrashAt 倒序排列。
      */
     fun observeEntries(): Flow<List<AppTrashEntry>> {
-        return dataStore.data.map { preferences ->
-            val rawSet = preferences[ENTRIES_KEY] ?: emptySet()
-            parseEntries(rawSet).sortedByDescending { it.movedToTrashAt }
+        // 只在本键变化时重新解析：看过 / 收藏 / 计数等其它键的写入不让垃圾桶整条链重算
+        return dataStore.safeData()
+            .map { preferences -> preferences[ENTRIES_KEY] ?: emptySet() }
+            .distinctUntilChanged()
+            .map { rawSet -> parseEntries(rawSet).sortedByDescending { it.movedToTrashAt } }
+    }
+
+    /** 当前条目（在一次 edit 内读取，保证读改写原子）。 */
+    internal fun entriesIn(preferences: Preferences): List<AppTrashEntry> =
+        parseEntries(preferences[ENTRIES_KEY] ?: emptySet())
+
+    /** 在调用方的 edit 里批量新增 / 覆盖条目。 */
+    internal fun upsertIn(preferences: MutablePreferences, entries: List<AppTrashEntry>) {
+        if (entries.isEmpty()) return
+        val ids = entries.mapTo(HashSet()) { it.photoId }
+        val currentSet = preferences[ENTRIES_KEY] ?: emptySet()
+        val filtered = currentSet.filterNot { parseEntry(it).photoId in ids }.toSet()
+        preferences[ENTRIES_KEY] = filtered + entries.map {
+            encodeEntry(it.photoId, it.movedToTrashAt, it.wasFavorited, it.favoritedAt)
         }
+    }
+
+    /** 在调用方的 edit 里批量删除条目。 */
+    internal fun removeIn(preferences: MutablePreferences, photoIds: Set<Long>) {
+        if (photoIds.isEmpty()) return
+        val currentSet = preferences[ENTRIES_KEY] ?: return
+        preferences[ENTRIES_KEY] = currentSet.filterNot { parseEntry(it).photoId in photoIds }.toSet()
     }
 
     /**
@@ -178,5 +204,12 @@ class AppTrashStateDataSource @Inject constructor(
      */
     private fun parseEntries(rawSet: Set<String>): List<AppTrashEntry> {
         return rawSet.map { parseEntry(it) }
+    }
+
+    /** 在调用方的 edit 里清理失效条目。 */
+    internal fun removeMissingIn(preferences: MutablePreferences, existingPhotoIds: Set<Long>) {
+        val currentSet = preferences[ENTRIES_KEY] ?: return
+        val valid = currentSet.filter { parseEntry(it).photoId in existingPhotoIds }.toSet()
+        if (valid.size != currentSet.size) preferences[ENTRIES_KEY] = valid
     }
 }

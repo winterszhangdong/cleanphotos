@@ -1,5 +1,10 @@
 package com.winters.cleanphotos.core.navigation
 
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
@@ -17,11 +22,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
@@ -54,6 +61,11 @@ fun NavGraph(
     val dock = remember { AppDockState() }
     val entry by navController.currentBackStackEntryAsState()
     val trashCount by shellViewModel.trashCount.collectAsStateWithLifecycle()
+    // 回到前台重新读图库（外部增删照片后不用重开 App）
+    LifecycleResumeEffect(shellViewModel) {
+        shellViewModel.onAppResumed()
+        onPauseOrDispose { }
+    }
 
     // 只有当前页发起的跳转 / 返回才执行：离场动画期间页面仍可点，连点会重复 push 或连退两层
     fun NavBackStackEntry.ifCurrent(action: () -> Unit) {
@@ -81,7 +93,8 @@ fun NavGraph(
         GlassBackdropHost {
             SharedTransitionLayout(Modifier.fillMaxSize().background(DarkroomColors.Room)) {
               CompositionLocalProvider(LocalSharedTransitionScope provides this) {
-              Box(Modifier.fillMaxSize()) {
+              // 横屏时系统导航栏 / 挖孔在左右两侧：页面内容整体让开（竖屏左右安全区为 0，排版不变）
+              Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
                 NavHost(
                     navController = navController,
                     startDestination = NavRoutes.ALL_PHOTOS,
@@ -174,12 +187,16 @@ fun NavGraph(
 @Composable
 private fun DockEntry(entry: NavBackStackEntry, scope: AnimatedContentScope, content: @Composable (capture: () -> Unit) -> Unit) {
     val recorder = rememberBackdropRecorder()
-    val coroutines = rememberCoroutineScope()
     val entryStart = remember { android.os.SystemClock.uptimeMillis() }
     CompositionLocalProvider(LocalDockEntryId provides entry.id, LocalNavAnimatedScope provides scope, LocalNavEntryStart provides entryStart) {
-        // 页面内容一直录进 GraphicsLayer（只是显示列表，不额外绘制），离开去清理页前转成位图当返回背景
-        Box(Modifier.fillMaxSize().recordBackdrop(recorder)) {
-            content { coroutines.captureBackdrop(recorder) }
+        // 只在离开前那一帧录进 GraphicsLayer。每帧录整页会让滚动把所有可见格子重画进全屏缓冲。
+        var capture by remember { mutableStateOf(false) }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .captureBackdropOnce(recorder, capture) { capture = false },
+        ) {
+            content { capture = true }
         }
     }
 }

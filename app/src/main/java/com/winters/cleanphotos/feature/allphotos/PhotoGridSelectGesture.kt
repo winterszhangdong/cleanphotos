@@ -24,14 +24,14 @@ import kotlinx.coroutines.launch
  * 否则长按松手时缩略图的 clickable 会再触发一次点按）。
  *
  * - 长按超时前抬起、且没被列表滚动消费：点按 [onTap]。
- * - 长按到时（手指没移出触摸阈值）：[onLongPress]，之后不松手拖动时在 Initial 阶段消费移动（列表不再滚动），
+ * - 长按到时（手指没移出触摸阈值）：[onLongPress]（返回 false 表示没开始多选，到此为止），之后不松手拖动时在 Initial 阶段消费移动（列表不再滚动），
  *   每次移动按手指下的格子回调 [onDrag]；手指进入上下 [Dimens.DragSelectEdge] 内时按距离自动滚动。
  */
 @Composable
 fun Modifier.photoGridGestures(
     state: LazyGridState,
     onTap: (Long) -> Unit,
-    onLongPress: (Long) -> Unit,
+    onLongPress: (Long) -> Boolean,
     onDrag: (anchorId: Long, currentId: Long) -> Unit,
 ): Modifier {
     val tap = rememberUpdatedState(onTap)
@@ -73,7 +73,8 @@ fun Modifier.photoGridGestures(
                     return@awaitEachGesture
                 }
                 val anchor = hitId ?: return@awaitEachGesture
-                long.value(anchor)
+                // 长按没生效（列表还没停稳、批量处理中）：不接管后续拖动，也不拿旧起点拖选
+                if (!long.value(anchor)) return@awaitEachGesture
                 var pointer = down.position
                 var lastId = anchor
                 fun reselect() {

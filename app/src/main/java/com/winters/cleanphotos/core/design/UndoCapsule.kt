@@ -43,8 +43,10 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * 撤回胶囊的内容。[seq] 每次有效操作递增，用来重启 4 秒倒计时；[favorite] 决定琥珀 / 中性灰。
@@ -73,6 +75,18 @@ fun UndoBar(
 ) {
     val last = remember { arrayOfNulls<UndoCapsuleContent>(1) }
     if (content != null) last[0] = content
+    // 4 秒截止按 seq 记在 AnimatedVisibility 外面：胶囊暂时隐藏（上下拖动、教学、小结页）再出现时
+    // 内容会重新进入组合，计时若放在里面会从头再算，撤回条能一直续命。这里只按真实时间算一次。
+    val seq = content?.seq
+    val startedAt = remember(seq) { SystemClock.uptimeMillis() }
+    val expired by rememberUpdatedState(onExpired)
+    if (seq != null) {
+        LaunchedEffect(seq) {
+            // 真实时间：Compose 动画会乘系统动画缩放，「移除动画」时 tween 立刻结束；过期用不受缩放影响的 delay 计时
+            delay(MotionDurations.UNDO_COUNTDOWN.toLong())
+            expired(seq)
+        }
+    }
     AnimatedVisibility(
         visible = content != null && visible,
         modifier = modifier,
@@ -82,21 +96,25 @@ fun UndoBar(
             slideOutVertically(tween(MotionDurations.UNDO_BAR_EXIT, easing = MotionEasings.Accelerate)) { it / 3 },
     ) {
         val info = content ?: last[0] ?: return@AnimatedVisibility
-        UndoCapsule(info, onUndo, onExpired)
+        UndoCapsule(info, if (info.seq == seq) startedAt else null, onUndo)
     }
 }
 
 @Composable
-private fun UndoCapsule(info: UndoCapsuleContent, onUndo: () -> Unit, onExpired: (Long) -> Unit) {
+private fun UndoCapsule(info: UndoCapsuleContent, startedAt: Long?, onUndo: () -> Unit) {
     val fav = info.favorite
-    val countdown = remember(info.seq) { Animatable(1f) }
+    val total = MotionDurations.UNDO_COUNTDOWN
+    // 重新出现时细线从剩余比例接着走，不回到满格
+    val remainingMs = startedAt?.let { undoRemainingMillis(it, SystemClock.uptimeMillis(), total) } ?: 0L
     val animations = LocalAnimationsEnabled.current
+    val countdown = remember(info.seq) { Animatable(if (animations) remainingMs.toFloat() / total else 1f) }
     LaunchedEffect(info.seq) {
-        // 4 秒是真实时间：Compose 动画会乘系统动画缩放，「移除动画」时 tween 立刻结束，撤回条一闪就没了。
-        // 细线只做显示；过期由不受缩放影响的 delay 计时。动画关闭时细线保持满格。
-        if (animations) launch { countdown.animateTo(0f, tween(MotionDurations.UNDO_COUNTDOWN, easing = LinearEasing)) }
-        delay(MotionDurations.UNDO_COUNTDOWN.toLong())
-        onExpired(info.seq)
+        // 细线只做显示（过期由外层 delay 计时）。动画关闭时细线保持满格。
+        if (animations && remainingMs > 0) {
+            countdown.animateTo(0f, tween(remainingMs.toInt(), easing = LinearEasing))
+        } else if (!animations) {
+            countdown.snapTo(1f)
+        }
     }
     val shape = RoundedCornerShape(28.dp)
     Box(
@@ -146,6 +164,10 @@ private fun UndoCapsule(info: UndoCapsuleContent, onUndo: () -> Unit, onExpired:
         }
     }
 }
+
+/** 撤回条剩余时间：从 [startedAt] 起算满 [total] ms，按真实时间扣，不因隐藏 / 重新出现而重置。 */
+internal fun undoRemainingMillis(startedAt: Long, now: Long, total: Int): Long =
+    (total - (now - startedAt)).coerceIn(0L, total.toLong())
 
 @Composable
 private fun UndoThumb(key: Long, model: Any?, fav: Boolean) {

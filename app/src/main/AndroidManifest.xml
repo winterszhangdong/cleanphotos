@@ -12,6 +12,8 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
+    <!-- 只有中文 / 英文：不开 RTL。系统语言是阿拉伯语等时，界面按英文资源、从左到右显示，
+         不会出现文字是英文但布局、手势方向和飞向导航的落点整体镜像错位 -->
     <application
         android:name=".CleanPhotosApp"
         android:allowBackup="true"
@@ -23,7 +25,7 @@
         android:label="@string/app_name"
         android:localeConfig="@xml/locales_config"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
+        android:supportsRtl="false"
         android:theme="@style/Theme.Cleanphotos">
         <activity
             android:name=".MainActivity"

@@ -6,6 +6,7 @@ import com.winters.cleanphotos.data.datasource.AppFavoriteStateDataSource
 import com.winters.cleanphotos.data.datasource.AppSeenStateDataSource
 import com.winters.cleanphotos.data.datasource.AppTrashStateDataSource
 import com.winters.cleanphotos.data.repository.ReviewRepositoryImpl
+import com.winters.cleanphotos.data.preferences.UserPreferencesDataSource
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +29,7 @@ class ReviewRepositoryBatchTest {
     private val favorites = AppFavoriteStateDataSource(dataStore)
     private val trash = AppTrashStateDataSource(dataStore)
     private val seen = AppSeenStateDataSource(dataStore)
-    private val repo = ReviewRepositoryImpl(mockk(relaxed = true), trash, favorites, seen)
+    private val repo = ReviewRepositoryImpl(mockk(relaxed = true), trash, favorites, seen, UserPreferencesDataSource(dataStore))
 
     @After
     fun tearDown() {

@@ -1,5 +1,9 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.onClick
 import com.winters.cleanphotos.core.locale.currentLocale
 import com.winters.cleanphotos.R
 import androidx.compose.ui.res.stringResource
@@ -122,6 +126,9 @@ class GridSelection(
     val selectedIds: Set<Long>,
     val selecting: Boolean,
     val onToggleDay: (dayKey: String) -> Unit,
+    /** 读屏：格子的点按 / 长按（手势本身挂在网格外层，格子上没有可点击语义）。 */
+    val onToggle: (Long) -> Unit = {},
+    val onLongPress: (Long) -> Boolean = { false },
 )
 
 /**
@@ -203,7 +210,17 @@ fun LazyGridScope.photoDaySections(
                     model = model,
                     contentDescription = photo.displayName,
                     // 同一天第二行起上方 2dp 间隔（.grid4 gap 2px）；天与天之间没有额外间隔
-                    modifier = reorderModifier(tileIndex, reorderAnchor()).padding(top = if (row == 0) 0.dp else Dimens.GridGap),
+                    modifier = reorderModifier(tileIndex, reorderAnchor())
+                        .padding(top = if (row == 0) 0.dp else Dimens.GridGap)
+                        .then(
+                            if (selection == null) Modifier
+                            else Modifier.semantics {
+                                // 网格手势在外层 pointerInput 上，TalkBack 双击 / 双击长按要在格子上声明
+                                onClick { if (selecting) selection.onToggle(photo.id) else onPhotoClick(photo.id); true }
+                                onLongClick { selection.onLongPress(photo.id) }
+                                if (selecting) selected = picked
+                            },
+                        ),
                     // 滚动中不注册共享元素；停稳后挂上，点进清理页仍能配对
                     sizedModifier = Modifier.sharedPhoto(photo.id, expandsHere = false),
                     unseen = unseen(photo.id),

@@ -163,6 +163,23 @@ class AllPhotosViewModelTest {
     }
 
     @Test
+    fun `长按没生效或退出多选后_旧起点的拖选回调被忽略`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(8))
+        val vm = createViewModel(); advanceUntilIdle()
+        val order = vm.uiState.value.sections.flatMap { it.photos }.map { it.id }
+        assertTrue(vm.onLongPressPhoto(order[0]))
+        vm.onDragSelect(order[0], order[2])
+        vm.onExitSelection()
+        // 退出后同一手势残留的拖动回调：不能用旧的起点集合重新选中
+        vm.onDragSelect(order[0], order[4])
+        assertFalse(vm.selection.value.isSelecting)
+        // 不在列表里的照片长按不生效，返回 false
+        assertFalse(vm.onLongPressPhoto(999L))
+        vm.onDragSelect(999L, order[3])
+        assertFalse(vm.selection.value.isSelecting)
+    }
+
+    @Test
     fun `全选这一天_再点取消这一天`() = runTest(testDispatcher) {
         fakePhotoRepository.setPhotos(TestPhotoData.createMultiDateTestPhotos())
         val vm = createViewModel(); advanceUntilIdle()

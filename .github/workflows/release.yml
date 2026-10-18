@@ -12,6 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: 核对 tag 与 versionName
+        # tag 和 app/build.gradle.kts 的 versionName 不一致时直接失败：否则 APK 文件名、发布说明和包内版本号对不上
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          app_version="$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts)"
+          if [ "$tag_version" != "$app_version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 versionName $app_version 不一致"
+            exit 1
+          fi
       - name: 从 CHANGELOG 生成发布说明
         # 先于构建执行：CHANGELOG 缺这一版或为空时直接失败，不浪费构建
         run: scripts/release-notes.sh "$GITHUB_REF_NAME" CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
@@ -22,6 +31,9 @@ jobs:
       - uses: android-actions/setup-android@v4.0.4
         with:
           packages: platforms;android-36
+      - name: 单元测试
+        # 测试不过不出包
+        run: ./gradlew testDebugUnitTest --stacktrace
       - name: 写入发布证书
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}

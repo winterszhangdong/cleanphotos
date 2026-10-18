@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.review
 
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import com.winters.cleanphotos.core.text.asString
 import com.winters.cleanphotos.R
 import androidx.compose.ui.res.stringResource
@@ -162,6 +163,13 @@ fun ReviewScreen(
     stage.onDayChanged = { Haptics.dayChange(view) }
     stage.exitTarget = { kind -> navTarget(kind, size, density, navBottom) }
 
+    // 会话没能建立（加载失败 / 起点照片已不存在）：让错误提示停留一会儿再回到入口页，不留一块没有返回按钮的黑屏
+    LaunchedEffect(uiState.loadFailed) {
+        if (uiState.loadFailed) {
+            delay(ERROR_VISIBLE_MS)
+            onNavigateBack()
+        }
+    }
     // 会话结束且没有小结：等离场主体结束后回到入口页
     LaunchedEffect(uiState.isCompleted) {
         if (uiState.isCompleted) {
@@ -187,6 +195,24 @@ fun ReviewScreen(
     // 只在「是否竖向拖动 / 方向」翻转时重组整屏；直接读 stage.dy 会让拖动的每一帧都重组 ReviewScreen（P4 卡顿剖析）
     val vertical by remember { derivedStateOf { stage.isVerticalDrag } }
     val upDrag by remember { derivedStateOf { stage.dy < 0f } }
+
+    // TalkBack 自定义操作：上滑 / 下滑 / 左右翻页的等价入口（调用同一条路径）
+    val upLabel = stringResource(if (uiState.scope == ReviewScope.Favorites) R.string.action_unfavorite else R.string.action_favorite)
+    val trashLabel = stringResource(R.string.action_move_to_trash)
+    val nextLabel = stringResource(R.string.a11y_next_page)
+    val previousLabel = stringResource(R.string.a11y_previous_page)
+    val hasNext = stage.nextPage != null
+    val hasPrevious = stage.previousPage != null
+    val a11yActions = remember(currentPhoto != null, hasNext, hasPrevious, upLabel, trashLabel, nextLabel, previousLabel) {
+        buildList {
+            if (currentPhoto != null) {
+                add(CustomAccessibilityAction(upLabel) { stage.accessibilitySwipe(up = true) })
+                add(CustomAccessibilityAction(trashLabel) { stage.accessibilitySwipe(up = false) })
+            }
+            if (hasNext) add(CustomAccessibilityAction(nextLabel) { stage.goNext(); true })
+            if (hasPrevious) add(CustomAccessibilityAction(previousLabel) { stage.goPrevious(); true })
+        }
+    }
 
     GlassBackdropHost {
         AppDockEffect(DockMode.Hidden) // 用户决定（2026-10-17）：清理页离场 / 撤回不再浮现落点导航
@@ -221,15 +247,23 @@ fun ReviewScreen(
                     )
                 },
                 modifier = Modifier.glassBackdropSource(),
+                accessibilityActions = a11yActions,
             )
 
             // 会话加载中（还没有当前页）：直接取内存里的网格缩略图铺满，进入那几帧不空屏
             val navEntering = isNavEntering()
             if (stage.currentPage == null && uiState.isLoading && entryPhotoId != null) {
                 val thumb = remember(entryPhotoId) {
-                    coil.Coil.imageLoader(context).memoryCache
+                    // 网格缩略图是硬件位图，Image 不能直接画；拷成软件位图。
+                    val cached = coil.Coil.imageLoader(context).memoryCache
                         ?.get(coil.memory.MemoryCache.Key(com.winters.cleanphotos.core.design.photoThumbKey(entryPhotoId)))
-                        ?.bitmap?.asImageBitmap()
+                        ?.bitmap ?: return@remember null
+                    val software = if (cached.config == android.graphics.Bitmap.Config.HARDWARE) {
+                        cached.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                    } else {
+                        cached
+                    }
+                    software?.asImageBitmap()
                 }
                 if (thumb != null) {
                     androidx.compose.foundation.Image(

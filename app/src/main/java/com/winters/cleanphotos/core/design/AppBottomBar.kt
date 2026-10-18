@@ -144,6 +144,8 @@ private fun NavItem(tab: BottomTab, selected: Boolean, count: Int?, onClick: (()
         horizontalArrangement = Arrangement.spacedBy(Dimens.NavItemGap, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+      // 72×36 固定格子：大字号下标签和角标会被裁掉 / 挤出，缩放封顶（1.0 时不变）
+      CappedFontScale(FontScaleCaps.NAV_LABEL) {
         // 颜色在绘制阶段读取：280ms 渐变期间不重组、不重新排版
         BasicText(
             text = stringResource(tab.label),
@@ -164,5 +166,6 @@ private fun NavItem(tab: BottomTab, selected: Boolean, count: Int?, onClick: (()
                 OdometerText(value = count.toLong(), style = DarkroomText.NavBadge)
             }
         }
+      }
     }
 }

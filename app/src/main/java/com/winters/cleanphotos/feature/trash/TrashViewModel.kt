@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.trash
 
+import kotlinx.coroutines.CancellationException
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.R
 import android.util.Log
@@ -98,6 +99,8 @@ class TrashViewModel @Inject constructor(
             try {
                 photoRepository.refreshTrashedPhotos()
                 _uiState.value = _uiState.value.copy(isLoading = false)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -114,9 +117,14 @@ class TrashViewModel @Inject constructor(
             observeTrashedPhotosUseCase().flowOn(computeDispatcher).collect { photos ->
                 // isLoading 由刷新流程维护：首次刷新完成前照片表还是空的，不能先闪「垃圾桶是空的」
                 val ids = photos.mapTo(HashSet()) { it.id }
-                _uiState.value = _uiState.value.copy(
+                val now = _uiState.value
+                // 预览中垃圾桶被外部清空（回到前台刷新、系统相册里删掉）：退出预览，不留一块没有照片的全屏黑底
+                val previewGone = now.screenMode == TrashScreenMode.Preview && photos.isEmpty()
+                _uiState.value = now.copy(
                     photos = photos,
-                    selectedPhotoIds = _uiState.value.selectedPhotoIds.filterTo(HashSet()) { it in ids },
+                    selectedPhotoIds = now.selectedPhotoIds.filterTo(HashSet()) { it in ids },
+                    screenMode = if (previewGone) TrashScreenMode.Grid else now.screenMode,
+                    previewPhotoId = if (previewGone) null else now.previewPhotoId,
                 )
             }
         }
@@ -190,7 +198,7 @@ class TrashViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isProcessingAction = true)
 
-            val result = restorePhotosFromTrashUseCase(selectedPhotos)
+            val result = safeWrite { restorePhotosFromTrashUseCase(selectedPhotos) }
             when (result) {
                 is PhotoOperationResult.Success -> {
                     handleBatchRestoreSuccess()
@@ -244,7 +252,7 @@ class TrashViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isProcessingAction = true)
 
-            val result = restorePhotoFromTrashUseCase(photo)
+            val result = safeWrite { restorePhotoFromTrashUseCase(photo) }
             when (result) {
                 is PhotoOperationResult.Success -> {
                     handlePreviewRestoreSuccess(preRestorePhotos, preRestoreIndex)
@@ -280,9 +288,10 @@ class TrashViewModel @Inject constructor(
                 showEmptyTrashConfirmDialog = false
             )
 
-            // 删除前拍快照：Android 8–10 直接删除时 MediaStore 变化会先刷新列表，之后再读 state 会是空的
+            // 删除前拍快照：之后的 state 可能已被别的刷新改掉（Android 11+ 从系统删除确认回来时，
+            // 回到前台的刷新可能先于授权结果跑完，列表已经没有被删的照片），溶解和残留校验都以快照为准
             val snapshot = TrashDissolve(state.photos, state.totalBytes)
-            val result = deletePhotosPermanentlyUseCase(state.photos)
+            val result = safeWrite { deletePhotosPermanentlyUseCase(state.photos) }
             when (result) {
                 is PhotoOperationResult.Success -> {
                     writePermissionRequested = false
@@ -299,6 +308,9 @@ class TrashViewModel @Inject constructor(
                         _effects.send(TrashEffect.RequestWritePermission)
                     } else {
                         writePermissionRequested = false
+                        // Android 8–10 直接删除可能删掉了一部分：刷新列表，已删掉的不再显示、记录清掉
+                        refreshPhotoLists()
+                        forgetVanished(snapshot.photos)
                         _uiState.value = _uiState.value.copy(
                             isProcessingAction = false,
                             errorMessage = getFailureMessage(result.reason)
@@ -333,7 +345,13 @@ class TrashViewModel @Inject constructor(
     fun onSystemMediaActionResult(authorized: Boolean) {
         viewModelScope.launch {
             if (authorized) {
-                pendingSystemAction?.invoke()
+                val pending = pendingSystemAction
+                if (pending != null) {
+                    pending()
+                } else {
+                    // 系统删除确认期间进程被回收：重建后没有快照可溶解，至少刷新列表并给出结果提示
+                    handleEmptyTrashAfterRecreate()
+                }
             } else {
                 // 用户取消系统授权：静默处理，列表保持不变
                 _uiState.value = _uiState.value.copy(isProcessingAction = false)
@@ -439,8 +457,7 @@ class TrashViewModel @Inject constructor(
         refreshPhotoLists()
 
         // 刷新后检查残留
-        val remainingPhotos = observeTrashedPhotosUseCase().first()
-        val remainingIds = remainingPhotos.map { it.id }.toSet()
+        val remainingIds = forgetVanished(snapshot.photos)
 
         if (remainingIds.isEmpty()) {
             // 全部删除成功
@@ -468,6 +485,36 @@ class TrashViewModel @Inject constructor(
         }
     }
 
+    /** 进程重建后收到系统删除授权结果：刷新，垃圾桶空了就提示已清空。 */
+    private suspend fun handleEmptyTrashAfterRecreate() {
+        refreshPhotoLists()
+        val remaining = observeTrashedPhotosUseCase().first()
+        _uiState.value = _uiState.value.copy(
+            isProcessingAction = false,
+            actionMessage = if (remaining.isEmpty()) UiText.Res(R.string.msg_trash_emptied) else null,
+        )
+    }
+
+    /**
+     * 刷新后，快照里已经不在图库（垃圾桶列表）里的照片：清掉它们残留的垃圾桶 / 收藏 / 看过记录。
+     * 系统授权删除、部分照片权限下刷新不做失效清理，不收尾的话这些记录会一直留着（A-D8）。
+     * 返回刷新后仍在垃圾桶里的 id。
+     */
+    private suspend fun forgetVanished(snapshot: List<PhotoItem>): Set<Long> {
+        val remainingIds = observeTrashedPhotosUseCase().first().mapTo(HashSet()) { it.id }
+        val gone = snapshot.mapTo(HashSet()) { it.id } - remainingIds
+        if (gone.isNotEmpty()) {
+            try {
+                deletePhotosPermanentlyUseCase.forgetDeleted(gone)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "清理已删除照片的记录失败", e)
+            }
+        }
+        return remainingIds
+    }
+
     /**
      * 刷新照片列表。
      * refreshTrashedPhotos() 内部委托 refreshPhotos()，只调一次避免重复扫描 MediaStore。
@@ -475,9 +522,21 @@ class TrashViewModel @Inject constructor(
     private suspend fun refreshPhotoLists() {
         try {
             photoRepository.refreshTrashedPhotos()
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             // 刷新失败不影响操作结果
         }
+    }
+
+    /** DataStore 写入失败（存储满等）按普通失败提示，不闪退。 */
+    private suspend fun safeWrite(block: suspend () -> PhotoOperationResult): PhotoOperationResult = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e(TAG, "垃圾桶操作失败", e)
+        PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
     }
 
     private fun getFailureMessage(reason: PhotoOperationFailureReason): UiText {

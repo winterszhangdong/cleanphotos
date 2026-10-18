@@ -53,6 +53,15 @@ class FakePhotoRepository : PhotoRepository {
 
     override fun observeTrashedPhotos(): Flow<List<PhotoItem>> = trashedPhotosFlow
 
+    /** ensurePhotosLoaded 调用次数与副作用（模拟进程重建后首次加载照片表）。 */
+    var ensureLoadedCalls = 0
+    var onEnsureLoaded: (() -> Unit)? = null
+    override suspend fun ensurePhotosLoaded() {
+        ensureLoadedCalls++
+        onEnsureLoaded?.invoke()
+        onEnsureLoaded = null
+    }
+
     override suspend fun refreshTrashedPhotos() {
         if (shouldThrowOnRefresh) {
             throw RuntimeException("查询垃圾桶失败")

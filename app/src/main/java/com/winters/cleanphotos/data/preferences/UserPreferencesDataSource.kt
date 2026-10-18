@@ -1,6 +1,7 @@
 package com.winters.cleanphotos.data.preferences
 
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -34,6 +35,11 @@ class UserPreferencesDataSource @Inject constructor(
     fun observeSwipeActionCount(): Flow<Int> = dataStore.data.map { it[swipeActionCountKey] ?: 0 }
 
     suspend fun incrementSwipeActionCount() {
-        dataStore.edit { it[swipeActionCountKey] = (it[swipeActionCountKey] ?: 0) + 1 }
+        dataStore.edit { incrementSwipeActionCountIn(it) }
+    }
+
+    /** 在调用方的 edit 里 +1（同一个 DataStore），让一次滑动的所有写入合成一次。 */
+    internal fun incrementSwipeActionCountIn(prefs: MutablePreferences) {
+        prefs[swipeActionCountKey] = (prefs[swipeActionCountKey] ?: 0) + 1
     }
 }

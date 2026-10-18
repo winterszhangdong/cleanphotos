@@ -4,6 +4,8 @@ import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.animate
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.Job
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -133,13 +135,38 @@ object BackdropSnapshot {
 @Composable
 fun rememberBackdropRecorder(): GraphicsLayer = rememberGraphicsLayer()
 
+/**
+ * 每帧把这块内容录进 [layer]。只用于很小的区域：整页录制会让滚动的每一帧重画所有可见格子。
+ * 离开页面前的整页快照用 [captureBackdropOnce]。
+ */
 fun Modifier.recordBackdrop(layer: GraphicsLayer): Modifier = drawWithContent {
     layer.record { this@drawWithContent.drawContent() }
     drawLayer(layer)
 }
 
-fun CoroutineScope.captureBackdrop(layer: GraphicsLayer) = launch {
-    BackdropSnapshot.image = layer.toImageBitmap()
+/**
+ * [capture] 为 true 的那一帧把当前内容录进 [layer] 并立刻转成位图，然后清掉标记。
+ * 不当成常驻的每帧离屏层。
+ */
+/**
+ * [capture] 为 true 时，这一帧把内容录进 [layer]，下一帧在协程里转成位图。
+ * 不当成常驻的每帧离屏层。
+ */
+@Composable
+fun Modifier.captureBackdropOnce(layer: GraphicsLayer, capture: Boolean, onCaptured: () -> Unit): Modifier {
+    if (capture) {
+        LaunchedEffect(layer) {
+            // 等这一帧画完（record 发生在绘制），再读像素
+            withFrameNanos { }
+            withFrameNanos { }
+            BackdropSnapshot.image = layer.toImageBitmap()
+            onCaptured()
+        }
+    }
+    return drawWithContent {
+        if (capture) layer.record { this@drawWithContent.drawContent() }
+        drawContent()
+    }
 }
 
 private const val BACK_MIN_SCALE = 0.86f

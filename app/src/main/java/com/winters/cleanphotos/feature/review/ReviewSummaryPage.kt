@@ -93,7 +93,10 @@ internal fun ReviewSummaryPage(
     val animations = LocalAnimationsEnabled.current
     val clock = remember(summary.dayKey) { Animatable(if (animations) 0f else TOTAL_MS) }
     LaunchedEffect(summary.dayKey, isCurrent) {
-        if (isCurrent && clock.value == 0f) clock.animateTo(TOTAL_MS, tween(TOTAL_MS.toInt(), easing = LinearEasing))
+        // 入场播到一半就翻走：isCurrent 变化会取消这里的动画，时钟停在中途。翻回来时从停下的位置按原速度播完剩下的部分，
+        // 不能只在 0 时启动（否则数字、比例条永远停在半截）。
+        val remaining = TOTAL_MS - clock.value
+        if (isCurrent && remaining > 0f) clock.animateTo(TOTAL_MS, tween(remaining.roundToInt(), easing = LinearEasing))
     }
     fun window(startMs: Float, durMs: Float): Float = ((clock.value - startMs) / durMs).coerceIn(0f, 1f)
     /** 「升起：舒缓 0.85 / 200」：按时间轴直接取弹簧值。 */

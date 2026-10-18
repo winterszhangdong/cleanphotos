@@ -32,6 +32,8 @@ data class ReviewUiState(
     val undo: UndoInfo? = null,
     val trashCount: Int = 0,
     val errorMessage: UiText? = null,
+    /** 会话没能建立：提示后返回入口页（否则只剩一块没有返回按钮的黑屏）。 */
+    val loadFailed: Boolean = false,
     /** 照片全部处理完且没有小结：回到入口页。 */
     val isCompleted: Boolean = false,
 )

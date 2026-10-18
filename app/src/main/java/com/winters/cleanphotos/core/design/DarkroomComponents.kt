@@ -92,16 +92,19 @@ fun ScreenHeader(
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.HeaderBottomPadding),
         verticalAlignment = Alignment.Bottom,
     ) {
-        Column(Modifier.weight(1f).alpha(leftAlpha)) {
-            Row(Modifier.padding(bottom = Dimens.EyebrowGap), verticalAlignment = Alignment.CenterVertically, content = eyebrow)
-            Row(
-                Modifier.heightIn(min = Dimens.CountHeight),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.CountGap),
-                verticalAlignment = Alignment.Bottom,
-                content = count,
-            )
+        // 84dp 固定高度（与 ScreenHeaderSpacer 对齐）：大字号时缩放封顶，计数行不被顶出状态栏（1.0 时不变）
+        CappedFontScale(FontScaleCaps.HEADER) {
+            Column(Modifier.weight(1f).alpha(leftAlpha)) {
+                Row(Modifier.padding(bottom = Dimens.EyebrowGap), verticalAlignment = Alignment.CenterVertically, content = eyebrow)
+                Row(
+                    Modifier.heightIn(min = Dimens.CountHeight),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.CountGap),
+                    verticalAlignment = Alignment.Bottom,
+                    content = count,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(Dimens.HeaderActionGap), content = actions)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.HeaderActionGap), content = actions)
     }
 }
 
@@ -219,6 +222,8 @@ fun DayHeaderRow(
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, top = Dimens.DayTop, bottom = Dimens.DayBottom),
         horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap),
     ) {
+      // 50dp 固定高度：大字号时缩放封顶，天数字不被裁（1.0 时不变）
+      CappedFontScale(FontScaleCaps.DAY_HEADER) {
         Text(numeral, style = DarkroomText.DayNumeral, modifier = Modifier.alignByBaseline())
         Text(meta, style = DarkroomText.DayMeta, modifier = Modifier.alignByBaseline())
         Spacer(Modifier.weight(1f))
@@ -232,6 +237,7 @@ fun DayHeaderRow(
             right()
             if (showChevron) Icon(DarkroomIcons.Chevron, contentDescription = stringResource(R.string.cd_enter_day), tint = DarkroomColors.Dim, modifier = Modifier.size(Dimens.DayChevron))
         }
+      }
     }
 }
 
@@ -251,9 +257,9 @@ fun MonoWithBold(bold: String?, rest: String) {
 
 /** .list-fade：底部 128dp 渐暗（透明 → 92% @70% → 暗室底）。 */
 @Composable
-fun BoxScope.ListFade() {
+fun BoxScope.ListFade(modifier: Modifier = Modifier) {
     Box(
-        Modifier
+        modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
             .height(Dimens.ListFade)

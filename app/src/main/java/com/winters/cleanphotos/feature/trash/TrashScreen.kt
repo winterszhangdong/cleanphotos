@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.core.design.FontScaleCaps
+import com.winters.cleanphotos.core.design.CappedFontScale
 import com.winters.cleanphotos.core.text.asString
 import com.winters.cleanphotos.core.locale.currentLocale
 import com.winters.cleanphotos.R
@@ -29,9 +31,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,14 +54,12 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.activity.compose.BackHandler
-import androidx.compose.runtime.rememberCoroutineScope
 import com.winters.cleanphotos.core.navigation.BackdropSnapshot
-import com.winters.cleanphotos.core.navigation.captureBackdrop
+import com.winters.cleanphotos.core.navigation.captureBackdropOnce
 import com.winters.cleanphotos.core.navigation.predictiveBackAvailable
 import com.winters.cleanphotos.core.navigation.predictiveBackdrop
 import com.winters.cleanphotos.core.navigation.predictiveClip
 import com.winters.cleanphotos.core.navigation.predictiveShrink
-import com.winters.cleanphotos.core.navigation.recordBackdrop
 import com.winters.cleanphotos.core.navigation.rememberBackdropRecorder
 import com.winters.cleanphotos.core.navigation.rememberPredictiveBack
 import com.winters.cleanphotos.core.navigation.AppDockEffect
@@ -115,7 +122,11 @@ fun TrashScreen(
     // 34+ 由预览里的预测性返回接管；同时启用时普通 BackHandler 会抢先
     BackHandler(enabled = isPreview && !predictiveBackAvailable()) { onExitPreview() }
     val gridRecorder = rememberBackdropRecorder()
-    val recorderScope = rememberCoroutineScope()
+    var captureGrid by remember { mutableStateOf(false) }
+    // 网格滚动位置提到这里：进入单张预览时网格离开组合，回来不能跳回顶部；清空溶解也从同一位置开始
+    val gridState = rememberSaveable(saver = LazyGridState.Saver) { LazyGridState() }
+    // 清空溶解播完后，下次网格出现时从顶部开始（而不是停在清空前的位置）
+    val scrollToTopNext = remember { booleanArrayOf(false) }
     BackHandler(enabled = isSelection && !isPreview) { onExitSelectionMode() }
 
     val errorText = uiState.errorMessage?.asString()
@@ -159,7 +170,11 @@ fun TrashScreen(
                         .predictiveClip(back),
                 )
             } else {
-                Column(Modifier.fillMaxSize().recordBackdrop(gridRecorder).glassBackdropSource()) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .captureBackdropOnce(gridRecorder, captureGrid) { captureGrid = false },
+                ) {
                     if (isSelection) {
                         SelectionBar(
                             selectedCount = uiState.selectedPhotoIds.size,
@@ -181,24 +196,38 @@ fun TrashScreen(
                             uiState.dissolving != null -> TrashDissolveGrid(
                                 dissolve = uiState.dissolving,
                                 header = { bytes -> FreeCard(bytes, onClear = {}) },
-                                onFinished = onDissolveFinished,
+                                onFinished = {
+                                    scrollToTopNext[0] = true
+                                    onDissolveFinished()
+                                },
+                                gridState = gridState,
                             )
                             uiState.isLoading && uiState.photos.isEmpty() -> Unit
                             uiState.errorMessage != null && uiState.photos.isEmpty() -> Unit
                             uiState.photos.isEmpty() -> Unit
-                            else -> TrashPhotoGrid(
-                                photos = uiState.photos,
-                                selectedPhotoIds = uiState.selectedPhotoIds,
-                                isSelectionMode = isSelection,
-                                onPhotoClick = { photo ->
-                                    if (!isSelection) recorderScope.captureBackdrop(gridRecorder)
-                                    onPhotoClick(photo)
-                                },
-                                onToggleSelection = onToggleSelection,
-                                header = {
-                                    if (isSelection) SelectionSummary(selectedBytes) else FreeCard(uiState.totalBytes, onShowEmptyTrashConfirm)
-                                },
-                            )
+                            else -> {
+                                // 组合提交后、本帧测量前生效
+                                SideEffect {
+                                    if (scrollToTopNext[0]) {
+                                        scrollToTopNext[0] = false
+                                        gridState.requestScrollToItem(0)
+                                    }
+                                }
+                                TrashPhotoGrid(
+                                    photos = uiState.photos,
+                                    selectedPhotoIds = uiState.selectedPhotoIds,
+                                    isSelectionMode = isSelection,
+                                    onPhotoClick = { photo ->
+                                        if (!isSelection) captureGrid = true
+                                        onPhotoClick(photo)
+                                    },
+                                    onToggleSelection = onToggleSelection,
+                                    state = gridState,
+                                    header = {
+                                        if (isSelection) SelectionSummary(selectedBytes) else FreeCard(uiState.totalBytes, onShowEmptyTrashConfirm)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -218,6 +247,19 @@ fun TrashScreen(
                     }
                     else -> ListFade()
                 }
+                // 导航玻璃只取样底部这条实色带；预测性返回的快照在打开预览时单独截一帧（见 captureBackdrop）。
+                if (uiState.photos.isNotEmpty() || uiState.dissolving != null) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .height(Dimens.NavHeight + Dimens.NavBottom)
+                            .background(DarkroomColors.Room)
+                            .glassBackdropSource(),
+                    )
+                }
+            }
 
                 SnackbarHost(
                     hostState = snackbarHostState,
@@ -254,7 +296,6 @@ fun TrashScreen(
                 )
             }
         }
-    }
 }
 
 /** .free：「清空后可释放」卡片（外边距 4 16 16，网格自身 2dp 间隔从下边距里扣掉）。 */
@@ -295,6 +336,8 @@ private fun SelectionBar(selectedCount: Int, onExit: () -> Unit, onBatchRestore:
             .height(Dimens.HeaderHeight)
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.HeaderBottomPadding),
     ) {
+      // 84dp 固定高度：大字号时缩放封顶（1.0 时不变）
+      CappedFontScale(FontScaleCaps.HEADER) {
         TrayTextButton(stringResource(R.string.cancel), onClick = onExit, modifier = Modifier.align(Alignment.BottomStart))
         Row(
             Modifier.align(Alignment.BottomCenter).height(Dimens.SmallButtonHeight),
@@ -309,18 +352,27 @@ private fun SelectionBar(selectedCount: Int, onExit: () -> Unit, onBatchRestore:
             if (suffix.isNotEmpty()) Text(suffix, style = DarkroomText.SelTitle, modifier = Modifier.alignByBaseline())
         }
         PaperButton(stringResource(R.string.restore_from_trash), onClick = onBatchRestore, enabled = isRestoreEnabled, modifier = Modifier.align(Alignment.BottomEnd))
+      }
     }
 }
 
 /** .sel-sum：40dp，左提示，右「9.6 MB · 回到相册」。 */
 @Composable
 private fun SelectionSummary(selectedBytes: Long) {
+  // 固定高度的一行：大字号时缩放封顶；右侧大小先量（始终完整），左侧提示只在放不下时省略（1.0 时排版不变）
+  CappedFontScale(FontScaleCaps.HEADER) {
     Row(
         Modifier.fillMaxWidth().height(Dimens.SelSumHeight - Dimens.GridGap).padding(horizontal = Dimens.ScreenSide),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(stringResource(R.string.sel_sum_hint), style = DarkroomText.SelSum)
+        Text(
+            stringResource(R.string.sel_sum_hint),
+            style = DarkroomText.SelSum,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
         val selectedSize = FileSizeFormatter.format(selectedBytes, currentLocale())
         val backLabel = stringResource(R.string.sel_sum_back)
         Text(
@@ -331,8 +383,11 @@ private fun SelectionSummary(selectedBytes: Long) {
                 append(backLabel)
             },
             style = DarkroomText.SelSumMono,
+            maxLines = 1,
+            softWrap = false,
         )
     }
+  }
 }
 
 /**

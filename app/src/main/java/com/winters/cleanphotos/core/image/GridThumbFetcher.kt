@@ -5,6 +5,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.CancellationSignal
+import android.os.OperationCanceledException
 import coil.ImageLoader
 import coil.decode.DataSource
 import coil.decode.ImageSource
@@ -14,6 +15,9 @@ import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.request.Options
 import coil.size.pxOrElse
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okio.buffer
 import okio.source
@@ -37,7 +41,18 @@ class GridThumbFetcher(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val w = options.size.width.pxOrElse { DEFAULT_PX }
             val h = options.size.height.pxOrElse { DEFAULT_PX }
-            val bitmap = runCatching { loadThumbnail(context, w, h) }.getOrNull()
+            val bitmap = try {
+                loadThumbnail(context, w, h)
+            } catch (e: CancellationException) {
+                // 格子滑出屏幕、请求被取消：直接结束，不能当成「取缩略图失败」再去读整张原图
+                throw e
+            } catch (e: OperationCanceledException) {
+                // CancellationSignal 被取消时 loadThumbnail 抛这个：协程已取消就照取消处理
+                currentCoroutineContext().ensureActive()
+                null
+            } catch (e: Exception) {
+                null
+            }
             if (bitmap != null) {
                 // isSampled = false：loadThumbnail 按比例缩进 w×h，非方形照片的短边会小于格子（如 270×202）。
                 // 标成「已采样」时 Coil 回到网格判定缓存图比请求尺寸小、内存缓存失效而重新取图（灰色显影重播）。

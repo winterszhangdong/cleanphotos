@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.allphotos
 
+import com.winters.cleanphotos.core.design.FontScaleCaps
+import com.winters.cleanphotos.core.design.CappedFontScale
 import com.winters.cleanphotos.core.text.asString
 import com.winters.cleanphotos.R
 import androidx.compose.ui.res.stringResource
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +33,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
@@ -45,7 +49,8 @@ import com.winters.cleanphotos.domain.model.BatchActionType
 
 /** 照片页多选的事件回调（Route 接到 ViewModel）。 */
 data class PhotoSelectionActions(
-    val onLongPress: (Long) -> Unit,
+    /** 返回是否开始了多选拖选。 */
+    val onLongPress: (Long) -> Boolean,
     val onDrag: (anchorId: Long, currentId: Long) -> Unit,
     val onToggle: (Long) -> Unit,
     val onToggleDay: (String) -> Unit,
@@ -56,7 +61,7 @@ data class PhotoSelectionActions(
     val onUndoExpired: (Long) -> Unit,
 ) {
     companion object {
-        val None = PhotoSelectionActions({}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {})
+        val None = PhotoSelectionActions({ false }, { _, _ -> }, {}, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -114,7 +119,16 @@ private fun ActionItem(icon: ImageVector, iconTint: Color, label: String, labelC
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(Dimens.ToolIcon))
-        Text(label, style = DarkroomText.NavLabel.copy(color = labelColor, fontWeight = FontWeight.Medium))
+        // 与底栏标签同一固定高度：大字号时缩放封顶（1.0 时不变）；112dp 放不下（如英文「Move to trash」×1.15）时单行缩小字号，不换行被裁
+        CappedFontScale(FontScaleCaps.NAV_LABEL) {
+            Text(
+                label,
+                style = DarkroomText.NavLabel.copy(color = labelColor, fontWeight = FontWeight.Medium),
+                maxLines = 1,
+                softWrap = false,
+                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = DarkroomText.NavLabel.fontSize),
+            )
+        }
     }
 }
 

@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import com.winters.cleanphotos.core.design.rememberPhotoGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -24,10 +26,12 @@ fun TrashPhotoGrid(
     onPhotoClick: (PhotoItem) -> Unit,
     onToggleSelection: (PhotoItem) -> Unit,
     modifier: Modifier = Modifier,
+    state: LazyGridState = rememberPhotoGridState(),
     header: @Composable () -> Unit = {},
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
+        state = state,
         contentPadding = PaddingValues(bottom = dockListBottomPadding()),
         horizontalArrangement = Arrangement.spacedBy(Dimens.GridGap),
         verticalArrangement = Arrangement.spacedBy(Dimens.GridGap),

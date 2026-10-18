@@ -39,9 +39,9 @@ class MediaStorePhotoDataSource @Inject constructor(
             projection.add(MediaStore.Images.Media.IS_FAVORITE)
         }
 
-        // 不依赖 SQL 排序，查询后在内存中用 effectiveDate 排序
-        // 因为 DATE_TAKEN 为空时需要 fallback 到 DATE_ADDED
-        val sortOrder = null
+        // DATE_TAKEN 倒序先排好大部分。DATE_TAKEN 为空的少数照片仍按 DATE_ADDED 归位，
+        // 所以查完再排一次；但游标已经接近有序，那一次排序几乎是线性的。
+        val sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC"
 
         try {
             contentResolver.query(

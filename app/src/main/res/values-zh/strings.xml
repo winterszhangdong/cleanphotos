@@ -55,6 +55,8 @@
     <string name="action_favorite">收藏</string>
     <string name="action_unfavorite">取消收藏</string>
     <string name="action_move_to_trash">移入垃圾桶</string>
+    <string name="a11y_next_page">下一张</string>
+    <string name="a11y_previous_page">上一张</string>
     <string name="favorites_error_title">没能读取收藏</string>
     <string name="favorites_empty_title">还没有收藏</string>
     <string name="favorites_empty_body">在清理页把好照片向上一推，它就会留在这里。</string>

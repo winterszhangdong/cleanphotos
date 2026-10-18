@@ -14,4 +14,7 @@ class DeletePhotosPermanentlyUseCase @Inject constructor(
     suspend operator fun invoke(photos: List<PhotoItem>): PhotoOperationResult {
         return reviewRepository.deletePhotosPermanently(photos)
     }
+
+    /** 删除后确认已消失的照片：清掉残留的垃圾桶 / 收藏 / 看过记录。 */
+    suspend fun forgetDeleted(photoIds: Set<Long>) = reviewRepository.forgetDeletedTrashEntries(photoIds)
 }
