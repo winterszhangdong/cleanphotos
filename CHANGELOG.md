@@ -7,6 +7,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- iOS：读屏（VoiceOver）可用性：清理页照片整页朗读拍摄时间，提供「收藏 / 取消收藏」「移入垃圾桶」自定义操作，上下轻扫翻页。
+- iOS：只授权了部分照片时，照片页 ⋯ 菜单里多一项「选择更多照片」；系统不再在启动时自动弹出选择提示。
+- iOS：新增隐私清单（PrivacyInfo.xcprivacy）：不追踪、不收集数据，声明用到的本地设置存储与系统时钟接口。
+
 ### Fixed
 
 - 安卓：在清理页切到后台、进程被系统回收后再回来，显示「加载照片失败」并停在一块没有返回按钮的黑屏：现在先读图库再建立会话，并从上次正在看的那张接着看（它已处理过时就近选一张）；会话确实建立不了时提示后自动回到入口页。
@@ -26,8 +32,31 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 安卓：横屏时左右两侧的系统导航栏 / 挖孔会挡住页面内容。
 - 安卓：读屏（TalkBack）可用性：清理页提供「收藏 / 取消收藏、移入垃圾桶、上一张、下一张」自定义操作；照片页缩略图可双击打开、双击按住进入多选；计数整体朗读；语言选项读出「已选中」。
 - 安卓：快速滚动网格时，被取消的缩略图请求会改去读取整张原图，白白占用读盘和内存。
+- iOS：在系统相册或其它 App 里增删照片、调整「部分照片」的选择后，App 不刷新；从系统设置改了照片权限回来要重开 App。现在都会自动刷新（清理页打开期间先记下，关掉清理页时再刷新）。
+- iOS：清空垃圾桶要等整个图库重读完才开始溶解（照片多时要等几百毫秒到几秒），中间还可能闪一下空页面；照片已在系统相册里删掉时清空会出错；任何失败都提示「操作已取消」。现在确认后溶解马上开始，只删还在的照片，只有点了「不允许」才提示已取消，其它失败提示「操作失败」。
+- iOS：「清空后可释放」把已经不在图库里的照片也算了进去；在 App 外删掉的照片一直留在收藏 / 垃圾桶 / 看过记录里。现在只算还在的照片，失效记录在完整授权下自动清理（只授权部分照片时不清理）。
+- iOS：清理页处理完最后一张时，离场动画和余影还没播就直接换成完成页；现在播完再回入口页，期间仍可撤回。
+- iOS：清理页拖到一半被来电、通知中心等系统手势打断时，照片停在半路、顶栏不再出现，下一次滑动可能失效；现在照片弹回原位。
+- iOS：收藏 / 移入没有生效时点撤回，会撤回上一张或撤错照片；翻出去几页后再撤回，飞回来的照片是空白。撤回「取消收藏」后照片跳到收藏页最前面，现在回到原来的位置。
+- iOS：上滑收藏的两层余影在照片落入时突然整块消失，现在走完各自的路径再淡出；撤回条被上下拖动或小结页暂时藏起、再出现时倒计时细线从满格重来，现在按真实剩余时间接着走。
+- iOS：清理页顶部进度条当前格的呼吸从没动过；现在按设计 1.6 秒呼吸（减弱动态效果时常亮），呼吸以 30fps 刷新，不让上下滑多掉帧。小结页入场播完后不再每帧重绘。
+- iOS：垃圾桶预览翻过的大图一直占着内存（每张约 9MB），文件名和大小在主线程反复查询；照片页批量移到垃圾桶时逐张同步计算文件大小导致卡顿。
+- iOS：横屏时网格、清理页顶栏和底部信息被刘海挡住，垃圾桶预览的方框和教学页说明超出屏幕；小屏或大字号下授权页内容和按钮重叠（现在放不下时可以滚动）。
+- iOS：照片 / 收藏网格快速甩动时仍可能误点进清理页（现在滚动中和停稳后约 300ms 内不响应点按）；从收藏页打开照片没有展开动画。
+- iOS：没有拍摄时间的照片被归到公元 1 年的一天并生成小结，现在归为「未知日期」；英文界面数量为 1 时露出原始文案 key。
+
+### Changed
+
+- iOS：只支持 iPhone，不再提供 iPad 安装。
+- iOS：系统字号最大按 xxxLarge 显示（更大的辅助功能字号不再继续放大），避免固定高度位置的文字被裁切。
 
 ---
+
+### Added
+
+- iOS: VoiceOver support in review: the photo page reads its capture time as one element, offers Favorite/Unfavorite and Move to Trash custom actions, and swiping up or down pages between photos.
+- iOS: with limited photo access, the Photos ⋯ menu has a new "Select more photos" entry; the system no longer pops up its own selection prompt on launch.
+- iOS: added a privacy manifest (PrivacyInfo.xcprivacy): no tracking, no data collection, and declarations for the local settings storage and system clock APIs used.
 
 ### Fixed
 
@@ -48,6 +77,23 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Android: in landscape, the system navigation bar or display cutout on the left/right covered page content.
 - Android: TalkBack accessibility: review offers custom actions (favorite/unfavorite, move to trash, previous, next); grid thumbnails can be double-tapped to open and double-tap-held to start multi-select; counters are read as one number; language options announce "selected".
 - Android: when scrolling the grid quickly, cancelled thumbnail requests fell back to reading the full original image, wasting disk reads and memory.
+- iOS: adding or deleting photos in the Photos app or another app, or changing the limited-access selection, didn't refresh the app, and changing photo permission in Settings needed a restart. Both now refresh automatically (while review is open the change is held until review closes).
+- iOS: emptying the trash waited for the whole library to reload before the dissolve started (hundreds of ms to seconds on large libraries) and could flash an empty page; it failed when some photos had already been deleted in the Photos app; and every failure said "cancelled". The dissolve now starts right after confirmation, only photos that still exist are deleted, "cancelled" appears only when you tap Don't Allow, and other failures say the action failed.
+- iOS: "can free" counted photos that were no longer in the library, and photos deleted outside the app stayed in the favorite/trash/seen records forever. Only existing photos are counted now, and stale records are cleaned up under full access (never under limited access).
+- iOS: finishing the last photo in review replaced the stage with the done page before the exit animation and afterimages played. They now finish before returning, and undo still works meanwhile.
+- iOS: when a system gesture (incoming call, Notification Center, etc.) interrupted a review drag, the photo stayed stuck midway, the top bar stayed hidden and the next swipe could be swallowed. The photo now springs back.
+- iOS: tapping Undo after a favorite/trash action that didn't take effect could undo the wrong photo, and undoing after paging several photos away flew back a blank image. Undoing an unfavorite moved the photo to the top of Favorites; it now returns to its original place.
+- iOS: the two swipe-up favorite afterimages vanished abruptly as the photo landed; they now finish their paths and fade out. When the undo bar reappeared after a vertical drag or a summary page, its countdown line restarted from full; it now continues from the real time left.
+- iOS: the breathing glow on the progress bar's current cell never animated. It now breathes over 1.6 s as designed (steady with Reduce Motion), updated at 30 fps so it doesn't add dropped frames to vertical swipes. The day summary page also stops redrawing every frame once its intro has played.
+- iOS: trash preview kept every viewed full-size image in memory (about 9 MB each) and looked up file names and sizes on the main thread repeatedly; moving a batch to the trash from the photo grid stalled while it computed each file size.
+- iOS: in landscape, the grids, review top bar and bottom info went under the notch, and the trash preview square and tutorial text ran off screen. On small screens or with large text the permission page overlapped its buttons; it now scrolls when the content doesn't fit.
+- iOS: fast flings on the Photos/Favorites grids could still open review by accident (taps are now ignored while scrolling and for about 300 ms after the grid settles), and opening a photo from Favorites had no expand animation.
+- iOS: photos without a capture date were grouped into a day in year 1 with its own summary; they now go under "Unknown date". With a count of 1, the English UI showed a raw string key.
+
+### Changed
+
+- iOS: iPhone only; the app is no longer offered for iPad.
+- iOS: text follows the system size up to xxxLarge (larger accessibility sizes stop growing) so text in fixed-height spots isn't clipped.
 
 ## [1.2.2] - 2026-10-17
 
