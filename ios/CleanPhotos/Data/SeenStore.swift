@@ -27,6 +27,15 @@ final class SeenStore: ObservableObject {
         if PerfLegacy.on { flush() } else { schedulePersist() }
     }
 
+    /// 失效条目清理：已经不在图库里的照片。
+    func remove(_ ids: [String]) {
+        var next = seenIds
+        ids.forEach { next.remove($0) }
+        guard next != seenIds else { return }
+        seenIds = next
+        schedulePersist()
+    }
+
     /// 清理页每翻一页都会标记看过：几千个 id 的数组整组写 UserDefaults 很贵，合并成 0.5s 内最多一次。
     private var persistItem: DispatchWorkItem?
     private func schedulePersist() {

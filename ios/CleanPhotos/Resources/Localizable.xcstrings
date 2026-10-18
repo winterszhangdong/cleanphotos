@@ -1488,6 +1488,23 @@
         }
       }
     },
+    "menu_manage_selection" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select more photos"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择更多照片"
+          }
+        }
+      }
+    },
     "menu_more_header" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1591,6 +1608,23 @@
       }
     },
     "next_unseen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$d unseen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$d 张未看"
+          }
+        }
+      }
+    },
+    "next_unseen_one" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -2984,6 +3018,23 @@
       }
     },
     "unseen_count" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ unseen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 张未看"
+          }
+        }
+      }
+    },
+    "unseen_count_one" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {

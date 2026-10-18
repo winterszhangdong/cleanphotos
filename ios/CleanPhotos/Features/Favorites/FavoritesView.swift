@@ -8,6 +8,8 @@ struct FavoritesView: View {
     var onGoReview: () -> Void = {}
     @State private var initialIDs: Set<String> = []
     @State private var didSeed = false
+    /// 网格宽量自列表（横屏左右安全区；竖屏 = 屏宽）。
+    @State private var listWidth: CGFloat = UIScreen.main.bounds.width
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -18,8 +20,9 @@ struct FavoritesView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         Color.clear.frame(height: DarkroomDimens.headerHeight + 8)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
                         ForEach(library.favoriteSections) { year in
-                            yearRow(year.year)
+                            if year.year > 0 { yearRow(year.year) }
                             ForEach(year.days) { day in
                                 dayHeader(day)
                                 dayGrid(day)
@@ -110,8 +113,8 @@ struct FavoritesView: View {
 
     private func dayHeader(_ day: PhotoDaySection) -> some View {
         HStack {
-            Text(dayNum(day.date)).font(DarkroomType.dayNumber).foregroundStyle(DarkroomColors.paper)
-            Text(dayMeta(day.date)).font(DarkroomType.dayMeta).foregroundStyle(DarkroomColors.dim)
+            Text(day.id == DayKeyRule.unknown ? "—" : dayNum(day.date)).font(DarkroomType.dayNumber).foregroundStyle(DarkroomColors.paper)
+            Text(day.id == DayKeyRule.unknown ? L10n.string("date_unknown", locale: language.effectiveLocale) : dayMeta(day.date)).font(DarkroomType.dayMeta).foregroundStyle(DarkroomColors.dim)
             Spacer()
             Text(L10n.plural("favorites_section_count", count: day.totalCount, locale: language.effectiveLocale))
                 .font(DarkroomType.dayRight)
@@ -152,7 +155,7 @@ struct FavoritesView: View {
     private func gridHeight(count: Int) -> CGFloat {
         let cols: CGFloat = 4
         let rows = ceil(CGFloat(count) / cols)
-        let w = UIScreen.main.bounds.width
+        let w = listWidth
         let side = (w - 2 * (cols - 1)) / cols
         return rows * side + max(0, rows - 1) * 2
     }

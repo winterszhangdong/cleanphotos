@@ -4,10 +4,20 @@ import Foundation
 /// Launch with env CLEANPHOTOS_SHOTS=1 to auto-drive tabs/review for simulator screenshots.
 /// Handshake: writes phase name into Documents/cp_shot_phase; waits until
 /// Documents/cp_shot_ack contains the same string (written by the host capture script).
+/// 审计 / 截图钩子总开关：只在模拟器上生效（真机上即使带了启动参数或环境变量也不会改动用户的收藏 / 垃圾桶）。
+/// 性能测量参数（-cpAutoSwipe / -cpfps / -cpLegacy / -cpperf）不受影响 —— 它们要在真机 Release 上测，且自带 PerfDryRun 不落盘。
+enum AuditHooks {
+    #if targetEnvironment(simulator)
+    static let enabled = true
+    #else
+    static let enabled = false
+    #endif
+}
+
 enum ScreenshotHarness {
     @MainActor
     static func runIfNeeded(tab: Binding<AppTab>, reviewLaunch: Binding<ReviewLaunch?>, library: PhotoLibraryService) async {
-        guard ProcessInfo.processInfo.environment["CLEANPHOTOS_SHOTS"] == "1" else { return }
+        guard AuditHooks.enabled, ProcessInfo.processInfo.environment["CLEANPHOTOS_SHOTS"] == "1" else { return }
 
         for _ in 0..<50 {
             if !library.isLoading && (library.totalCount > 0 || library.authorization == .authorized || library.authorization == .limited) {

@@ -11,6 +11,8 @@ struct CleanPhotosApp: App {
         WindowGroup {
             RootView()
                 .reduceMotionGate()
+                // 字号跟随系统「更大字体」，但封顶 xxxLarge：版式里不少固定高度的行（和设计稿 / Android 对齐），再大会被裁切
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .environmentObject(languageStore)
                 .environmentObject(library)
                 .environment(\.locale, languageStore.effectiveLocale)

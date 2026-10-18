@@ -18,6 +18,8 @@ struct DaySummaryView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var start: Date?
+    /// 入场 1.9s 播完：停表（TimelineView 的 paused 只在 body 重算时才读，不翻这个状态它会一直每帧重画整页小结）。
+    @State private var introDone = false
 
     /// 已经播过入场的那几天：翻走再翻回来直接停在终态（Android 的 clock 按 dayKey remember）。
     @MainActor static var played: Set<String> = []
@@ -28,7 +30,7 @@ struct DaySummaryView: View {
     private var isZh: Bool { locale.identifier.lowercased().hasPrefix("zh") }
 
     var body: some View {
-        TimelineView(.animation(paused: start == nil || (start.map { Date().timeIntervalSince($0) * 1000 > Self.totalMs } ?? true))) { tl in
+        TimelineView(.animation(paused: start == nil || introDone || (start.map { Date().timeIntervalSince($0) * 1000 > Self.totalMs } ?? true))) { tl in
             let ms: Double = {
                 if reduceMotion || Self.played.contains(summary.dayId) && start == nil { return Self.totalMs }
                 guard let start else { return 0 }
@@ -43,8 +45,12 @@ struct DaySummaryView: View {
 
     private func kick() {
         guard isCurrent, start == nil, !Self.played.contains(summary.dayId) else { return }
-        start = Date()
+        let s = Date()
+        start = s
         Self.played.insert(summary.dayId)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.totalMs / 1000 + 0.05) {
+            if start == s { introDone = true }
+        }
     }
 
     private func window(_ ms: Double, _ s: Double, _ d: Double) -> Double { min(1, max(0, (ms - s) / d)) }
@@ -269,6 +275,7 @@ struct DaySummaryView: View {
 
     private var nextDayTitle: String {
         guard let id = summary.nextDayId else { return "" }
+        if id == DayKeyRule.unknown { return L10n.string("date_unknown", locale: locale) }
         let parts = id.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3, let d = Calendar.current.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return id }
         return DateFormatCache.string(d, format: isZh ? "M月d日" : "MMM d", locale: locale)

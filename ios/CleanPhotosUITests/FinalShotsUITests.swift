@@ -46,7 +46,7 @@ final class FinalShotsUITests: XCTestCase {
     }
     func open(_ prefix: String) -> Bool {
         let t = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch
-        if t.waitForExistence(timeout: 4) { t.tap(); note("open \(t.identifier)"); return true }
+        if t.waitForExistence(timeout: 4) { let id = t.identifier; t.tap(); note("open \(id)"); return true }
         note("MISSING \(prefix)"); return false
     }
     func springboardAllow() {

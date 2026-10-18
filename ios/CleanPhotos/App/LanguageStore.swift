@@ -113,15 +113,19 @@ enum L10n {
 
     /// 英文按 one / other 选 key（`<key>_one`），中文只有一种；数字用 %d。
     static func plural(_ key: String, count: Int, locale: Locale) -> String {
-        let isZh = locale.identifier.lowercased().hasPrefix("zh")
-        let k = (!isZh && count == 1) ? key + "_one" : key
-        return String(format: string(k, locale: locale), locale: locale, count)
+        String(format: string(pluralKey(key, count: count, locale: locale), locale: locale), locale: locale, count)
     }
 
     /// Plural key chosen by `count`, formatted with explicit args (for %1$@ templates).
     static func pluralFormat(_ key: String, count: Int, locale: Locale, _ args: CVarArg...) -> String {
+        String(format: string(pluralKey(key, count: count, locale: locale), locale: locale), locale: locale, arguments: args)
+    }
+
+    /// `<key>_one` 没有收录时退回 `<key>`（否则界面上会直接露出 "unseen_count_one" 这样的 key）。
+    private static func pluralKey(_ key: String, count: Int, locale: Locale) -> String {
         let isZh = locale.identifier.lowercased().hasPrefix("zh")
-        let k = (!isZh && count == 1) ? key + "_one" : key
-        return String(format: string(k, locale: locale), locale: locale, arguments: args)
+        guard !isZh && count == 1 else { return key }
+        let one = key + "_one"
+        return string(one, locale: locale) == one ? key : one
     }
 }

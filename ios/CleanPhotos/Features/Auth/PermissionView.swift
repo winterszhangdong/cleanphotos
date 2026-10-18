@@ -14,26 +14,10 @@ struct PermissionView: View {
     var body: some View {
         ZStack {
             DarkroomColors.room.ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 0) {
-                DevelopingPrintsArt()
-                    .padding(.top, 32)
-                Text("perm_eyebrow")
-                    .font(DarkroomType.eyebrow)
-                    .tracking(12 * 0.12)
-                    .foregroundStyle(DarkroomColors.dim)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-                Text("perm_title")
-                    .font(DarkroomType.permTitle)
-                    .foregroundStyle(DarkroomColors.paper)
-                    .accessibilityAddTraits(.isHeader)
-                VStack(alignment: .leading, spacing: 0) {
-                    permRow(num: "01", title: "perm_item1_title", body: "perm_item1_body")
-                    permRow(num: "02", title: "perm_item2_title", body: "perm_item2_body")
-                    permRow(num: "03", title: "perm_item3_title", body: "perm_item3_body")
-                }
-                .padding(.top, 24)
-                Spacer(minLength: 0)
+            // 放得下就和原来一样铺满；小屏（SE）/ 大字号放不下时改成可滚动，底部留出两个按钮的位置不被盖住
+            ViewThatFits(in: .vertical) {
+                content
+                ScrollView { content }.scrollIndicators(.hidden)
             }
             .padding(.horizontal, 24)
 
@@ -69,6 +53,32 @@ struct PermissionView: View {
             }
             .padding(.horizontal, 24)
         }
+    }
+
+    /// 插图 + 标题 + 三条说明；底部 124pt 是主按钮（52）+「只选部分」区（72）。
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DevelopingPrintsArt()
+                .padding(.top, 32)
+            Text("perm_eyebrow")
+                .font(DarkroomType.eyebrow)
+                .tracking(12 * 0.12)
+                .foregroundStyle(DarkroomColors.dim)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            Text("perm_title")
+                .font(DarkroomType.permTitle)
+                .foregroundStyle(DarkroomColors.paper)
+                .accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 0) {
+                permRow(num: "01", title: "perm_item1_title", body: "perm_item1_body")
+                permRow(num: "02", title: "perm_item2_title", body: "perm_item2_body")
+                permRow(num: "03", title: "perm_item3_title", body: "perm_item3_body")
+            }
+            .padding(.top, 24)
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, 124)
     }
 
     private func request() {

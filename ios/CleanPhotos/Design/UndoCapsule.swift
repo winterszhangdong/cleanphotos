@@ -101,11 +101,15 @@ struct UndoCapsule: View {
         .allowsHitTesting(false)
     }
 
+    /// 倒计时线按撤回条真实剩余时间走：清理页里拖动 / 停在小结页时胶囊暂时藏起，再露出时接着走，不会重新满格
+    /// （撤回条本身的 4 秒计时在 PhotoLibraryService，不因藏起而重置）。
     private func startCountdown() {
+        let remaining = max(0, UndoBanner.lifetime - Date().timeIntervalSince(banner.shownAt))
         var t = Transaction(); t.disablesAnimations = true
-        withTransaction(t) { countdown = 1 }
+        withTransaction(t) { countdown = CGFloat(remaining / UndoBanner.lifetime) }
+        guard remaining > 0 else { return }
         DispatchQueue.main.async {
-            withAnimation(.linear(duration: 4)) { countdown = 0 }
+            withAnimation(.linear(duration: remaining)) { countdown = 0 }
         }
     }
 

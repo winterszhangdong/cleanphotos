@@ -10,6 +10,12 @@ final class AssetSizeCache: @unchecked Sendable {
 
     func bytes(for asset: PHAsset) -> Int64 { info(for: asset).bytes }
 
+    /// 已经算过的大小（没算过返回 nil，不触发 PHAssetResource 查询）。
+    func cachedBytes(_ id: String) -> Int64? {
+        lock.lock(); defer { lock.unlock() }
+        return map[id]?.bytes
+    }
+
     /// 原始文件名（不含扩展名）；清理页元信息行用，和大小一次查出（PHAssetResource 在主线程上每张几毫秒）。
     func name(for asset: PHAsset) -> String? { info(for: asset).name }
 
@@ -35,6 +41,8 @@ final class AssetSizeCache: @unchecked Sendable {
         let resources = PHAssetResource.assetResources(for: asset)
         let name = resources.first.map { ($0.originalFilename as NSString).deletingPathExtension }
         guard let r = resources.first(where: { $0.type == .photo || $0.type == .fullSizePhoto }) ?? resources.first else { return Info(bytes: 0, name: name) }
+        // fileSize 是非公开属性：先确认还在，免得哪个系统版本去掉后 value(forKey:) 抛 NSUnknownKeyException 直接崩
+        guard r.responds(to: NSSelectorFromString("fileSize")) else { return Info(bytes: 0, name: name) }
         let bytes = (r.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0
         return Info(bytes: bytes, name: name)
     }
@@ -85,9 +93,13 @@ enum UndoKind: Equatable {
 }
 
 struct UndoBanner: Equatable, Identifiable {
+    /// 撤回条存活时长（PhotoLibraryService 的计时和胶囊底部倒计时线共用）。
+    static let lifetime: Double = 4
     let id = UUID()
     let kind: UndoKind
     let sampleId: String?
+    /// 出现时间：胶囊被暂时藏起（拖动 / 小结页）再露出时，倒计时线从剩余时间接着走，而不是重新满格。
+    let shownAt = Date()
     /// 清理页单张操作的副文案（「可释放 2.4 MB」/「9月21日 · 第 3 张」）；照片页批量没有副文案。
     var subtitle: String? = nil
     /// true = 清理页单张（主文案「已收藏」），false = 批量（「已收藏 N 张」）。

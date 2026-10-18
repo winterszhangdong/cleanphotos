@@ -8,7 +8,8 @@ final class ReviewSwipeRecordUITests: XCTestCase {
         app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launch()
         let tileId = ProcessInfo.processInfo.environment["TILE"] ?? "tile-1-"
-        let tile = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", tileId)).firstMatch
+        let tilePred = ProcessInfo.processInfo.environment["TILESUFFIX"].map { NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", tileId, $0) } ?? NSPredicate(format: "identifier BEGINSWITH %@", tileId)
+        let tile = app.descendants(matching: .any).matching(tilePred).firstMatch
         XCTAssertTrue(tile.waitForExistence(timeout: 15))
         sleep(1)
         // NOOPEN=1：不进清理页，只在主界面录底部导航切换（A/F/T）

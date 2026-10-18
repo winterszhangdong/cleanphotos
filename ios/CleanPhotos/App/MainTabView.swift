@@ -90,13 +90,14 @@ struct MainTabView: View {
             .environmentObject(library)
             .environmentObject(language)
             .reduceMotionGate()
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .presentationBackground(.clear)
         }
         .task { await ScreenshotHarness.runIfNeeded(tab: $tab, reviewLaunch: launchBinding, library: library) }
         .task {
             // 徽标对照截图：-cpBadgeShot N 把垃圾桶数量调到 N（不足从最前面挪进来、多了按最早放进去的还原；N=0 全部还原），
             // -cpTab trash|photos|favorites 选中项。只改 App 自己的垃圾桶状态，不动系统相册。
-            guard UserDefaults.standard.object(forKey: "cpBadgeShot") != nil else { return }
+            guard AuditHooks.enabled, UserDefaults.standard.object(forKey: "cpBadgeShot") != nil else { return }
             let want = UserDefaults.standard.integer(forKey: "cpBadgeShot")
             for _ in 0..<100 where library.visiblePhotos.isEmpty || library.isPartial { try? await Task.sleep(for: .milliseconds(100)) }
             if library.trashCount < want {

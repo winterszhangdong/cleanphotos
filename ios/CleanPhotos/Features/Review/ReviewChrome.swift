@@ -6,7 +6,9 @@ import Photos
 /// 当前 #FFF6E8 80% + 6pt 发光、1.6s 呼吸；未处理虚线（3pt / 2pt，相纸白 34%）。超过 40 张改连续比例条。
 struct ReviewProgressBar: View {
     let cells: [ReviewSessionModel.CellState]
-    @State private var breath = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 连续比例条（> 40 张）的当前格沿用原来的常亮值；分格模式的当前格交给 BreathingCurrentCell（Core Animation 呼吸）。
+    private let breath = true
 
     private static let current = Color(red: 1, green: 246/255, blue: 232/255)
     private static let kept = DarkroomColors.paper.opacity(0.78)
@@ -44,12 +46,8 @@ struct ReviewProgressBar: View {
                 case .pending:
                     drawDashed(&ctx, r)
                 case .current:
+                    // 发光 + 实心在上面那层 BreathingCurrentCell 里画（1.6s 呼吸由渲染服务驱动，不占主线程）
                     drawDashed(&ctx, r)
-                    let glow = Path(roundedRect: r.insetBy(dx: -2, dy: -2), cornerRadius: h)
-                    var g = ctx
-                    g.addFilter(.blur(radius: 3))
-                    g.fill(glow, with: .color(Self.current.opacity((breath ? 0.55 : 1) * 0.35)))
-                    ctx.fill(rr, with: .color(Self.current.opacity((breath ? 0.55 : 1) * 0.8)))
                 case .kept:
                     ctx.fill(rr, with: .color(Self.kept))
                 case .favorited:
@@ -63,9 +61,22 @@ struct ReviewProgressBar: View {
             }
         }
         .frame(height: 2)
-        .animation(DarkroomMotion.standard, value: cells)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { breath = true }
+        .overlay(alignment: .topLeading) {
+            if cells.count <= 40, let c = cells.firstIndex(of: .current) {
+                GeometryReader { geo in
+                    let n = max(cells.count, 1)
+                    let gap: CGFloat = 3
+                    let w = (geo.size.width - gap * CGFloat(n - 1)) / CGFloat(n)
+                    let pad = BreathingCurrentCell.pad
+                    BreathingCurrentCell(breathe: !reduceMotion)
+                        .frame(width: w + 2 * pad, height: geo.size.height + 2 * pad)
+                        .offset(x: CGFloat(c) * (w + gap) - pad, y: -pad)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                // 换页时当前格直接跳到新位置（和原来 Canvas 里一样），不跟翻页弹簧插值
+                .transaction { $0.animation = nil }
+            }
         }
     }
 
@@ -139,6 +150,72 @@ struct ReviewMetaRow: View {
             Text(label)
                 .font(DarkroomFonts.plexMono(size: 10.5))
                 .foregroundStyle(DarkroomColors.paper.opacity(0.62))
+        }
+    }
+}
+
+/// 当前格（Android DayCells glow + 1.6s 呼吸 1 ↔ 0.55，EaseInOut 往返）：#FFF6E8 80% 实心 + 外扩 2pt、模糊 3 的 35% 发光。
+/// 呼吸用 CABasicAnimation 改整层 opacity —— 由渲染服务逐帧插值，主线程不参与（之前 Canvas 里的 Bool 状态插值不了，呼吸从没动过）。
+/// 减弱动态效果：常亮（Android animations 关时 breathAlpha = 1）。
+struct BreathingCurrentCell: UIViewRepresentable {
+    static let pad: CGFloat = 6
+    var breathe: Bool
+
+    func makeUIView(context: Context) -> CellView { CellView() }
+    func updateUIView(_ v: CellView, context: Context) { v.breathe = breathe }
+
+    final class CellView: UIView {
+        private let glow = CALayer()
+        private let fill = CAShapeLayer()
+        private static let color = UIColor(red: 1, green: 246/255, blue: 232/255, alpha: 1)
+        private static let key = "cp.breath"
+        var breathe = true { didSet { if oldValue != breathe { updateAnimation() } } }
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+            glow.shadowColor = Self.color.cgColor
+            glow.shadowOpacity = 0.35
+            glow.shadowRadius = 3
+            glow.shadowOffset = .zero
+            fill.fillColor = Self.color.withAlphaComponent(0.8).cgColor
+            layer.addSublayer(glow)
+            layer.addSublayer(fill)
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            let p = BreathingCurrentCell.pad
+            let r = bounds.insetBy(dx: p, dy: p)
+            glow.frame = bounds
+            glow.shadowPath = UIBezierPath(roundedRect: r.insetBy(dx: -2, dy: -2), cornerRadius: r.height).cgPath
+            fill.frame = bounds
+            fill.path = UIBezierPath(roundedRect: r, cornerRadius: r.height / 2).cgPath
+            CATransaction.commit()
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            updateAnimation()
+        }
+
+        private func updateAnimation() {
+            layer.removeAnimation(forKey: Self.key)
+            guard breathe, window != nil else { return }
+            let a = CABasicAnimation(keyPath: "opacity")
+            a.fromValue = 1.0
+            a.toValue = 0.55
+            a.duration = 0.8
+            a.autoreverses = true
+            a.repeatCount = .infinity
+            a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            a.isRemovedOnCompletion = false // 切后台再回来不丢
+            // 呼吸只是 2pt 小格的透明度缓变：30fps 看不出区别；不设上限时这条无限动画让渲染服务整树每帧重绘（CP-Perf 实测渲染服务 CPU +37%、上下滑掉帧变多）
+            a.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
+            layer.add(a, forKey: Self.key)
         }
     }
 }

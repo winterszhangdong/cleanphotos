@@ -24,6 +24,11 @@ struct TrashView: View {
     @State private var emptyRise: Double = 1
     @State private var toast: String?
     @State private var toastToken = 0
+    @State private var dissolveSizes: [String: Int64] = [:]
+    /// 清空进行中（系统确认框 → 删除完成 → 溶解起播之前）：网格和「可释放」照旧显示要删的这批，不在中间闪一帧空状态。
+    @State private var pendingDelete: (items: [PhotoItem], bytes: Int64)?
+    /// 网格宽量自列表（横屏左右安全区；竖屏 = 屏宽）。
+    @State private var listWidth: CGFloat = UIScreen.main.bounds.width
 
     init(dimTabBar: Binding<Bool> = .constant(false)) { _dimTabBar = dimTabBar }
 
@@ -63,14 +68,15 @@ struct TrashView: View {
                     .scrollDisabled(true)
                 }
                 .onAppear { startDissolve() }
-            } else if library.trashItems.isEmpty {
+            } else if library.trashItems.isEmpty && pendingDelete == nil {
                 emptyState
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: DarkroomDimens.headerHeight)
-                        if selecting { selectionSummary } else { freeCard(bytes: library.trashBytes, enabled: true) }
-                        grid(items: library.trashItems, dissolve: nil)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
+                        if selecting { selectionSummary } else { freeCard(bytes: pendingDelete?.bytes ?? library.trashBytes, enabled: true) }
+                        grid(items: pendingDelete?.items ?? library.trashItems, dissolve: nil)
                         Color.clear.frame(height: DarkroomDimens.navBottom + DarkroomDimens.navHeight + 48)
                     }
                 }
@@ -112,6 +118,7 @@ struct TrashView: View {
                     .environmentObject(library)
                     .environmentObject(language)
                     .reduceMotionGate()
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             }
         }
     }
@@ -125,7 +132,14 @@ struct TrashView: View {
     }
 
     private var selectedBytes: Int64 {
-        selected.compactMap { library.allById[$0]?.byteSize }.reduce(0, +)
+        selected.reduce(Int64(0)) { $0 + bytes(of: $1) }
+    }
+
+    /// 垃圾桶照片的大小：移入时已经记在 TrashEntry 里，不在主线程逐格查 PHAssetResource。
+    private func bytes(of id: String) -> Int64 {
+        if let b = dissolveSizes[id] { return b } // 溶解期间条目已删：用清空前记下的大小，不在逐帧时钟里查 PHAssetResource
+        if let b = library.trash.entry(id)?.byteSize, b > 0 { return b }
+        return AssetSizeCache.shared.cachedBytes(id) ?? 0 // 批量移入后台补大小期间：不在 body 里同步查
     }
 
     // MARK: - Header
@@ -255,7 +269,7 @@ struct TrashView: View {
     private func grid(items: [PhotoItem], dissolve: ((Int) -> Double)?) -> some View {
         let cols = 3
         let gap = DarkroomDimens.gridGap
-        let w = UIScreen.main.bounds.width
+        let w = listWidth
         let side = (w - gap * CGFloat(cols - 1)) / CGFloat(cols)
         return LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: gap), count: cols), spacing: gap) {
             ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
@@ -269,7 +283,7 @@ struct TrashView: View {
                         .colorMultiply(Color(white: isSel ? 1 : 0.86))
                         .animation(.timingCurve(0.2, 0, 0, 1, duration: 0.16), value: isSel)
                     if !isSel {
-                        Text(FileSizeFormatter.format(item.byteSize))
+                        Text(FileSizeFormatter.format(bytes(of: item.id)))
                             .font(DarkroomFonts.plexMono(size: 10))
                             .foregroundStyle(DarkroomColors.paper.opacity(0.88))
                             .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
@@ -381,11 +395,15 @@ struct TrashView: View {
 
     private func confirmDelete() {
         confirmEmpty = false
+        guard pendingDelete == nil, dissolve == nil else { return }
         let items = library.trashItems
         let bytes = library.trashBytes
+        dissolveSizes = Dictionary(items.map { ($0.id, self.bytes(of: $0.id)) }, uniquingKeysWith: { a, _ in a })
+        pendingDelete = (items, bytes)
         Task {
             do {
                 try await library.permanentlyDelete(ids: items.map(\.id))
+                pendingDelete = nil
                 justFreed = bytes
                 if reduceMotion {
                     emptyRise = 1
@@ -395,7 +413,10 @@ struct TrashView: View {
                     dissolve = DissolveRun(items: items, bytes: bytes, start: nil)
                 }
             } catch {
-                showToast(L10n.string("fail_cancelled", locale: loc))
+                pendingDelete = nil
+                dissolveSizes = [:]
+                // 系统确认框点了「不允许」→「操作已取消」；其他失败（没权限、照片已不可用…）→「操作失败」
+                showToast(L10n.string(PhotoLibraryService.deleteFailureKey(error), locale: loc))
             }
         }
     }
@@ -410,8 +431,9 @@ struct TrashView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + run.total) {
             guard dissolve?.start == start else { return }
             dissolve = nil
+            dissolveSizes = [:]
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-                withAnimation(SpringToken.gentle.animation()) { emptyRise = 1 }
+                withAnimation(reduceMotion ? nil : SpringToken.gentle.animation()) { emptyRise = 1 }
             }
         }
     }
@@ -438,14 +460,19 @@ struct TrashPreview: View {
     @State private var dx: CGFloat = 0
     @State private var zoom: CGFloat = 1
     @State private var images: [String: UIImage] = [:]
+    @State private var requests: [String: PHImageRequestID] = [:]
     @State private var didInit = false
+    @GestureState private var dragLive = false
 
     private var items: [PhotoItem] { library.trashItems }
     private var loc: Locale { language.effectiveLocale }
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width
+            // 竖屏：屏宽方框距顶 144（原样）。横屏：屏高放不下屏宽方框 —— 方框按可用高度居中，文件信息和「移出」放右侧一栏
+            let land = geo.size.width > geo.size.height
+            let w = land ? max(120, geo.size.height - 64 - 12) : geo.size.width
+            let column = land ? max(160, (geo.size.width - w) / 2 - 32) : geo.size.width
             ZStack(alignment: .top) {
                 DarkroomColors.room.ignoresSafeArea()
                 // 照片：三页并排跟手
@@ -460,15 +487,27 @@ struct TrashPreview: View {
                 }
                 .frame(width: w, height: w)
                 .clipped()
-                .padding(.top, 144)
+                .padding(.top, land ? 64 : 144)
                 .contentShape(Rectangle())
-                .gesture(drag(width: w))
+                .gesture(drag(width: w).updating($dragLive) { _, live, _ in live = true })
+                .onChange(of: dragLive) { _, live in
+                    // 系统打断手势（不会有 onEnded）：拖了一半的照片弹回
+                    if !live { DispatchQueue.main.async { if dx != 0 { withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0 } } } }
+                }
                 .onTapGesture(count: 2) {
                     withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoom = zoom > 1.01 ? 1 : 2 }
                 }
                 if items.indices.contains(index) {
-                    meta(items[index])
-                        .padding(.top, 144 + w + 16)
+                    if land {
+                        meta(items[index])
+                            .frame(width: column)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .padding(.trailing, 16)
+                            .padding(.top, 64)
+                    } else {
+                        meta(items[index])
+                            .padding(.top, 144 + w + 16)
+                    }
                 }
                 topBar
                     .padding(.top, 12)
@@ -497,6 +536,8 @@ struct TrashPreview: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 40)
                 }
+                .frame(width: land ? column + 32 : nil)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .environment(\.locale, loc)
@@ -543,9 +584,11 @@ struct TrashPreview: View {
     }
 
     private func meta(_ item: PhotoItem) -> some View {
-        let res = PHAssetResource.assetResources(for: item.asset).first
-        let name = res.map { ($0.originalFilename as NSString).deletingPathExtension } ?? ""
-        let size = item.byteSize > 0 ? " · " + FileSizeFormatter.format(item.byteSize) : ""
+        // 文件名 / 大小走 AssetSizeCache（load() 已在后台预取前后几张），不在每次 body 里同步查 PHAssetResource
+        let name = AssetSizeCache.shared.name(for: item.asset) ?? ""
+        let bytes = library.trash.entry(item.id)?.byteSize ?? 0
+        let sz = bytes > 0 ? bytes : (AssetSizeCache.shared.cachedBytes(item.id) ?? 0)
+        let size = sz > 0 ? " · " + FileSizeFormatter.format(sz) : ""
         var second: [String] = [L10n.format("trash_taken", locale: loc, cleanDate(item.creationDate))]
         if let e = library.trash.entry(item.id) {
             let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date(timeIntervalSince1970: e.movedToTrashAt)), to: Calendar.current.startOfDay(for: Date())).day ?? 0
@@ -560,7 +603,8 @@ struct TrashPreview: View {
     }
 
     private func cleanDate(_ d: Date) -> String {
-        DateFormatCache.string(d, format: language.isChineseUI ? "M月d日" : "MMM d", locale: loc)
+        if DayKeyRule.isUnknown(d) { return L10n.string("date_unknown", locale: loc) }
+        return DateFormatCache.string(d, format: language.isChineseUI ? "M月d日" : "MMM d", locale: loc)
     }
 
     private func drag(width: CGFloat) -> some Gesture {
@@ -590,14 +634,25 @@ struct TrashPreview: View {
     }
 
     private func load() {
+        AssetSizeCache.shared.prefetch((max(0, index - 2)...max(0, index + 2)).compactMap { items.indices.contains($0) ? items[$0].asset : nil })
+        // 只留当前和前后各一张（每张全屏图 ~9MB，之前翻过的都一直留着）；窗口外还没回来的请求取消
+        let keep = Set((max(0, index - 1)...max(0, index + 1)).compactMap { items.indices.contains($0) ? items[$0].id : nil })
+        for (id, req) in requests where !keep.contains(id) { library.cancelThumbnail(req); requests[id] = nil }
+        for id in images.keys where !keep.contains(id) { images[id] = nil }
         for i in max(0, index - 1)...max(0, index + 1) where items.indices.contains(i) {
             let item = items[i]
-            if images[item.id] != nil { continue }
-            // 方框按 fill 裁切：短边要铺满屏宽 × scale，所以长边按比例放大请求（否则非方图短边不足，发虚）
+            if images[item.id] != nil || requests[item.id] != nil { continue }
+            // 方框按 fill 裁切：短边要铺满屏宽 × scale，所以长边按比例放大请求（否则非方图短边不足，发虚）；
+            // 全景图长宽比很大时封顶 4 倍屏宽，免得一张几十 MB
             let w = CGFloat(max(1, item.asset.pixelWidth)), h = CGFloat(max(1, item.asset.pixelHeight))
-            let side = UIScreen.main.bounds.width * max(w, h) / min(w, h)
-            _ = library.requestFullImage(for: item.asset, maxSide: side) { img in
-                Task { @MainActor in if let img, (images[item.id].map { $0.size.width * $0.scale < img.size.width * img.scale } ?? true) { images[item.id] = img } }
+            let screenW = UIScreen.main.bounds.width
+            let side = min(screenW * max(w, h) / min(w, h), screenW * 4)
+            let id = item.id
+            requests[id] = library.requestFullImage(for: item.asset, maxSide: side) { img in
+                Task { @MainActor in
+                    guard requests[id] != nil else { return }
+                    if let img, (images[id].map { $0.size.width * $0.scale < img.size.width * img.scale } ?? true) { images[id] = img }
+                }
             }
         }
     }

@@ -1,10 +1,11 @@
 import Foundation
 import Photos
+import PhotosUI
 import UIKit
 import Combine
 
 @MainActor
-final class PhotoLibraryService: ObservableObject {
+final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     @Published private(set) var authorization: PHAuthorizationStatus
     @Published private(set) var sections: [PhotoYearGroup] = []
     @Published private(set) var favoriteSections: [PhotoYearGroup] = []
@@ -49,22 +50,42 @@ final class PhotoLibraryService: ObservableObject {
 
     /// 共享元素算大图位置时按 id 找照片（只在打开 / 关闭清理页时调用一次）。
     func item(id: String) -> PhotoItem? {
-        photosOrdered.first { $0.id == id } ?? trashItems.first { $0.id == id }
+        // 全库字典：照片 / 收藏 / 垃圾桶三个入口都找得到（之前只查照片网格和垃圾桶，收藏页打开时没有共享元素飞入）
+        allById[id] ?? trashItems.first { $0.id == id }
     }
     private var undoTask: Task<Void, Never>?
+    /// 最近一次可撤回的「取消收藏」的原条目（撤回时按原收藏时间放回）。
+    private var unfavoriteBackup: [FavoriteEntry] = []
     private var loadTask: Task<Void, Never>?
+    private var reloadAgain = false
     /// 首屏先建多少张（够铺满两三屏），其余在后台补齐。
     private static let firstChunk = 240
 
-    init() {
+    override init() {
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        super.init()
         imageManager.allowsCachingHighQualityImages = false
     }
 
+    private var hasAccess: Bool { authorization == .authorized || authorization == .limited }
+
     func refreshAuthorization() async {
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if authorization == .authorized || authorization == .limited {
+        if hasAccess {
+            registerChangeObserver()
             await reload()
+        }
+    }
+
+    /// 回到前台（scenePhase → active）：从系统设置改了权限（拒绝 → 允许、部分 ↔ 完整、收回）后不用重开 App。
+    /// 权限没变就什么都不做（图库内容的变化走 PHPhotoLibraryChangeObserver）。
+    func refreshAuthorizationIfChanged() async {
+        let now = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard now != authorization else { return }
+        authorization = now
+        if hasAccess {
+            registerChangeObserver()
+            if reviewActive { libraryDirty = true } else { await reload(fresh: true) }
         }
     }
 
@@ -72,8 +93,59 @@ final class PhotoLibraryService: ObservableObject {
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         authorization = status
         if status == .authorized || status == .limited {
-            await reload()
+            registerChangeObserver()
+            await reload(fresh: true)
         }
+    }
+
+    // MARK: - Library changes（在系统相册里增删照片、调整「部分照片」选择后自动刷新）
+
+    private var observerRegistered = false
+    /// 最近一次整库取数结果：变更通知用它判断「图片列表到底变没变」，相册 / 收藏等无关变化不重读。
+    private var lastFetch: PHFetchResult<PHAsset>?
+    private var changeTask: Task<Void, Never>?
+    /// 清理页打开期间图库变了：先记着，关掉清理页时再重读（不在翻页 / 离场动画中途整库重算）。
+    private var libraryDirty = false
+    /// 自己永久删除期间的变更通知不再重复重读（删除流程最后会自己 reload）。
+    private var ownDeleteUntil = Date.distantPast
+
+    private func registerChangeObserver() {
+        guard !observerRegistered else { return }
+        observerRegistered = true
+        PHPhotoLibrary.shared().register(self)
+    }
+
+    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
+        let change = UncheckedBox(changeInstance)
+        Task { @MainActor in self.libraryDidChange(change) }
+    }
+
+    private func libraryDidChange(_ change: UncheckedBox<PHChange>) {
+        guard hasAccess, Date() >= ownDeleteUntil else { return }
+        let fetch = lastFetch.map(UncheckedBox.init)
+        changeTask?.cancel()
+        changeTask = Task { @MainActor in
+            // 变更差异在后台算（大图库时不便宜）；没有取过数（还在首次读取）就直接重读
+            let relevant: Bool = await Task.detached(priority: .utility) {
+                guard let fetch else { return true }
+                return change.value.changeDetails(for: fetch.value) != nil
+            }.value
+            guard relevant, !Task.isCancelled else { return }
+            // 连续的通知（iCloud 同步、批量导入）合并成一次
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            if self.reviewActive { self.libraryDirty = true; return }
+            await self.reload(fresh: true)
+        }
+    }
+
+    /// 「部分照片」访问时追加 / 调整选择；选完 PhotoKit 发变更通知，走 libraryDidChange 重读。
+    func presentLimitedLibraryPicker() {
+        guard authorization == .limited,
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
+              var top = scene.keyWindow?.rootViewController else { return }
+        while let next = top.presentedViewController { top = next }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: top)
     }
 
     func openSystemSettings() {
@@ -82,11 +154,22 @@ final class PhotoLibraryService: ObservableObject {
     }
 
     /// 重新读整库。并发调用（RootView + PhotosView 同时触发）合并成同一次。
-    func reload() async {
+    /// fresh：调用方知道图库刚变过（删除、外部变更、权限变化）——撞上进行中的读取时不能直接用它的结果。
+    func reload(fresh: Bool = false) async {
         // 审计截图用：-cpForceLoading 让首屏一直停在读取中（骨架 + 「正在读取照片…」），不读相册
-        if ProcessInfo.processInfo.arguments.contains("-cpForceLoading") { isLoading = true; return }
-        if let loadTask { await loadTask.value; return }
-        let task = Task { await self.performReload() }
+        if AuditHooks.enabled, ProcessInfo.processInfo.arguments.contains("-cpForceLoading") { isLoading = true; return }
+        if let loadTask {
+            // 正在读的那一轮可能是变化之前开始的：要求新数据时，读完再补一轮（合并成一次）
+            if fresh { reloadAgain = true }
+            await loadTask.value
+            return
+        }
+        let task = Task {
+            repeat {
+                self.reloadAgain = false
+                await self.performReload()
+            } while self.reloadAgain
+        }
         loadTask = task
         await task.value
         loadTask = nil
@@ -111,6 +194,7 @@ final class PhotoLibraryService: ObservableObject {
             _ = r.count
             return r
         }.value
+        lastFetch = result
         let count = result.count
         PerfLog.mark("fetchDone", "count=\(count)")
 
@@ -149,6 +233,33 @@ final class PhotoLibraryService: ObservableObject {
             rebuildDerived()
         }
         if !isPartial { warmThumbnails(visiblePhotos) }
+        await cleanupStores(libraryIds: Set(full.items.map(\.id)), libraryCount: total)
+    }
+
+    /// 失效条目清理（Android PhotoRepositoryImpl.cleanupStores）：收藏 / 看过 / 垃圾桶里已经不在图库的照片。
+    /// 只有完整访问权才清理（StoreCleanupPolicy）；不在这次取数里的 id 再按 id 回查一次（含隐藏照片、任意类型），确实查不到才删。
+    private func cleanupStores(libraryIds: Set<String>, libraryCount: Int) async {
+        guard authorization == .authorized else { return }
+        let seenIds = seen.seenIds, favIds = Set(favorites.entries.keys), trashIds = Set(trash.entries.keys)
+        // 集合运算 + 按 id 回查都在后台（看过的 id 可能有几万个）
+        let remove: Set<String>? = await Task.detached(priority: .utility) {
+            let stored = seenIds.union(favIds).union(trashIds)
+            let candidates = stored.subtracting(libraryIds)
+            guard !candidates.isEmpty else { return [] }
+            let opts = PHFetchOptions()
+            opts.includeHiddenAssets = true
+            let r = PHAsset.fetchAssets(withLocalIdentifiers: Array(candidates), options: opts)
+            var found = Set<String>()
+            r.enumerateObjects { a, _, _ in found.insert(a.localIdentifier) }
+            let existing = stored.intersection(libraryIds).union(found)
+            return StoreCleanupPolicy.idsToRemove(stored: stored, existing: existing, fullAccess: true, libraryCount: libraryCount)
+        }.value
+        guard authorization == .authorized, let remove, !remove.isEmpty else { return }
+        let ids = Array(remove)
+        PerfLog.mark("cleanupStores", "removed=\(ids.count)")
+        favorites.remove(ids.filter { favorites.contains($0) })
+        trash.remove(ids.filter { trash.contains($0) })
+        seen.remove(ids)
     }
 
     // MARK: - Derived state
@@ -235,7 +346,7 @@ final class PhotoLibraryService: ObservableObject {
         unseenCount = d.unseenCount
         favoriteCount = d.favoriteCount
         trashCount = d.trashed.count
-        trashBytes = trash.totalBytes
+        trashBytes = TrashTotals.bytes(entrySizes: trash.entries.mapValues(\.byteSize), present: d.trashed.map(\.id))
         visiblePhotos = d.visible
         visibleCount = d.visible.count
         sections = d.sections
@@ -372,6 +483,7 @@ final class PhotoLibraryService: ObservableObject {
     func unfavorite(ids: [String], showUndo: Bool = true) -> Int {
         let targets = ids.filter { favorites.contains($0) }
         guard !targets.isEmpty else { return 0 }
+        if showUndo { unfavoriteBackup = targets.compactMap { favorites.entries[$0] } }
         favorites.remove(targets)
         seen.markSeen(ids)
         rebuildDerivedUnlessReviewing()
@@ -387,12 +499,29 @@ final class PhotoLibraryService: ObservableObject {
             guard let item = allById[id], !trash.contains(id) else { return nil }
             return item
         }
-        // 文件大小是按需查的：批量删时多核并行算，别一张张串行卡主线程
-        var sizes = [Int64](repeating: 0, count: items.count)
-        sizes.withUnsafeMutableBufferPointer { buf in
-            let base = buf.baseAddress!
-            DispatchQueue.concurrentPerform(iterations: items.count) { i in
-                base[i] = AssetSizeCache.shared.bytes(for: items[i].asset)
+        // 文件大小是按需查的（PHAssetResource，每张几毫秒）：已缓存的直接用；少量（清理页单张，通常已预取）当场算；
+        // 网格批量移入时没缓存的先记 0，后台多核算完再补进垃圾桶条目，不卡主线程
+        let syncLimit = 4
+        var sizes = items.map { AssetSizeCache.shared.cachedBytes($0.id) ?? -1 }
+        let missing = sizes.indices.filter { sizes[$0] < 0 }
+        if missing.count <= syncLimit {
+            for i in missing { sizes[i] = AssetSizeCache.shared.bytes(for: items[i].asset) }
+        } else {
+            for i in missing { sizes[i] = 0 }
+            let todo = UncheckedBox(missing.map { (items[$0].id, items[$0].asset) })
+            Task.detached(priority: .utility) {
+                var out = [Int64](repeating: 0, count: todo.value.count)
+                out.withUnsafeMutableBufferPointer { buf in
+                    let base = UncheckedBox(buf.baseAddress!)
+                    DispatchQueue.concurrentPerform(iterations: todo.value.count) { i in
+                        base.value[i] = AssetSizeCache.shared.bytes(for: todo.value[i].1)
+                    }
+                }
+                let filled = Dictionary(zip(todo.value.map(\.0), out), uniquingKeysWith: { a, _ in a })
+                await MainActor.run {
+                    self.trash.fillSizes(filled)
+                    self.trashBytes = TrashTotals.bytes(entrySizes: self.trash.entries.mapValues(\.byteSize), present: self.trashItems.map(\.id))
+                }
             }
         }
         let payloads: [(id: String, wasFavorited: Bool, byteSize: Int64)] = items.enumerated().map { i, item in
@@ -426,16 +555,48 @@ final class PhotoLibraryService: ObservableObject {
         return restored.count
     }
 
+    /// 永久删除：按 id 现查一遍 PHAsset（缓存的对象可能已在系统相册里被删掉 / 换过），只删还在的；
+    /// 已经不在的直接从 App 状态里拿掉。用户在系统确认框点「不允许」会抛 PHPhotosError.userCancelled。
     func permanentlyDelete(ids: [String]) async throws {
-        let assets = ids.compactMap { allById[$0]?.asset }
-        guard !assets.isEmpty else { return }
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets(assets as NSArray)
+        guard !ids.isEmpty else { return }
+        let assets: [PHAsset] = await Task.detached(priority: .userInitiated) {
+            let opts = PHFetchOptions()
+            opts.includeHiddenAssets = true
+            let r = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: opts)
+            var out: [PHAsset] = []
+            r.enumerateObjects { a, _, _ in out.append(a) }
+            return out
+        }.value
+        if !assets.isEmpty {
+            ownDeleteUntil = .distantFuture
+            defer { ownDeleteUntil = Date().addingTimeInterval(1.5) }
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(assets as NSArray)
+            }
         }
         trash.remove(ids)
         favorites.remove(ids)
         seen.markSeen(ids)
-        await reload()
+        // 先在本地拿掉（一次派生重算，和之前整库重读后的那次发布同一时刻），垃圾桶溶解马上开始；
+        // 整库重读放到溶解播完之后（大图库要几百 ms 到几秒，之前溶解要干等它）
+        let gone = Set(ids)
+        fetchOrdered.removeAll { gone.contains($0.id) }
+        allById = allById.filter { !gone.contains($0.key) }
+        rebuildDerived()
+        deferredReload?.cancel()
+        deferredReload = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await self.reload(fresh: true)
+        }
+    }
+    private var deferredReload: Task<Void, Never>?
+
+    /// 删除失败的提示文案 key：用户取消 →「操作已取消」，其余 →「操作失败」。
+    nonisolated static func deleteFailureKey(_ error: Error) -> String {
+        let ns = error as NSError
+        if ns.domain == PHPhotosErrorDomain && ns.code == PHPhotosError.Code.userCancelled.rawValue { return "fail_cancelled" }
+        return "fail_generic"
     }
 
     func undoLast() {
@@ -447,7 +608,10 @@ final class PhotoLibraryService: ObservableObject {
             favorites.remove(ids)
             rebuildDerivedUnlessReviewing()
         case .unfavorited(let ids):
-            favorites.add(ids)
+            let back = unfavoriteBackup.filter { ids.contains($0.photoId) }
+            favorites.restore(back)
+            favorites.add(ids.filter { id in !back.contains { $0.photoId == id } })
+            unfavoriteBackup = []
             rebuildDerivedUnlessReviewing()
         case .movedToTrash(let ids):
             _ = restoreFromTrash(ids: ids, showUndo: false)
@@ -473,7 +637,7 @@ final class PhotoLibraryService: ObservableObject {
 
     private func restartUndoTimer() {
         undoTask = Task {
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(UndoBanner.lifetime * 1_000_000_000))
             if !Task.isCancelled { undoBanner = nil }
         }
     }
@@ -483,6 +647,10 @@ final class PhotoLibraryService: ObservableObject {
         reviewActive = false
         flushDeferredSeen()
         if undoBanner?.single == true { clearUndo() }
+        if libraryDirty {
+            libraryDirty = false
+            Task { await reload(fresh: true) }
+        }
     }
 
     func clearUndo() {
@@ -526,6 +694,13 @@ final class PhotoLibraryService: ObservableObject {
         var curStart = Date.distantFuture, curEnd = Date.distantPast, curKey = 0
         for item in items {
             let d = item.creationDate
+            if DayKeyRule.isUnknown(d) {
+                // 没有拍摄时间：单独一组「未知日期」，键 -1（最新在前时排最后、最早在前时排最前，与 Android 按 0 排序一致）
+                if dayMap[-1] == nil { dayMap[-1] = (d, []); dayOrder.append(-1) }
+                dayMap[-1]!.1.append(item)
+                curStart = .distantFuture; curEnd = .distantPast
+                continue
+            }
             if !(d >= curStart && d < curEnd) {
                 guard let iv = cal.dateInterval(of: .day, for: d) else { continue }
                 curStart = iv.start; curEnd = iv.end
@@ -540,8 +715,8 @@ final class PhotoLibraryService: ObservableObject {
         var yearMap: [Int: [PhotoDaySection]] = [:]
         for key in dayKeys {
             guard let (date, list) = dayMap[key] else { continue }
-            let y = key / 10000
-            let id = String(format: "%04d-%02d-%02d", y, (key / 100) % 100, key % 100)
+            let y = key < 0 ? 0 : key / 10000
+            let id = key < 0 ? DayKeyRule.unknown : String(format: "%04d-%02d-%02d", y, (key / 100) % 100, key % 100)
             let section = PhotoDaySection(
                 id: id,
                 date: date,
@@ -555,4 +730,10 @@ final class PhotoLibraryService: ObservableObject {
         }
         return years.map { PhotoYearGroup(id: String($0), year: $0, days: yearMap[$0] ?? []) }
     }
+}
+
+/// 跨 actor 传 PhotoKit 对象（PHChange / PHFetchResult 本身线程安全，只是没标 Sendable）。
+struct UncheckedBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }

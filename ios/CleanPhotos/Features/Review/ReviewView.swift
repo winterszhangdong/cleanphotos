@@ -52,6 +52,12 @@ struct ReviewView: View {
     @State private var pinchBase: (zoom: CGFloat, offset: CGSize)?
     @State private var panBase: CGSize = .zero
     @State private var pinched = false
+    /// 最后一张处理完、正在等离场播完回入口页。
+    @State private var endingSession = false
+    /// 拖动 / 捏合是否还在进行：系统打断手势（来电、通知中心、控制中心、多指系统手势）时 SwiftUI 不调 onEnded，
+    /// 只把 GestureState 复位 —— 靠它把拎起一半 / 拖了一半的照片弹回原位。
+    @GestureState private var dragLive = false
+    @GestureState private var pinchLive = false
 
     enum DragAxis { case horizontal, vertical, pan }
 
@@ -73,16 +79,26 @@ struct ReviewView: View {
             // 逐帧时钟只包住真正随时间变的两层（舞台、提示圆）：离场 / 升起期间顶栏、撤回条、教学、菜单不再每帧重算 body。
             ZStack {
                 DarkroomColors.room
-                if session.pages.isEmpty {
+                // 会话最后一张处理完：页序空了，但离场层 / 余影要播完、撤回条还要能点（之前这里立刻换成空白「完成」页）
+                if session.pages.isEmpty && flights.isEmpty && !endingSession {
                     emptyDone
                 } else {
                     TimelineView(.animation(paused: !animating)) { tl in
                         stage(size: size, insets: insets, now: tl.date)
                     }
                     .contentShape(Rectangle())
-                    .gesture(dragGesture(size: size, insets: insets))
-                    .simultaneousGesture(pinchGesture(size: size))
+                    .gesture(dragGesture(size: size, insets: insets).updating($dragLive) { _, live, _ in live = true })
+                    .simultaneousGesture(pinchGesture(size: size).updating($pinchLive) { _, live, _ in live = true })
                     .onTapGesture(count: 2, coordinateSpace: .local) { loc in doubleTap(at: loc, size: size) }
+                    .modifier(StageAccessibility(
+                        photo: session.isOnSummary ? nil : session.currentPhoto,
+                        favorites: session.scope == .favorites,
+                        label: session.currentPhoto.map { dateTitle($0.creationDate) + " " + timeLine($0.creationDate) } ?? "",
+                        locale: language.effectiveLocale,
+                        onUp: { a11ySwipe(up: true, size: size, insets: insets) },
+                        onDown: { a11ySwipe(up: false, size: size, insets: insets) },
+                        onNext: { if page(at: session.index + 1) != nil { advance(-1, size: size) } },
+                        onPrevious: { if page(at: session.index - 1) != nil { advance(1, size: size) } }))
                     chrome(size: size, insets: insets)
                     TimelineView(.animation(paused: releaseCue == nil)) { tl in
                         cueLayer(size: size, insets: insets, now: tl.date)
@@ -113,13 +129,21 @@ struct ReviewView: View {
             }
             .onDisappear { FrameMonitor.shared.stop("review"); library.endReview() }
             .onChange(of: session.index) { _, _ in prepareSoon(size: size, insets: insets); markSeenCurrent(); resetZoom() }
+            .onChange(of: dragLive) { _, live in if !live { DispatchQueue.main.async { dragCancelledIfNeeded(size: size) } } }
+            .onChange(of: pinchLive) { _, live in if !live { DispatchQueue.main.async { pinchCancelledIfNeeded(size: size) } } }
             .onChange(of: zoom > 1.01) { _, z in
                 if z, let p = session.currentPhoto { images.ensureZoom(p, library: library, side: max(size.width, size.height)) }
             }
             .onChange(of: session.pages.count) { _, _ in
                 prepareSoon(size: size, insets: insets)
                 // 会话最后一张处理完且不满足小结：回到入口页（interaction.md「会话结束」）
-                if session.isCompleted { DispatchQueue.main.asyncAfter(deadline: .now() + ReviewTokens.exitDuration) { close() } }
+                if session.isCompleted {
+                    endingSession = true
+                    // 离场主体播完再回入口页（Android LaunchedEffect(isCompleted) + EXIT_MAIN_MAX）；期间点了撤回就不走
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ReviewTokens.exitDuration) {
+                        if session.isCompleted { close() } else { endingSession = false }
+                    }
+                }
             }
         }
         .environment(\.locale, language.effectiveLocale)
@@ -135,7 +159,9 @@ struct ReviewView: View {
             if let p = page(at: i), case .photo(let ph) = p { return ph } else { return nil }
         }
         AssetSizeCache.shared.prefetch(window.map(\.asset))
-        let keep = Set(flights.compactMap { f -> String? in if case .photo(let p) = f.page { return p.id } else { return nil } })
+        var keep = Set(flights.compactMap { f -> String? in if case .photo(let p) = f.page { return p.id } else { return nil } })
+        // 还能撤回的那张：翻出去几页后它的图也别丢，撤回飞回来时才有画面
+        if let acted = lastActed { keep.insert(acted.photo.id) }
         images.ensure(window, keep: keep, library: library, page: size,
                       box: CGSize(width: size.width, height: size.height - insets.top - insets.bottom))
         // 收藏余影的琥珀光按照片尺寸预渲染（后台），松手时直接用
@@ -436,7 +462,8 @@ struct ReviewView: View {
         let fit = ReviewMath.fitSize(pixelWidth: p.asset.pixelWidth, pixelHeight: p.asset.pixelHeight, in: box)
         let glow = AfterimageGlow.shared.glow(for: fit)
         let centerShift = (insets.top - insets.bottom) / 2
-        let t = f.progress(now)
+        // 用不截断的进度：主体在 1 时已淡完，两层余影（晚 0.2 / 0.4）要走到各自的 1 才落地淡出
+        let t = f.rawProgress(now)
         let corner = ReviewTokens.liftCorner
         return AnyView(ZStack {
             ForEach(Array(ReviewTokens.afterimages.enumerated().reversed()), id: \.offset) { _, a in
@@ -552,19 +579,19 @@ struct ReviewView: View {
 
                 VStack(spacing: 0) {
                     ReviewProgressBar(cells: cells)
-                        .padding(.leading, land ? 48 : 16)
-                        .padding(.trailing, land ? 24 : 16)
+                        .padding(.leading, land ? 48 + insets.leading : 16)
+                        .padding(.trailing, land ? 24 + insets.trailing : 16)
                         .padding(.top, insets.top + (land ? 12 : 8))
                         .opacity(tutorialVisible ? 0 : 1)
                     topBar(photo)
-                        .padding(.leading, land ? 40 - 12 : 0)
-                        .padding(.trailing, land ? 24 - 12 : 0)
+                        .padding(.leading, land ? 40 - 12 + insets.leading : 0)
+                        .padding(.trailing, land ? 24 - 12 + insets.trailing : 0)
                         .padding(.top, land ? 12 : 12)
                     Spacer()
                     if library.undoBanner == nil && !tutorialVisible {
                         ReviewMetaRow(photo: photo, scope: session.scope, locale: language.effectiveLocale, showHints: showHints && !land)
-                            .padding(.leading, land ? 48 : 16)
-                            .padding(.trailing, 16)
+                            .padding(.leading, land ? 48 + insets.leading : 16)
+                            .padding(.trailing, land ? 16 + insets.trailing : 16)
                             .padding(.bottom, insets.bottom + (land ? 20 : 32))
                             .transition(.opacity)
                     }
@@ -668,7 +695,7 @@ struct ReviewView: View {
                         .frame(width: land ? 320 : nil)
                 }
                 .padding(.leading, land ? 0 : 16)
-                .padding(.trailing, land ? 24 : 16)
+                .padding(.trailing, land ? 24 + insets.trailing : 16)
                 .padding(.bottom, insets.bottom + (land ? 20 : 32))
                 .id(banner.id)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -879,6 +906,29 @@ struct ReviewView: View {
         }
     }
 
+    /// 手势结束后的下一轮主循环：正常抬起时 onEnded 已经把 axis 清掉；还没清 = 被系统取消了，按「没过阈值松手」弹回。
+    private func dragCancelledIfNeeded(size: CGSize) {
+        pinched = false
+        guard let a = axis else { return }
+        axis = nil
+        switch a {
+        case .horizontal:
+            withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0 }
+        case .vertical:
+            if past { setPast(false) }
+            withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dy = 0 }
+            withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
+        case .pan:
+            break
+        }
+    }
+
+    /// 捏合被系统取消：onEnded 没来，pinchBase 还在 —— 按正常松手收尾（低于 1× 弹回）。
+    private func pinchCancelledIfNeeded(size: CGSize) {
+        guard pinchBase != nil else { return }
+        pinchEnded(size: size)
+    }
+
     private func setPast(_ p: Bool) {
         past = p
         if p {
@@ -887,7 +937,7 @@ struct ReviewView: View {
             popScale = 1
             withAnimation(.timingCurve(0.05, 0.7, 0.1, 1, duration: DarkroomMotion.short)) { popScale = ReviewTokens.popOvershoot }
             DispatchQueue.main.asyncAfter(deadline: .now() + DarkroomMotion.short) {
-                withAnimation(SpringToken.settle.animation()) { popScale = 1 }
+                withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { popScale = 1 }
             }
         } else {
             ReviewHaptics.back()
@@ -906,7 +956,7 @@ struct ReviewView: View {
             advance(1, size: size, velocity: vx)
         } else {
             let rel = dx == 0 ? 0 : Double(-vx / dx)
-            withAnimation(SpringToken.settle.animation(initialVelocity: rel)) { dx = 0 }
+            withAnimation(reduceMotion ? nil : SpringToken.settle.animation(initialVelocity: rel)) { dx = 0 }
         }
     }
 
@@ -930,19 +980,25 @@ struct ReviewView: View {
     private func releaseVertical(vy: CGFloat, size: CGSize, insets: EdgeInsets) {
         if session.isOnSummary {
             axis = nil
-            withAnimation(SpringToken.settle.animation()) { dy = 0 }
+            withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dy = 0 }
             return
         }
         let release = ReviewMath.verticalRelease(dy: dy, vy: vy)
         guard release != .none, let photo = session.currentPhoto else {
             if past { setPast(false) }
             let rel = dy == 0 ? 0 : Double(-vy / dy)
-            withAnimation(SpringToken.settle.animation(initialVelocity: rel)) { dy = 0 }
+            withAnimation(reduceMotion ? nil : SpringToken.settle.animation(initialVelocity: rel)) { dy = 0 }
             axis = nil
             withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
             return
         }
         trigger(photo, up: release == .up, vy: vy, size: size, insets: insets)
+    }
+
+    /// 读屏自定义操作：和过阈值松手走同一条路径（离场 + 撤回条）。
+    private func a11ySwipe(up: Bool, size: CGSize, insets: EdgeInsets) {
+        guard !session.isOnSummary, let photo = session.currentPhoto else { return }
+        trigger(photo, up: up, vy: up ? -1500 : 1500, size: size, insets: insets)
     }
 
     /// 导航胶囊「收藏」（第 2 项）/「垃圾桶」（第 3 项）中心，相对屏幕中心。
@@ -968,6 +1024,7 @@ struct ReviewView: View {
             target: target,
             start: now
         )
+        let bannerBefore = library.undoBanner?.shownAt
         var t = Transaction(); t.disablesAnimations = true
         withTransaction(t) {
             if !reduceMotion {
@@ -983,8 +1040,11 @@ struct ReviewView: View {
             } else {
                 session.applyVertical(favorite: false, unfavorite: false, trash: true, library: library)
             }
-            decorateUndo(for: photo, trash: !up)
-            lastActed = (photo, kind, target)
+            // 只有这次真的出了新撤回条才认领它（收藏 / 移入没生效时不改上一条的文案，也不让撤回对错照片）
+            if let b = library.undoBanner, b.shownAt != bannerBefore, b.sampleId == photo.id {
+                decorateUndo(for: photo, trash: !up)
+                lastActed = (photo, kind, target)
+            }
             dy = 0; dx = 0; axis = nil
             past = false; pastAnim = 0; popScale = 1
             if !reduceMotion, let next = session.pages.indices.contains(session.index) ? session.pages[session.index] : nil {
@@ -996,7 +1056,9 @@ struct ReviewView: View {
         dismissTutorial()
         withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
         let fid = flight.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + ReviewTokens.exitDuration + 0.02) {
+        // 收藏离场的两层余影比主体晚 20% / 40%：离场层留到最后一层余影走完再拿掉（之前 250ms 一到，余影在 80% / 60% 处整块消失）
+        let life = ReviewTokens.exitDuration * (up ? 1 + (ReviewTokens.afterimages.map(\.0).max() ?? 0) : 1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + life + 0.02) {
             flights.removeAll { $0.id == fid }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + ReviewTokens.releaseCueFade + 0.02) {
@@ -1010,9 +1072,9 @@ struct ReviewView: View {
     /// 撤回：照片从去处减速飞回中央，后半段重新显影（Android ExitPath.undoPose）。
     private func undo(size: CGSize, insets: EdgeInsets) {
         guard let banner = library.undoBanner else { return }
-        let acted = lastActed
+        // 撤回条不是这次清理页动作出的（或已对不上）：只撤图库状态，不往页序里插照片
+        guard let acted = lastActed, banner.sampleId == acted.photo.id else { library.undoLast(); return }
         library.undoLast()
-        guard let acted, banner.sampleId == acted.photo.id else { return }
         let now = Date()
         var t = Transaction(); t.disablesAnimations = true
         withTransaction(t) {
@@ -1040,7 +1102,7 @@ struct ReviewView: View {
                     if axis == .horizontal || axis == .vertical {
                         // 拖动中第二根手指落下：取消拖动，切到缩放
                         if past { setPast(false) }
-                        withAnimation(SpringToken.settle.animation()) { dx = 0; dy = 0 }
+                        withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0; dy = 0 }
                         withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
                     }
                     pinchBase = (zoom, zoomOffset)
@@ -1057,15 +1119,19 @@ struct ReviewView: View {
                 zoomOffset = CGSize(width: (base.offset.width - c.width) * k + c.width, height: (base.offset.height - c.height) * k + c.height)
                 zoom = newZoom
             }
-            .onEnded { _ in
-                pinchBase = nil
-                if zoom < GestureTokensIOS.zoomRestMin {
-                    withAnimation(reduceMotion ? nil : SpringToken.bouncy.animation()) { zoom = 1; zoomOffset = .zero }
-                    rawZoom = 1
-                } else {
-                    withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoomOffset = clampZoomOffset(zoomOffset, zoom, size: size) }
-                }
-            }
+            .onEnded { _ in pinchEnded(size: size) }
+    }
+
+    private func pinchEnded(size: CGSize) {
+        pinchBase = nil
+        // 捏合期间单指拖动没被识别（两指对称张合，重心没动）：拖动的 onEnded 不会来清 pinched，下一次滑动会被整个吞掉
+        if !dragLive { pinched = false }
+        if zoom < GestureTokensIOS.zoomRestMin {
+            withAnimation(reduceMotion ? nil : SpringToken.bouncy.animation()) { zoom = 1; zoomOffset = .zero }
+            rawZoom = 1
+        } else {
+            withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoomOffset = clampZoomOffset(zoomOffset, zoom, size: size) }
+        }
     }
 
     private func doubleTap(at loc: CGPoint, size: CGSize) {
@@ -1123,11 +1189,13 @@ struct ReviewView: View {
     }
 
     private func dateTitle(_ date: Date) -> String {
-        DateFormatCache.string(date, format: language.isChineseUI ? "M月d日" : "MMM d", locale: language.effectiveLocale)
+        if DayKeyRule.isUnknown(date) { return L10n.string("date_unknown", locale: language.effectiveLocale) }
+        return DateFormatCache.string(date, format: language.isChineseUI ? "M月d日" : "MMM d", locale: language.effectiveLocale)
     }
 
     private func timeLine(_ date: Date) -> String {
-        DateFormatCache.string(date, format: "EEE · HH:mm", locale: language.effectiveLocale)
+        if DayKeyRule.isUnknown(date) { return "" } // Android reviewMeta：没有拍摄时间时为空
+        return DateFormatCache.string(date, format: "EEE · HH:mm", locale: language.effectiveLocale)
     }
 }
 
@@ -1275,5 +1343,38 @@ final class AfterimageGlow: @unchecked Sendable {
         lock.lock(); cache[key] = final; pending.remove(key)
         if cache.count > 24 { cache.removeAll(); cache[key] = final }
         lock.unlock()
+    }
+}
+
+/// 清理页舞台的读屏（照片页）：整页一个元素，读拍摄日期；自定义操作「收藏 / 取消收藏」「移入垃圾桶」，上下轻扫（adjustable）翻页。
+/// 小结页不合并子元素（「下一天」「回到照片」按钮照常可读）。只加辅助功能信息，不影响绘制与手势。
+private struct StageAccessibility: ViewModifier {
+    let photo: PhotoItem?
+    let favorites: Bool
+    let label: String
+    let locale: Locale
+    let onUp: () -> Void
+    let onDown: () -> Void
+    let onNext: () -> Void
+    let onPrevious: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityElement(children: photo == nil ? .contain : .ignore)
+            .accessibilityLabel(Text(photo == nil ? "" : label))
+            .accessibilityActions {
+                if photo != nil {
+                    Button(L10n.string(favorites ? "action_unfavorite" : "action_favorite", locale: locale), action: onUp)
+                    Button(L10n.string("action_move_to_trash", locale: locale), action: onDown)
+                }
+            }
+            .accessibilityAdjustableAction { dir in
+                guard photo != nil else { return }
+                switch dir {
+                case .increment: onNext()
+                case .decrement: onPrevious()
+                @unknown default: break
+                }
+            }
     }
 }

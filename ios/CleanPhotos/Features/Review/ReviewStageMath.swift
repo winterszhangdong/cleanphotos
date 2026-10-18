@@ -146,6 +146,8 @@ struct ExitFlight: Identifiable {
     struct Pose { var x: CGFloat; var y: CGFloat; var scale: CGFloat; var saturation: CGFloat; var brightness: CGFloat; var alpha: CGFloat }
 
     func progress(_ now: Date) -> Double { min(1, max(0, now.timeIntervalSince(start) / ReviewTokens.exitDuration)) }
+    /// 不截断到 1（余影比主体晚，走到 1 + 延迟）。
+    func rawProgress(_ now: Date) -> Double { max(0, now.timeIntervalSince(start) / ReviewTokens.exitDuration) }
 
     func pose(_ p: Double) -> Pose {
         let p = min(max(p, 0), 1)

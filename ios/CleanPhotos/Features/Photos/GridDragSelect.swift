@@ -19,6 +19,10 @@ final class DragSelectHandlers {
     var onEnd: () -> Void = {}
     /// Height of the opaque header that overlaps the top of the scroll view.
     var topInset: CGFloat = 0
+    /// 列表正在拖动或惯性滑动（UIScrollView 状态，由 Coordinator 接上）。
+    var listMoving: () -> Bool = { false }
+    /// 最后一次 contentOffset 变化的时间（CACurrentMediaTime）；惯性停下的时刻就是最后一次变化。
+    var lastScrollTime: () -> CFTimeInterval = { 0 }
 }
 
 /// Invisible probe placed as background of the grid's LazyVStack. It finds the hosting
@@ -42,6 +46,7 @@ struct DragSelectProbe: UIViewRepresentable {
 
     func updateUIView(_ uiView: ProbeView, context: Context) {
         context.coordinator.handlers = handlers
+        context.coordinator.rewire()
         uiView.coordinator = context.coordinator
         DispatchQueue.main.async { context.coordinator.attach(probe: uiView) }
     }
@@ -64,8 +69,20 @@ struct DragSelectProbe: UIViewRepresentable {
 
         private let edge: CGFloat = 64
         private let maxStep: CGFloat = 14
+        private var offsetObservation: NSKeyValueObservation?
+        private var lastScroll: CFTimeInterval = 0
 
         init(handlers: DragSelectHandlers) { self.handlers = handlers }
+
+        private func wireScrollState() {
+            handlers.listMoving = { [weak self] in
+                guard let sv = self?.scrollView else { return false }
+                return sv.isDragging || sv.isDecelerating
+            }
+            handlers.lastScrollTime = { [weak self] in self?.lastScroll ?? 0 }
+        }
+
+        func rewire() { if scrollView != nil { wireScrollState() } }
 
         func attach(probe: UIView) {
             self.probe = probe
@@ -74,6 +91,11 @@ struct DragSelectProbe: UIViewRepresentable {
             while let cur = v, !(cur is UIScrollView) { v = cur.superview }
             guard let sv = v as? UIScrollView else { return }
             scrollView = sv
+            // 只记一个时间戳（滚动时每帧一次，不触发任何 SwiftUI 刷新）
+            offsetObservation = sv.observe(\.contentOffset, options: []) { [weak self] _, _ in
+                self?.lastScroll = CACurrentMediaTime()
+            }
+            wireScrollState()
             let lp = UILongPressGestureRecognizer(target: self, action: #selector(handle(_:)))
             lp.minimumPressDuration = 0.35
             lp.allowableMovement = 10

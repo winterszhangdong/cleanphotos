@@ -40,6 +40,18 @@ final class TrashStore: ObservableObject {
         persist(next)
     }
 
+    /// 批量移入时还没算出的大小（先记 0）在后台算好后补上；期间已被还原 / 删除的不管。
+    func fillSizes(_ sizes: [String: Int64]) {
+        var next = entries
+        var changed = false
+        for (id, b) in sizes {
+            guard let e = next[id], e.byteSize <= 0, b > 0 else { continue }
+            next[id] = TrashEntry(photoId: e.photoId, movedToTrashAt: e.movedToTrashAt, wasFavorited: e.wasFavorited, byteSize: b)
+            changed = true
+        }
+        if changed { persist(next) }
+    }
+
     func restore(_ ids: [String]) -> [TrashEntry] {
         var restored: [TrashEntry] = []
         var next = entries

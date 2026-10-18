@@ -8,7 +8,7 @@ enum ReviewPrefs {
     static let hintHideAfter = 20
 
     static var hasSeenTutorial: Bool {
-        if ProcessInfo.processInfo.arguments.contains("-cpForceTutorial") { return false }
+        if AuditHooks.enabled, ProcessInfo.processInfo.arguments.contains("-cpForceTutorial") { return false }
         return UserDefaults.standard.bool(forKey: tutorialKey)
     }
     static func markTutorialSeen() { if !PerfDryRun.on { UserDefaults.standard.set(true, forKey: tutorialKey) } }
@@ -70,17 +70,26 @@ struct ReviewTutorialOverlay: View {
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { tl in
             let t = reduceMotion ? 0.2 : (tl.date.timeIntervalSince(t0) / 7.2).truncatingRemainder(dividingBy: 1)
+          GeometryReader { g in
             ZStack(alignment: .top) {
                 Color.clear.allowsHitTesting(false)
-                stage(t).frame(width: 200, height: 264).padding(.top, topInset + 100).allowsHitTesting(false)
-                VStack(spacing: 0) {
-                    row(0, t, "arrow.up", DarkroomColors.amber, "tut_up", "tut_up_desc", last: false)
-                    row(1, t, "arrow.down", DarkroomColors.paper, "tut_down", "tut_down_desc", last: false)
-                    row(2, t, "arrow.left.and.right", DarkroomColors.paper, "tut_lr", "tut_lr_desc", last: true)
+                if g.size.width > g.size.height {
+                    // 横屏：高度只有 ~390，竖排会把三行说明挤出屏幕 —— 光点演示在左、说明在右，整体在按钮上方居中
+                    HStack(spacing: 48) {
+                        stage(t).frame(width: 200, height: 264)
+                        rows(t).frame(width: 360)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, topInset)
+                    .padding(.bottom, bottomInset + 84)
+                    .allowsHitTesting(false)
+                } else {
+                    stage(t).frame(width: 200, height: 264).padding(.top, topInset + 100).allowsHitTesting(false)
+                    rows(t)
+                        .padding(.horizontal, 32)
+                        .padding(.top, topInset + 400)
+                        .allowsHitTesting(false)
                 }
-                .padding(.horizontal, 32)
-                .padding(.top, topInset + 400)
-                .allowsHitTesting(false)
                 VStack {
                     Spacer()
                     Button(action: onKnow) {
@@ -96,6 +105,15 @@ struct ReviewTutorialOverlay: View {
                     .padding(.bottom, bottomInset + 40)
                 }
             }
+          }
+        }
+    }
+
+    private func rows(_ t: Double) -> some View {
+        VStack(spacing: 0) {
+            row(0, t, "arrow.up", DarkroomColors.amber, "tut_up", "tut_up_desc", last: false)
+            row(1, t, "arrow.down", DarkroomColors.paper, "tut_down", "tut_down_desc", last: false)
+            row(2, t, "arrow.left.and.right", DarkroomColors.paper, "tut_lr", "tut_lr_desc", last: true)
         }
     }
 

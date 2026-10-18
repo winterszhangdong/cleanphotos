@@ -82,6 +82,8 @@ final class ReviewSessionModel: ObservableObject {
     /// 「yyyy-MM-dd」（本地时区）。清理页每帧要算好几次（进度条 / 小结 / 月历），Calendar + String(format:) 不便宜，按时间戳缓存；
     /// 系统时区变了清空。
     static func dayKey(_ date: Date) -> String {
+        // 没有拍摄时间：「未知日期」（不生成小结，与 Android DayKey.UNKNOWN 一致）
+        if DayKeyRule.isUnknown(date) { return ReviewRules.unknownDay }
         let t = date.timeIntervalSinceReferenceDate
         _ = DayKeyCache.observer
         DayKeyCache.lock.lock()

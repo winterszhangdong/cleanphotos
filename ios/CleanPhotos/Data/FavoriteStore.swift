@@ -29,6 +29,13 @@ final class FavoriteStore: ObservableObject {
         persist(next)
     }
 
+    /// 撤回「取消收藏」：按原条目放回（保留原收藏时间，收藏页排序不变）。
+    func restore(_ old: [FavoriteEntry]) {
+        var next = entries
+        for e in old where next[e.photoId] == nil { next[e.photoId] = e }
+        persist(next)
+    }
+
     func remove(_ ids: [String]) {
         var next = entries
         ids.forEach { next.removeValue(forKey: $0) }

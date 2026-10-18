@@ -14,7 +14,8 @@ struct PhotosView: View {
     @State private var initialIDs: Set<String> = []
     @State private var didSeedDevelop = false
     @State private var isScrolling = false
-    @State private var lastScrollEnd = Date.distantPast
+    /// 网格列宽量自列表本身（横屏有左右安全区时比屏宽窄；竖屏与屏宽相同）。
+    @State private var listWidth: CGFloat = UIScreen.main.bounds.width
 
     // Multi-select
     @State private var selecting = false
@@ -177,8 +178,9 @@ struct PhotosView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 Color.clear.frame(height: DarkroomDimens.headerHeight + 8)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
                 ForEach(library.sections) { year in
-                    yearRow(year.year)
+                    if year.year > 0 { yearRow(year.year) }
                     ForEach(year.days) { day in
                         dayHeader(day)
                         dayGrid(day)
@@ -199,7 +201,6 @@ struct PhotosView: View {
                 .onEnded { _ in
                     if dragAnchor == nil {
                         isScrolling = false
-                        lastScrollEnd = Date()
                         GridDevelopSession.markPlayed(.photos)
                     }
                 }
@@ -355,14 +356,7 @@ struct PhotosView: View {
                     },
                 ])
             case .more:
-                DarkroomMenuView(header: L10n.string("menu_more_header", locale: locale), options: [
-                    DarkroomMenuOption(label: L10n.string("menu_language", locale: locale), trailing: languageLabel, selected: false) {
-                        withAnimation(DarkroomMotion.menuIn) {
-                            openMenu = .none
-                            showLanguageSheet = true
-                        }
-                    },
-                ])
+                DarkroomMenuView(header: L10n.string("menu_more_header", locale: locale), options: moreOptions)
             case .none:
                 EmptyView()
             }
@@ -371,6 +365,25 @@ struct PhotosView: View {
         .padding(.top, 80)
         .padding(.trailing, DarkroomDimens.screenSide)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+    }
+
+    private var moreOptions: [DarkroomMenuOption] {
+        var options = [
+            DarkroomMenuOption(label: L10n.string("menu_language", locale: locale), trailing: languageLabel, selected: false) {
+                withAnimation(DarkroomMotion.menuIn) {
+                    openMenu = .none
+                    showLanguageSheet = true
+                }
+            },
+        ]
+        // 「部分照片」访问：系统不再自动弹「选择更多照片」（Info.plist PHPhotoLibraryPreventAutomaticLimitedAccessAlert），入口放这里
+        if library.authorization == .limited {
+            options.append(DarkroomMenuOption(label: L10n.string("menu_manage_selection", locale: locale), trailing: nil, selected: false) {
+                closeMenu()
+                library.presentLimitedLibraryPicker()
+            })
+        }
+        return options
     }
 
     private func closeMenu() {
@@ -477,9 +490,12 @@ struct PhotosView: View {
         )
     }
 
+    /// 误触保护（Android scrollSettleIgnore）：列表在拖 / 在惯性滑、或刚停下不到 300ms 时不响应点按。
+    /// 状态直接读 UIScrollView（isDragging / isDecelerating + 最后一次滚动的时间）：SwiftUI 的 DragGesture 被滚动视图接管后
+    /// 常常收不到 onEnded，而且手指抬起后惯性还在滑，按抬手时间算会放过甩动中的误触。
     private func tapsAllowed() -> Bool {
-        if isScrolling { return false }
-        return Date().timeIntervalSince(lastScrollEnd) >= DarkroomMotion.scrollSettleIgnore
+        if handlers.listMoving() { return false }
+        return CACurrentMediaTime() - handlers.lastScrollTime() >= DarkroomMotion.scrollSettleIgnore
     }
 
     private func formatted(_ n: Int) -> String {
@@ -500,8 +516,8 @@ struct PhotosView: View {
 
     private func dayHeader(_ day: PhotoDaySection) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(dayNumber(day.date)).font(DarkroomType.dayNumber).tracking(-0.24).monospacedDigit().foregroundStyle(DarkroomColors.paper)
-            Text(dayMonthWeekday(day.date)).font(DarkroomType.dayMeta).foregroundStyle(DarkroomColors.dim)
+            Text(day.id == DayKeyRule.unknown ? "—" : dayNumber(day.date)).font(DarkroomType.dayNumber).tracking(-0.24).monospacedDigit().foregroundStyle(DarkroomColors.paper)
+            Text(day.id == DayKeyRule.unknown ? L10n.string("date_unknown", locale: locale) : dayMonthWeekday(day.date)).font(DarkroomType.dayMeta).foregroundStyle(DarkroomColors.dim)
             Spacer()
             if selecting {
                 let ids = Set(day.allItems.map(\.id))
@@ -595,7 +611,7 @@ struct PhotosView: View {
     private func gridHeight(count: Int) -> CGFloat {
         let cols = CGFloat(DarkroomDimens.gridColumns)
         let rows = ceil(CGFloat(count) / cols)
-        let w = UIScreen.main.bounds.width
+        let w = listWidth
         let side = (w - DarkroomDimens.gridGap * (cols - 1)) / cols
         return rows * side + max(0, rows - 1) * DarkroomDimens.gridGap
     }
