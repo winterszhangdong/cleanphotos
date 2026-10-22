@@ -191,4 +191,8 @@
     <plurals name="similar_move_rest">
         <item quantity="other">移走其余 %1$d 张</item>
     </plurals>
+    <string name="trash_reminder_size">垃圾桶有 %1$s 待释放</string>
+    <string name="trash_reminder_age">有照片已在垃圾桶放了 30 天以上</string>
+    <string name="trash_reminder_review">去看看</string>
+    <string name="cd_dismiss_trash_reminder">关闭</string>
 </resources>

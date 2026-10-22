@@ -8,4 +8,8 @@ interface UserPreferencesRepository {
     /** 累计成功的上滑 / 下滑处理次数（review_swipe_action_count）。 */
     fun observeSwipeActionCount(): Flow<Int>
     suspend fun incrementSwipeActionCount()
+
+    /** 上次垃圾桶提醒出现的时间（epoch ms）。从没提醒过是 null。 */
+    fun observeTrashReminderShownAt(): Flow<Long?>
+    suspend fun setTrashReminderShownAt(at: Long)
 }

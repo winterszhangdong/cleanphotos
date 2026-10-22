@@ -26,4 +26,12 @@ class FakeUserPreferencesRepository(
     override suspend fun incrementSwipeActionCount() {
         swipeActionCountFlow.value += 1
     }
+
+    val trashReminderShownAt = MutableStateFlow<Long?>(null)
+
+    override fun observeTrashReminderShownAt(): Flow<Long?> = trashReminderShownAt
+
+    override suspend fun setTrashReminderShownAt(at: Long) {
+        trashReminderShownAt.value = at
+    }
 }

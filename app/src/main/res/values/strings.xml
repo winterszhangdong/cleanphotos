@@ -206,6 +206,10 @@
         <item quantity="one">Move the other photo</item>
         <item quantity="other">Move the other %1$d</item>
     </plurals>
+    <string name="trash_reminder_size">%1$s waiting in the trash</string>
+    <string name="trash_reminder_age">Some items have been in the trash for over 30 days</string>
+    <string name="trash_reminder_review">Review</string>
+    <string name="cd_dismiss_trash_reminder">Close</string>
     <!-- 语言名用各自的语言写，任何界面语言下都一样 -->
     <string name="language_zh" translatable="false">简体中文</string>
     <string name="language_en" translatable="false">English</string>

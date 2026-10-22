@@ -32,4 +32,8 @@ data class AllPhotosUiState(
     val isInitialLoad: Boolean = true,
     val hasPermission: Boolean = false,
     val errorMessage: UiText? = null,
+    /**
+     * 垃圾桶提醒主文案。null 表示现在不画胶囊（条件不够、多选、撤回、菜单，或这次进程里已经收起）。
+     */
+    val trashReminder: UiText? = null,
 )

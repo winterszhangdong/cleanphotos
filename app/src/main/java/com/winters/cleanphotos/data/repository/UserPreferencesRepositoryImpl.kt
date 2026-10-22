@@ -24,4 +24,11 @@ class UserPreferencesRepositoryImpl @Inject constructor(
     override suspend fun incrementSwipeActionCount() {
         userPreferencesDataSource.incrementSwipeActionCount()
     }
+
+    override fun observeTrashReminderShownAt(): Flow<Long?> =
+        userPreferencesDataSource.observeTrashReminderShownAt()
+
+    override suspend fun setTrashReminderShownAt(at: Long) {
+        userPreferencesDataSource.setTrashReminderShownAt(at)
+    }
 }

@@ -148,4 +148,14 @@ object Dimens {
     val DissolveBlur = 5.dp
     /** 相似照片组里一行缩略图的边长。 */
     val SimilarThumb = 72.dp
+
+    /** 撤回胶囊 / 垃圾桶提醒胶囊：高 56、内边距 8、间距 12、玻璃模糊 24、投影 0 16 40。 */
+    val CapsuleHeight = 56.dp
+    val CapsuleInset = 8.dp
+    val CapsuleGap = 12.dp
+    val CapsuleBlur = 24.dp
+    val CapsuleShadowBlur = 40.dp
+    val CapsuleShadowY = 16.dp
+    /** 提醒胶囊右侧 ✕ 的点击区域。 */
+    val ReminderDismiss = 32.dp
 }

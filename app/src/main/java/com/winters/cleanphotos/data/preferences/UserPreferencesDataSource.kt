@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import com.winters.cleanphotos.core.datastore.DataStoreKeys
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -41,5 +42,14 @@ class UserPreferencesDataSource @Inject constructor(
     /** 在调用方的 edit 里 +1（同一个 DataStore），让一次滑动的所有写入合成一次。 */
     internal fun incrementSwipeActionCountIn(prefs: MutablePreferences) {
         prefs[swipeActionCountKey] = (prefs[swipeActionCountKey] ?: 0) + 1
+    }
+
+    private val trashReminderShownAtKey = longPreferencesKey(DataStoreKeys.TRASH_REMINDER_SHOWN_AT)
+
+    /** 没有写过时是 null，不能当成 0（0 会被当成 1970 年已经提醒过）。 */
+    fun observeTrashReminderShownAt(): Flow<Long?> = dataStore.data.map { it[trashReminderShownAtKey] }
+
+    suspend fun setTrashReminderShownAt(at: Long) {
+        dataStore.edit { it[trashReminderShownAtKey] = at }
     }
 }
