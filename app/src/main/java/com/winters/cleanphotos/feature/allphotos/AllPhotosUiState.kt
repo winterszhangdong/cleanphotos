@@ -12,6 +12,12 @@ data class AllPhotosUiState(
     val totalCount: Int = 0,
     /** 其中还没看过的张数（「· 312 未看」）。 */
     val unseenCount: Int = 0,
+    /** 全部照片里的截图张数（不受「看过」影响，筛选菜单右侧数量）。 */
+    val screenshotCount: Int = 0,
+    /** 全部照片里达到大文件阈值的张数。 */
+    val largeFileCount: Int = 0,
+    /** 全部照片里聊天软件存图的张数。 */
+    val chatAppCount: Int = 0,
     val visibleCount: Int = 0,
     val sortOrder: PhotoSortOrder = PhotoSortOrder.NewestFirst,
     val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos,

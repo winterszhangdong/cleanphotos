@@ -127,7 +127,10 @@ OldestFirst：最早的照片排在前面。菜单文案是「最早优先」
 ```kotlin
 enum class PhotoFilterMode {
     AllPhotos,
-    UnseenOnly
+    UnseenOnly,
+    Screenshots,
+    LargeFiles,
+    ChatApps
 }
 ```
 
@@ -136,6 +139,15 @@ enum class PhotoFilterMode {
 ```text
 AllPhotos：展示全部照片（默认）
 UnseenOnly：仅展示未看过的照片
+Screenshots / LargeFiles / ChatApps：与前两项单选互斥，规则见 SmartFilterRules
+```
+
+判定在 `domain/model/SmartFilterRules.kt`（纯函数，大小写不敏感）：
+
+```text
+截图：relativePath 或 bucketName 含 "screenshot"、"截屏"、"截图"；字段为 null 不命中
+大文件：size ≥ 10 * 1024 * 1024 字节，图片和视频同一阈值；size 为 null 不算
+聊天软件存图：relativePath 含 "weixin"、"whatsapp"、"telegram"，或以 "Pictures/QQ/" 开头
 ```
 
 ***
@@ -392,7 +404,10 @@ data class AllPhotosUiState(
     val hasPermission: Boolean = false,
     val errorMessage: String? = null,
     val sortOrder: PhotoSortOrder = PhotoSortOrder.NewestFirst,
-    val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos
+    val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos,
+    val screenshotCount: Int = 0,
+    val largeFileCount: Int = 0,
+    val chatAppCount: Int = 0
 )
 ```
 
@@ -407,7 +422,8 @@ isLoading：是否加载中
 hasPermission：是否有相册权限
 errorMessage：错误信息
 sortOrder：当前排序方式。菜单文案是「最新优先」和「最早优先」
-filterMode：当前筛选模式。菜单文案是「全部照片」和「仅未看过」
+filterMode：当前筛选模式。菜单文案是「全部照片」「仅未看过」「截图」「大文件」「聊天软件存图」
+screenshotCount / largeFileCount / chatAppCount：照片页全部照片里命中对应规则的张数，不受「看过」影响
 ```
 
 ***
@@ -691,6 +707,7 @@ class FilterPhotosUseCase {
 ```text
 AllPhotos：返回全部照片
 UnseenOnly：读取 AppSeenStateDataSource，仅返回未看过的照片（id 不在 seenIds 中的照片）
+Screenshots / LargeFiles / ChatApps：按 SmartFilterRules 过滤，不读取「看过」状态
 ```
 
 ***
@@ -788,7 +805,7 @@ class StartReviewSessionUseCase(
 
 ```text
 接受 startPhotoId、sortOrder、filterMode、scope 四个参数
-执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → 过滤 → 查找起始照片
+执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤（含截图 / 大文件 / 聊天软件存图），Favorites 跳过过滤 → 查找起始照片
 找不到 startPhotoId 直接抛错，不回退到 0
 scope 决定候选队列：AllPhotos 排除垃圾桶和已收藏，Favorites 只取已收藏且不在垃圾桶的
 ```
