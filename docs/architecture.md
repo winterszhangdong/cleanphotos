@@ -126,6 +126,7 @@ MediaStore / DataStore
 ```text
 MediaStorePhotoDataSource
 MediaStoreTrashDataSource
+PhotoHashDataSource
 AppTrashStateDataSource
 AppFavoriteStateDataSource
 AppSeenStateDataSource
@@ -164,6 +165,7 @@ com.example.photocleaner
     ├── allphotos
     ├── favorites
     ├── review
+    ├── similar
     └── trash
 ```
 
@@ -186,7 +188,7 @@ com.example.photocleaner
 * 启动时后台预载全部字重（`CleanPhotosApp`），避免首次用到某个中文字重时主线程同步加载
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
-* Coil：内存缓存 30%，解码限 2 个并发；网格缩略图和清理页大图都用 `RGB_565`。清理页环境光（全屏模糊）只画当前页、离场页和撤回让位页，左右邻页和 alpha 为 0 的垫底页不画
+* Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，清理页、小结页、垃圾桶预览直接用视频 uri 画首帧（不播放）；网格缩略图和清理页大图都用 `RGB_565`。清理页环境光（全屏模糊）只画当前页、离场页和撤回让位页，左右邻页和 alpha 为 0 的垫底页不画
 * 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、未看光点 `UnseenDot`
 * 间距
 * 通用组件
@@ -263,6 +265,7 @@ data
 ```text
 MediaStorePhotoDataSource
 MediaStoreTrashDataSource
+PhotoHashDataSource
 AppTrashStateDataSource
 AppFavoriteStateDataSource
 AppSeenStateDataSource
@@ -270,7 +273,8 @@ AppSeenStateDataSource
 
 职责：
 
-* 查询系统照片（含 IS_FAVORITE，仅用于首次迁移系统收藏）。
+* 查询系统照片和视频：图片表、视频表分别查询后按拍摄时间合并，没有视频权限时只查图片；填充 mediaType / durationMs / relativePath / bucketName（含 IS_FAVORITE，仅用于首次迁移系统收藏）。
+* `PhotoHashDataSource`：取小图算 64 位 dHash，结果只缓存在进程内存，供相似照片分组。
 * 永久删除照片（移入 / 移出垃圾桶是 App 内语义，只写 DataStore）。
 * `AppTrashStateDataSource`：使用 DataStore 管理 App 内垃圾桶的软删除记录（upsertEntry / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
 * `AppFavoriteStateDataSource`：使用 DataStore 管理 App 内收藏记录（upsertEntry / upsertEntries / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
@@ -296,6 +300,7 @@ UserPreferencesDataSource
 ```text
 PhotoRepositoryImpl
 ReviewRepositoryImpl
+SimilarPhotoRepositoryImpl
 UserPreferencesRepositoryImpl
 ```
 
@@ -321,7 +326,11 @@ domain
 放置业务模型：
 
 ```text
-PhotoItem
+PhotoItem（含 mediaType / durationMs / relativePath / bucketName）
+MediaType（枚举：Image / Video）
+PhotoFilterMode（枚举：AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps）
+SmartFilterRules（截图 / 大文件 / 聊天软件存图判定）
+SimilarGroup、SimilarRules、DHash（相似照片分组）
 PhotoDateGroup
 PhotoAction
 PhotoActionType（枚举：Favorite / Unfavorite / MoveToTrash）
@@ -339,6 +348,7 @@ TrashScreenMode（枚举：Grid / Selection / Preview）
 ```text
 PhotoRepository（observeAllPhotos 排除 App 垃圾桶和 App 收藏中的照片；observeFavoritedPhotos 返回 App 收藏中且不在垃圾桶的照片；observeTrashedPhotos 返回 App 内垃圾桶照片；refreshPhotos 含一次性迁移和失效条目清理；只有部分照片访问权时两者都跳过，否则会把未选中照片的状态当成失效删掉）
 ReviewRepository（favoritePhoto / removeFavorite / moveToTrash / restoreFromTrash 直接写 DataStore 后返回 Success，不触发系统授权；照片页多选另有 favoritePhotos / removeFavorites / movePhotosToTrash 批量接口，每个 Store 一次写入；deletePhotosPermanently 仍通过 MediaStore）
+SimilarPhotoRepository（hashPhotos：给指定照片算 dHash，返回进度流；单张失败跳过）
 UserPreferencesRepository
 ```
 
@@ -476,7 +486,10 @@ Android 13 及以上：
 
 ```xml
 <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 ```
+
+图片和视频在同一次请求里申请（系统只弹一次「照片和视频」）。已授权图片、缺视频权限时，每次冷启动进入照片页补请求一次。「完整访问」= 图片和视频都已授权，否则跳过失效清理。
 
 Android 12 及以下：
 
