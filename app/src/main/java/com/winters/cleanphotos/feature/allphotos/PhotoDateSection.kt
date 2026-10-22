@@ -139,7 +139,6 @@ class GridSelection(
  */
 fun LazyGridScope.photoDaySections(
     sections: List<PhotoDaySection>,
-    unseen: (Long) -> Boolean,
     right: @Composable (PhotoDaySection) -> Unit,
     develop: TileDevelop,
     /** 网格是否还在首屏（还没滚动过）：首屏格子用 [develop] 错开显影，之后进入的格子不显影（直接出图）。 */
@@ -147,6 +146,7 @@ fun LazyGridScope.photoDaySections(
     reorderAnchor: () -> Int,
     onPhotoClick: (Long) -> Unit,
     selection: GridSelection? = null,
+    showChevron: Boolean = true,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -180,6 +180,7 @@ fun LazyGridScope.photoDaySections(
                     right = { right(section) },
                     onEnter = section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
                     modifier = reorderModifier(headerIndex, reorderAnchor()),
+                    showChevron = showChevron,
                 )
             }
         }
@@ -226,7 +227,6 @@ fun LazyGridScope.photoDaySections(
                         ),
                     // 滚动中不注册共享元素；停稳后挂上，点进清理页仍能配对
                     sizedModifier = Modifier.sharedPhoto(photo.id, expandsHere = false),
-                    unseen = unseen(photo.id),
                     developProfile = tileDevelop?.profile,
                     developDelayMs = tileDevelop?.delayFor(firstRow + row, col) ?: 0,
                     imageModifier = if (pick != null) Modifier.selectedShrink { pick.value } else Modifier,

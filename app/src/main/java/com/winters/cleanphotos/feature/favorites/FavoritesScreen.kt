@@ -96,7 +96,6 @@ fun FavoritesScreen(
                     ) {
                         photoDaySections(
                             sections = uiState.sections,
-                            unseen = { false },
                             right = { section -> MonoWithBold(null, pluralStringResource(R.plurals.favorites_section_count, section.totalCount, section.totalCount)) },
                             develop = develop,
                             firstScreen = firstScreen,

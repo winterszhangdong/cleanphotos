@@ -11,7 +11,6 @@ import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
 import com.winters.cleanphotos.domain.model.MediaType
-import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllSeenStatsUseCase
@@ -25,11 +24,7 @@ import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.ResolveBatchFavoriteUseCase
-import com.winters.cleanphotos.domain.usecase.MarkTrashReminderShownUseCase
-import com.winters.cleanphotos.domain.usecase.ObserveTrashMovedAtUseCase
-import com.winters.cleanphotos.domain.usecase.ObserveTrashReminderUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
-import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
 import org.junit.Assert.assertTrue
 import io.mockk.every
 import io.mockk.mockk
@@ -125,18 +120,11 @@ class AllPhotosViewModelTest {
             batchFavoritePhotosUseCase = BatchFavoritePhotosUseCase(ResolveBatchFavoriteUseCase(), fakeReviewRepository, mockSeenDataSource),
             batchMovePhotosToTrashUseCase = BatchMovePhotosToTrashUseCase(fakeReviewRepository, mockSeenDataSource),
             undoBatchActionUseCase = UndoBatchActionUseCase(fakeReviewRepository),
-            observeTrashReminderUseCase = ObserveTrashReminderUseCase(
-                ObserveTrashSummaryUseCase(fakePhotoRepository),
-                ObserveTrashMovedAtUseCase(fakePhotoRepository),
-                fakeUserPreferencesRepository,
-            ),
-            markTrashReminderShownUseCase = MarkTrashReminderShownUseCase(fakeUserPreferencesRepository),
             computeDispatcher = testDispatcher,
         )
     }
 
     private val fakeReviewRepository = FakeReviewRepository()
-    private val fakeUserPreferencesRepository = FakeUserPreferencesRepository()
 
     // ====== 多选 ======
 
@@ -365,38 +353,72 @@ class AllPhotosViewModelTest {
 
         val counted = vm.uiState.value
         assertEquals(5, counted.totalCount)
-        assertEquals(4, counted.unseenCount)
-        assertEquals(2, counted.screenshotCount)
-        assertEquals(2, counted.largeFileCount)
-        assertEquals(1, counted.chatAppCount)
+        assertEquals(5, counted.scopeCount)
+        assertEquals(5, counted.visibleCount)
 
-        vm.onFilterModeChanged(PhotoFilterMode.Screenshots)
+        vm.onScopeChanged(LibraryScope.Screenshots)
         advanceUntilIdle()
         val shots = vm.uiState.value
-        assertEquals(PhotoFilterMode.Screenshots, shots.filterMode)
+        assertEquals(LibraryScope.Screenshots, shots.scope)
         assertEquals(listOf(2L, 1L), shots.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(2, shots.scopeCount)
         assertEquals(2, shots.visibleCount)
-        assertEquals(2, shots.screenshotCount)
+        assertEquals(100L + min, shots.visibleBytes)
 
-        vm.onFilterModeChanged(PhotoFilterMode.LargeFiles)
+        vm.onShowUnseenChanged(true)
         advanceUntilIdle()
-        assertEquals(listOf(3L, 2L), vm.uiState.value.sections.flatMap { it.photos }.map { it.id })
+        val unseenShots = vm.uiState.value
+        assertEquals(listOf(2L), unseenShots.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(2, unseenShots.scopeCount)
+        assertEquals(1, unseenShots.visibleCount)
+        assertEquals(min, unseenShots.visibleBytes)
 
-        vm.onFilterModeChanged(PhotoFilterMode.ChatApps)
+        vm.onScopeChanged(LibraryScope.LargeFiles)
         advanceUntilIdle()
-        assertEquals(listOf(4L), vm.uiState.value.sections.flatMap { it.photos }.map { it.id })
+        val large = vm.uiState.value
+        assertEquals(listOf(3L, 2L), large.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(min + min, large.visibleBytes)
 
-        vm.onFilterModeChanged(PhotoFilterMode.AllPhotos)
+        vm.onScopeChanged(LibraryScope.ChatApps)
         advanceUntilIdle()
+        val chat = vm.uiState.value
+        assertEquals(listOf(4L), chat.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(TestPhotoData.createTestPhoto(4).size ?: 0L, chat.visibleBytes)
+
+        vm.onScopeChanged(LibraryScope.Similar)
+        advanceUntilIdle()
+        val similar = vm.uiState.value
+        assertEquals("相似不吃只看没看过", 5, similar.visibleCount)
+        assertEquals(5, similar.scopeCount)
+
+        vm.onScopeChanged(LibraryScope.All)
+        vm.onShowUnseenChanged(false)
+        advanceUntilIdle()
+        assertEquals(LibraryScope.All, vm.uiState.value.scope)
         assertEquals(5, vm.uiState.value.visibleCount)
     }
 
     @Test
-    fun `那年今天菜单_数量为0且未选中时隐藏_选中时仍显示`() {
-        val hidden = AllPhotosUiState(onThisDayCount = 0, filterMode = PhotoFilterMode.AllPhotos)
-        assertFalse(hidden.showOnThisDayMenu)
-        assertTrue(hidden.copy(filterMode = PhotoFilterMode.OnThisDay).showOnThisDayMenu)
-        assertTrue(hidden.copy(onThisDayCount = 2).showOnThisDayMenu)
+    fun `副文字大小合计把 null 记成 0`() = runTest(testDispatcher) {
+        val photos = listOf(
+            TestPhotoData.createTestPhoto(1).copy(relativePath = "Pictures/Screenshots/", size = null),
+            TestPhotoData.createTestPhoto(2).copy(relativePath = "Pictures/Screenshots/", size = 20L),
+        )
+        fakePhotoRepository.setPhotos(photos)
+        val vm = createViewModel()
+        advanceUntilIdle()
+        vm.onScopeChanged(LibraryScope.Screenshots)
+        advanceUntilIdle()
+        assertEquals(20L, vm.uiState.value.visibleBytes)
+        assertEquals(2, vm.uiState.value.visibleCount)
+    }
+
+    @Test
+    fun `那年今天按钮_数量为0且未选中时隐藏_选中时仍显示`() {
+        val hidden = AllPhotosUiState(onThisDayCount = 0, scope = LibraryScope.All)
+        assertFalse(hidden.showOnThisDay)
+        assertTrue(hidden.copy(scope = LibraryScope.OnThisDay).showOnThisDay)
+        assertTrue(hidden.copy(onThisDayCount = 2).showOnThisDay)
     }
 
     @Test
@@ -418,17 +440,25 @@ class AllPhotosViewModelTest {
 
         val counted = vm.uiState.value
         assertEquals(2, counted.onThisDayCount)
-        assertTrue(counted.showOnThisDayMenu)
+        assertTrue(counted.showOnThisDay)
         assertEquals(5, counted.totalCount)
 
-        vm.onFilterModeChanged(PhotoFilterMode.OnThisDay)
+        vm.onScopeChanged(LibraryScope.OnThisDay)
         advanceUntilIdle()
         val filtered = vm.uiState.value
-        assertEquals(PhotoFilterMode.OnThisDay, filtered.filterMode)
+        assertEquals(LibraryScope.OnThisDay, filtered.scope)
         assertEquals(listOf(1L, 2L), filtered.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(2, filtered.scopeCount)
         assertEquals(2, filtered.visibleCount)
         assertEquals(2, filtered.onThisDayCount)
-        assertTrue(filtered.showOnThisDayMenu)
+        assertTrue(filtered.showOnThisDay)
+
+        vm.onShowUnseenChanged(true)
+        advanceUntilIdle()
+        val unseen = vm.uiState.value
+        assertEquals(listOf(2L), unseen.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(2, unseen.scopeCount)
+        assertEquals(1, unseen.visibleCount)
     }
 }
 

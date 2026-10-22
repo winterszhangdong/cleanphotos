@@ -135,7 +135,6 @@ OldestFirst：最早的照片排在前面。菜单文案是「最早优先」
 ```kotlin
 enum class PhotoFilterMode {
     AllPhotos,
-    UnseenOnly,
     Screenshots,
     LargeFiles,
     ChatApps,
@@ -146,10 +145,10 @@ enum class PhotoFilterMode {
 说明：
 
 ```text
-AllPhotos：展示全部照片（默认）
-UnseenOnly：仅展示未看过的照片
-Screenshots / LargeFiles / ChatApps：与前两项单选互斥，规则见 SmartFilterRules
-OnThisDay：与上面全部单选互斥，规则见 OnThisDayRules
+AllPhotos：展示全部照片（默认）。相似范围在界面上单独存在，映射到这个模式，不进清理页
+Screenshots / LargeFiles / ChatApps：规则见 SmartFilterRules
+OnThisDay：规则见 OnThisDayRules
+「只看没看过」不是这个枚举里的一项，是单独的布尔 unseenOnly：先按范围筛，再去掉 seenIds 里的照片。不持久化。相似范围忽略它
 ```
 
 判定在 `domain/model/SmartFilterRules.kt`（纯函数，大小写不敏感）：
@@ -424,10 +423,10 @@ data class AllPhotosUiState(
     val hasPermission: Boolean = false,
     val errorMessage: String? = null,
     val sortOrder: PhotoSortOrder = PhotoSortOrder.NewestFirst,
-    val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos,
-    val screenshotCount: Int = 0,
-    val largeFileCount: Int = 0,
-    val chatAppCount: Int = 0,
+    val scope: LibraryScope = LibraryScope.All,
+    val unseenOnly: Boolean = false,
+    val scopeCount: Int = 0,
+    val visibleBytes: Long = 0L,
     val onThisDayCount: Int = 0
 )
 ```
@@ -436,16 +435,19 @@ data class AllPhotosUiState(
 
 ```text
 totalCount：全部照片数量
-dateGroups：日期分组列表
-visibleCount：当前过滤条件下实际可见的照片数量
-seenIds：已看过的照片 ID 集合，用于决定缩略图是否画未看光点
+dateGroups：日期分组列表（代码里是 sections：PhotoDaySection）
+scopeCount：当前范围、还没叠「只看没看过」的张数
+visibleCount：叠上「只看没看过」之后的张数。相似范围不吃开关，等于全部照片张数
+visibleBytes：visibleCount 这些照片的 size 之和，null 记 0。顶栏只在大文件 / 截图 / 聊天显示
+seenIds：已看过的照片 ID 集合。日期行用它算「已看 / 总数」，不再画缩略图光点
 isLoading：是否加载中
 hasPermission：是否有相册权限
 errorMessage：错误信息
 sortOrder：当前排序方式。菜单文案是「最新优先」和「最早优先」
-filterMode：当前筛选模式。菜单文案是「全部照片」「仅未看过」「截图」「大文件」「聊天软件存图」「那年今天」
-screenshotCount / largeFileCount / chatAppCount / onThisDayCount：照片页全部照片里命中对应规则的张数，不受「看过」影响
-showOnThisDayMenu：onThisDayCount > 0，或当前筛选已经是 OnThisDay；否则菜单不显示「那年今天」
+scope：当前范围。LibraryScope = All / Similar / LargeFiles / Screenshots / ChatApps / OnThisDay。相似映射到 PhotoFilterMode.AllPhotos
+unseenOnly：「只看没看过」。不持久化
+onThisDayCount：全部照片里命中「那年今天」的张数，不受「看过」影响
+showOnThisDay：onThisDayCount > 0，或当前范围已经是 OnThisDay；否则范围行不显示「那年今天」
 ```
 
 ***
@@ -658,7 +660,6 @@ app_seen_entries
 has_migrated_favorites
 review_swipe_action_count
 total_freed_bytes
-trash_reminder_shown_at
 ```
 
 含义：
@@ -671,8 +672,9 @@ app_seen_entries：已看过的照片 ID 集合（Set<String>，每条为 photoI
 has_migrated_favorites：是否已完成系统 IS_FAVORITE 到 AppFavoriteStore 的一次性迁移
 review_swipe_action_count：累计成功的上滑 / 下滑处理次数（Int）。≥ 20 时清理页永久隐藏方向提示小点
 total_freed_bytes：累计已确认从垃圾桶永久删除的字节（Long）。只增不减。只计刷新后确认已从图库消失的照片（size 未知按 0）；进程重建后没有删除前快照的那一次不计入
-trash_reminder_shown_at：上次在照片页出现垃圾桶提醒的时间（Long，epoch ms）。没有这条键表示从没提醒过，不能写成 0
 ```
+
+照片页不再读写 `trash_reminder_shown_at`。旧安装里如果还留着这个键，App 不管它。
 
 默认值：
 
@@ -684,7 +686,6 @@ app_seen_entries = emptySet()
 has_migrated_favorites = false
 review_swipe_action_count = 0
 total_freed_bytes = 0
-trash_reminder_shown_at = 未写入（读取为 null）
 ```
 
 当用户第一次完成有效的向上或向下清理滑动后：
@@ -723,13 +724,21 @@ dateTaken 为 null 的照片排在最后
 
 ### FilterPhotosUseCase
 
-按指定过滤模式过滤照片列表。suspend 函数，因为 UnseenOnly 需要读取 DataStore。
+先按范围筛，再按 `unseenOnly` 去掉已看过的。suspend 版本自己读 seenIds；已经拿到 seenIds 的调用方用纯函数版本。
 
 ```kotlin
 class FilterPhotosUseCase {
     suspend operator fun invoke(
         photos: List<PhotoItem>,
-        filterMode: PhotoFilterMode
+        filterMode: PhotoFilterMode,
+        unseenOnly: Boolean = false,
+    ): List<PhotoItem>
+
+    operator fun invoke(
+        photos: List<PhotoItem>,
+        filterMode: PhotoFilterMode,
+        seenIds: Set<Long>,
+        unseenOnly: Boolean = false,
     ): List<PhotoItem>
 }
 ```
@@ -738,9 +747,9 @@ class FilterPhotosUseCase {
 
 ```text
 AllPhotos：返回全部照片
-UnseenOnly：读取 AppSeenStateDataSource，仅返回未看过的照片（id 不在 seenIds 中的照片）
-Screenshots / LargeFiles / ChatApps：按 SmartFilterRules 过滤，不读取「看过」状态
-OnThisDay：按 OnThisDayRules 过滤，今天取 LocalDate.now()，不读取「看过」状态
+Screenshots / LargeFiles / ChatApps：按 SmartFilterRules 过滤
+OnThisDay：按 OnThisDayRules 过滤，今天取 LocalDate.now()
+unseenOnly 为 true：上面的结果再去掉 id 在 seenIds 里的照片
 ```
 
 ***
@@ -829,7 +838,8 @@ class StartReviewSessionUseCase(
         startPhotoId: Long,
         sortOrder: PhotoSortOrder,
         filterMode: PhotoFilterMode,
-        scope: ReviewScope
+        scope: ReviewScope,
+        unseenOnly: Boolean = false,
     ): ReviewSession
 }
 ```
@@ -837,9 +847,9 @@ class StartReviewSessionUseCase(
 说明：
 
 ```text
-接受 startPhotoId、sortOrder、filterMode、scope 四个参数
-执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤（含截图 / 大文件 / 聊天软件存图 / 那年今天），Favorites 跳过过滤 → 查找起始照片
-找不到 startPhotoId 直接抛错，不回退到 0
+接受 startPhotoId、sortOrder、filterMode、scope、unseenOnly
+执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤并叠 unseenOnly，Favorites 跳过过滤、也不吃 unseenOnly → 查找起始照片
+找不到 startPhotoId 直接抛错，不回退到 0。起点已被「只看没看过」滤掉时，落到排序上它后面最近的一张，后面没有就取前面最近的一张
 scope 决定候选队列：AllPhotos 排除垃圾桶和已收藏，Favorites 只取已收藏且不在垃圾桶的
 ```
 
@@ -1011,23 +1021,9 @@ summarizedDays：本次会话已出过小结的天
 | ObserveAllSeenStatsUseCase | 决定 11：`AllSeenStats(favoriteCount, trashCount, trashBytes)` |
 | ObserveShowDirectionHintsUseCase / RecordSwipeActionUseCase | 决定 10：`review_swipe_action_count` < 20 时显示方向提示小点；成功上下滑后 +1，撤回不回退 |
 | ObserveTotalFreedBytesUseCase / AddFreedBytesUseCase | 垃圾桶空状态「累计已释放」：读 / 累加 `total_freed_bytes` |
-| ObserveTrashReminderUseCase | 垃圾桶是否该开始一次提醒：`TrashSummary` + 最早 `movedToTrashAt` + `trash_reminder_shown_at`，交给 `TrashReminderRules` |
-| MarkTrashReminderShownUseCase | 胶囊出现时写入 `trash_reminder_shown_at` |
+### TrashReminderRules
 
-### TrashReminder
-
-```text
-TrashReminderReason：Size / Age。总大小和天数同时满足时用 Size
-TrashReminder：reason + totalBytes（size 为 null 已按 0 计入）
-TrashReminderRules：
-  SIZE_THRESHOLD_BYTES = 1024³
-  AGE_THRESHOLD_MS = 30 天
-  INTERVAL_MS = 7 天
-  totalBytes(sizes)：null 记 0
-  evaluate(count, totalBytes, earliestMovedAt, lastShownAt, now)：空垃圾桶返回 null；从没提醒过视为间隔已满足
-```
-
-`UserPreferencesRepository` 新增 `observeTrashReminderShownAt(): Flow<Long?>`、`setTrashReminderShownAt(at: Long)`。
+照片页提醒已删除。`TrashReminderRules` 只留 `AGE_THRESHOLD_MS`（30 天）。名字和数值不变，垃圾桶页读取。不再有 `TrashReminder`、`TrashReminderReason`、大小阈值、间隔、`evaluate`。`UserPreferencesRepository` 不再读写 `trash_reminder_shown_at`。
 
 ### Repository 变更
 

@@ -1,13 +1,11 @@
 package com.winters.cleanphotos.domain.model
 
 /**
- * 首页照片过滤模式。
+ * 照片页范围。和「只看没看过」分开：未看是叠加开关，不是一种范围。
  */
 enum class PhotoFilterMode {
-    /** 显示全部照片（默认） */
+    /** 全部照片（默认） */
     AllPhotos,
-    /** 仅显示未看过的照片 */
-    UnseenOnly,
     /** 截图（路径或文件夹名命中截图关键字） */
     Screenshots,
     /** 大文件（体积达到 [SmartFilterRules.LARGE_FILE_MIN_BYTES]） */

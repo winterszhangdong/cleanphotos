@@ -31,11 +31,4 @@ class UserPreferencesRepositoryImpl @Inject constructor(
         require(bytes > 0L) { "bytes 必须 > 0：$bytes" }
         userPreferencesDataSource.addFreedBytes(bytes)
     }
-
-    override fun observeTrashReminderShownAt(): Flow<Long?> =
-        userPreferencesDataSource.observeTrashReminderShownAt()
-
-    override suspend fun setTrashReminderShownAt(at: Long) {
-        userPreferencesDataSource.setTrashReminderShownAt(at)
-    }
 }

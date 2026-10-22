@@ -9,7 +9,7 @@ import java.time.LocalDate
  * @property yearHeader 这一天上方要画的年份分隔（.year），与上一天同年时为 null。
  * @property photos 当前顺序下露出的缩略图（最多 [MAX_VISIBLE_PHOTOS] 张）。
  * @property totalCount 这一天在统计池里的总张数（照片页 = 相册里这一天的全部，收藏页 = 这一天的收藏）。
- * @property unseenCount 这一天还没看过的张数（照片页右侧「9 / 14 未看」）。
+ * @property unseenCount 这一天还没看过的张数（统计池，不是当前范围的可见张数）。
  */
 data class PhotoDaySection(
     val dayKey: String,
@@ -19,6 +19,8 @@ data class PhotoDaySection(
     val totalCount: Int,
     val unseenCount: Int,
 ) {
+    /** 这一天已经看过的张数（总数 − 未看）。日期行右侧「3 / 7」。 */
+    val seenCount: Int get() = totalCount - unseenCount
     companion object {
         const val MAX_VISIBLE_PHOTOS = 8
     }

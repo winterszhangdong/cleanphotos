@@ -20,25 +20,30 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import com.winters.cleanphotos.core.design.MotionEasings
-import com.winters.cleanphotos.core.design.MotionSprings
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.paddingFromBaseline
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.paddingFromBaseline
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.winters.cleanphotos.core.design.rememberPhotoGridState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -46,14 +51,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
@@ -76,16 +89,18 @@ import com.winters.cleanphotos.core.design.GhostButton
 import com.winters.cleanphotos.core.design.GlassBackdropHost
 import com.winters.cleanphotos.core.design.HeaderCount
 import com.winters.cleanphotos.core.design.ListFade
+import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
 import com.winters.cleanphotos.core.design.MenuOption
 import com.winters.cleanphotos.core.design.MenuScrim
+import com.winters.cleanphotos.core.design.MenuSection
 import com.winters.cleanphotos.core.design.MonoWithBold
+import com.winters.cleanphotos.core.design.ScopeChipItem
+import com.winters.cleanphotos.core.design.ScopeChipRow
 import com.winters.cleanphotos.core.design.ScreenHeader
-import com.winters.cleanphotos.core.design.ScreenHeaderSpacer
 import com.winters.cleanphotos.core.design.SkeletonBlock
 import com.winters.cleanphotos.core.design.SystemBarIcons
 import com.winters.cleanphotos.core.design.TileGrid
 import com.winters.cleanphotos.core.design.ToolIconButton
-import com.winters.cleanphotos.core.design.TrashReminderBar
 import com.winters.cleanphotos.core.design.dockListBottomPadding
 import com.winters.cleanphotos.core.design.glassBackdropSource
 import com.winters.cleanphotos.core.design.plainClickable
@@ -95,14 +110,14 @@ import com.winters.cleanphotos.core.design.whenSettled
 import com.winters.cleanphotos.core.design.skeletonColor
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.core.util.NumberFormatter
-import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
-
-private enum class OpenMenu { None, Sort, Filter, More }
+import com.winters.cleanphotos.feature.similar.SimilarList
+import com.winters.cleanphotos.feature.similar.SimilarUiState
+import kotlinx.coroutines.delay
 
 /**
  * 照片页。
- * 页头固定在顶部、画在菜单遮罩之上；列表从页头下开始，玻璃导航模糊列表。
+ * 顶栏和范围按钮叠在列表上，往下翻时一起收起；状态栏留一条暗房底色。
  */
 @Composable
 fun AllPhotosScreen(
@@ -111,9 +126,14 @@ fun AllPhotosScreen(
     onRequestPermission: () -> Unit,
     onPhotoClick: (Long) -> Unit,
     onTrashClick: () -> Unit,
-    onOpenSimilar: () -> Unit = {},
     onSortOrderChanged: (PhotoSortOrder) -> Unit,
-    onFilterModeChanged: (PhotoFilterMode) -> Unit,
+    onScopeChanged: (LibraryScope) -> Unit,
+    onShowUnseenChanged: (Boolean) -> Unit,
+    similarState: SimilarUiState,
+    onSimilarKeep: (String, Long) -> Unit,
+    onSimilarMoveRest: (String) -> Unit,
+    onSimilarUndo: () -> Unit,
+    onSimilarUndoExpired: (Long) -> Unit,
     modifier: Modifier = Modifier,
     selection: PhotoSelectionState = PhotoSelectionState(),
     selectionActions: PhotoSelectionActions = PhotoSelectionActions.None,
@@ -122,9 +142,6 @@ fun AllPhotosScreen(
     showLanguageSheet: Boolean = false,
     onLanguageSelected: (AppLanguage) -> Unit = {},
     onDismissLanguageSheet: () -> Unit = {},
-    onReviewTrashReminder: () -> Unit = {},
-    onDismissTrashReminder: () -> Unit = {},
-    onTrashReminderBlocked: (Boolean) -> Unit = {},
 ) {
     SystemBarIcons(lightBackground = false)
 
@@ -134,71 +151,120 @@ fun AllPhotosScreen(
         return
     }
 
-    var openMenu by remember { mutableStateOf(OpenMenu.None) }
-    val reminderBlocked = openMenu != OpenMenu.None || showLanguageSheet
-    LaunchedEffect(reminderBlocked) { onTrashReminderBlocked(reminderBlocked) }
-    // 系统返回先关菜单
-    BackHandler(enabled = openMenu != OpenMenu.None) { openMenu = OpenMenu.None }
+    var menuOpen by remember { mutableStateOf(false) }
+    BackHandler(enabled = menuOpen) { menuOpen = false }
     BackHandler(enabled = showLanguageSheet) { onDismissLanguageSheet() }
     val selecting = selection.isSelecting
-    // 多选中返回先退出多选（照片页是根页，没有预测性返回动画可抢）
-    BackHandler(enabled = selecting && openMenu == OpenMenu.None) { selectionActions.onExit() }
-    LaunchedEffect(selecting) { if (selecting) openMenu = OpenMenu.None }
-    val loading = uiState.isLoading && uiState.sections.isEmpty()
-    val allSeen = !loading && uiState.filterMode == PhotoFilterMode.UnseenOnly && uiState.visibleCount == 0 && uiState.totalCount > 0
-    val smartFilterEmpty = !loading && uiState.errorMessage == null && uiState.filterMode.isSmartFilter && uiState.visibleCount == 0 && uiState.totalCount > 0
-    val unseenOnly = uiState.filterMode == PhotoFilterMode.UnseenOnly
-    val filterActive = uiState.filterMode != PhotoFilterMode.AllPhotos
-    // 切换排序后图标转 180°（点击后 50ms 起，落定弹簧），并用一句提示说明当前顺序
-    val sortRotation = remember { Animatable(sortAngle(uiState.sortOrder)) }
+    BackHandler(enabled = selecting && !menuOpen) { selectionActions.onExit() }
+    LaunchedEffect(selecting) { if (selecting) menuOpen = false }
+    val loading = uiState.isLoading && uiState.sections.isEmpty() && uiState.scope != LibraryScope.Similar
+    val scopeEmpty = !loading && uiState.errorMessage == null && uiState.scope.isNarrowRange && uiState.scopeCount == 0 && uiState.totalCount > 0
+    val scopeSeen = !loading && uiState.errorMessage == null && uiState.scope.isNarrowRange &&
+        uiState.unseenOnly && uiState.visibleCount == 0 && uiState.scopeCount > 0
+    val allSeen = !loading && uiState.scope == LibraryScope.All && uiState.unseenOnly && uiState.visibleCount == 0 && uiState.totalCount > 0
+    val showingSimilar = uiState.scope == LibraryScope.Similar
     val sortToast = remember { SortToastState() }
     val locale = currentLocale()
     val sortLabel = stringResource(if (uiState.sortOrder == PhotoSortOrder.OldestFirst) R.string.sort_oldest else R.string.sort_newest)
+    val toastedSort = remember { arrayOf(uiState.sortOrder) }
     LaunchedEffect(uiState.sortOrder) {
-        val target = sortAngle(uiState.sortOrder)
-        if (sortRotation.value == target) return@LaunchedEffect
-        launch { sortToast.show(sortLabel) }
-        delay(MotionDurations.SORT_ICON_DELAY.toLong())
-        sortRotation.animateTo(target, MotionSprings.Settle.spec())
+        if (toastedSort[0] == uiState.sortOrder) return@LaunchedEffect
+        toastedSort[0] = uiState.sortOrder
+        sortToast.show(sortLabel)
     }
+
+    val gridState = rememberPhotoGridState()
+    val similarListState = rememberLazyListState()
+    val collapse = remember { PhotoChromeCollapse() }
+    val scopeHolder = rememberUpdatedState(uiState.scope)
+    val density = LocalDensity.current
+    val collapseDistance = rememberUpdatedState(
+        with(density) { (Dimens.HeaderHeight + Dimens.ScopeRowHeight).toPx() },
+    )
+    val animateSettle = rememberUpdatedState(LocalAnimationsEnabled.current)
+    val settleScope = rememberCoroutineScope()
+    fun listAtTop(list: LazyListState?, grid: LazyGridState): Boolean {
+        return if (scopeHolder.value == LibraryScope.Similar) {
+            list!!.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0
+        } else {
+            grid.firstVisibleItemIndex == 0 && grid.firstVisibleItemScrollOffset == 0
+        }
+    }
+    val chromeScroll = remember(collapse, similarListState, gridState) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (listAtTop(similarListState, gridState)) collapse.snapExpanded()
+                else collapse.follow(consumed.y, collapseDistance.value)
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                collapse.settle(
+                    settleScope,
+                    collapseDistance.value,
+                    atTop = listAtTop(similarListState, gridState),
+                    animate = animateSettle.value,
+                )
+                return Velocity.Zero
+            }
+        }
+    }
+    LaunchedEffect(uiState.scope) {
+        gridState.scrollToItem(0)
+        similarListState.scrollToItem(0)
+        collapse.snapExpanded()
+    }
+    LaunchedEffect(menuOpen, selecting, showLanguageSheet) {
+        if (menuOpen || selecting || showLanguageSheet) collapse.snapExpanded()
+    }
+
+    val chromeTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + Dimens.HeaderHeight + Dimens.ScopeRowHeight
+    val showList = !loading && uiState.errorMessage == null && !allSeen && !scopeEmpty && !scopeSeen &&
+        (showingSimilar || uiState.sections.isNotEmpty())
 
     GlassBackdropHost {
         AppDockEffect(
-            // 多选时底部导航让位给「收藏 / 移入垃圾桶」两项操作栏
             mode = if (selecting || showLanguageSheet) DockMode.Hidden else DockMode.Visible,
-            scrim = if (openMenu != OpenMenu.None) {
-                DockScrim(DarkroomColors.MenuScrim, MotionDurations.MENU, MotionDurations.SHORT) { openMenu = OpenMenu.None }
+            scrim = if (menuOpen) {
+                DockScrim(DarkroomColors.MenuScrim, MotionDurations.MENU, MotionDurations.SHORT) { menuOpen = false }
             } else null,
         )
-        Box(modifier.fillMaxSize().background(DarkroomColors.Room)) {
-            Column(Modifier.fillMaxSize()) {
-                ScreenHeaderSpacer()
-                Box(Modifier.weight(1f)) {
-                    when {
-                        loading -> LoadingSkeleton()
-                        uiState.errorMessage != null && uiState.sections.isEmpty() -> MessageState(stringResource(R.string.photos_error_title), uiState.errorMessage.asString())
-                        allSeen -> Unit
-                        smartFilterEmpty -> Unit
-                        uiState.sections.isEmpty() -> MessageState(stringResource(R.string.photos_empty_title), stringResource(R.string.photos_empty_body))
-                        else -> PhotoList(uiState, onPhotoClick, selection, selectionActions)
+        Box(modifier.fillMaxSize().background(DarkroomColors.Room).nestedScroll(chromeScroll)) {
+            when {
+                loading -> LoadingSkeleton(Modifier.padding(top = chromeTop))
+                uiState.errorMessage != null && uiState.sections.isEmpty() -> {
+                    Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
+                        MessageState(stringResource(R.string.photos_error_title), uiState.errorMessage.asString())
                     }
                 }
+                showingSimilar -> SimilarList(
+                    uiState = similarState,
+                    listState = similarListState,
+                    contentPadding = PaddingValues(top = chromeTop + Dimens.FreeTop, bottom = dockListBottomPadding()),
+                    onKeep = onSimilarKeep,
+                    onMoveRest = onSimilarMoveRest,
+                )
+                allSeen || scopeEmpty || scopeSeen -> Unit
+                uiState.sections.isEmpty() -> {
+                    Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
+                        MessageState(stringResource(R.string.photos_empty_title), stringResource(R.string.photos_empty_body))
+                    }
+                }
+                else -> PhotoList(uiState, onPhotoClick, selection, selectionActions, gridState, chromeTop)
             }
             if (allSeen) {
-                AllSeenContent(
-                    uiState = uiState,
-                    onTrashClick = onTrashClick,
-                    onShowAll = { onFilterModeChanged(PhotoFilterMode.AllPhotos) },
-                )
+                AllSeenContent(uiState = uiState, onTrashClick = onTrashClick, onShowSeen = { onShowUnseenChanged(false) })
             }
-            if (smartFilterEmpty) {
+            if (scopeEmpty) {
                 SmartFilterEmpty(
-                    title = stringResource(uiState.filterMode.emptyTitleRes()),
-                    onShowAll = { onFilterModeChanged(PhotoFilterMode.AllPhotos) },
+                    title = stringResource(uiState.scope.emptyTitleRes()),
+                    onShowAll = { onScopeChanged(LibraryScope.All) },
                 )
             }
-            if (!allSeen && !smartFilterEmpty) ListFade()
-            // 导航玻璃只取样这一条实色带。Haze 每帧 record 整棵子树，包在网格上会让滚动重画所有可见格子。
+            if (scopeSeen) {
+                ScopeSeenEmpty(onShowSeen = { onShowUnseenChanged(false) })
+            }
+            if (showList && !(showingSimilar && similarState.groups.isEmpty())) ListFade()
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -209,75 +275,72 @@ fun AllPhotosScreen(
                     .glassBackdropSource(),
             )
 
-            MenuScrim(visible = openMenu != OpenMenu.None, onDismiss = { openMenu = OpenMenu.None })
+            MenuScrim(visible = menuOpen, onDismiss = { menuOpen = false })
 
-            val menuOpen = openMenu != OpenMenu.None
-            ScreenHeader(
-                leftAlpha = if (menuOpen) 0.5f else 1f,
-                count = {
-                    if (selecting) {
-                        HeaderCount(selection.count)
-                    } else if (loading) {
-                        SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
-                        Text(
-                            stringResource(R.string.photos_loading),
-                            style = DarkroomText.CountSub,
-                            modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
-                        )
-                    } else if (filterActive) {
-                        HeaderCount(uiState.visibleCount, sub = stringResource(R.string.header_sub_total, NumberFormatter.formatCount(uiState.totalCount, locale)))
-                    } else {
-                        HeaderCount(uiState.totalCount, sub = stringResource(R.string.header_sub_unseen, NumberFormatter.formatCount(uiState.unseenCount, locale)))
-                    }
-                },
-                actions = {
-                  if (selecting) {
-                    // 只把排序、筛选换成 ✕，左侧和列表位置不动
-                    ToolIconButton(onClick = selectionActions.onExit) { tint ->
-                        Icon(DarkroomIcons.Close, contentDescription = stringResource(R.string.cd_exit_selection), tint = tint, modifier = Modifier.size(Dimens.ToolIcon))
-                    }
-                  } else {
-                    val enabled = !loading
-                    ToolIconButton(
-                        onClick = { openMenu = if (openMenu == OpenMenu.Sort) OpenMenu.None else OpenMenu.Sort },
-                        active = openMenu == OpenMenu.Sort,
-                        enabled = enabled,
-                        modifier = Modifier.alpha(
-                            when {
-                                loading -> 0.4f
-                                openMenu == OpenMenu.Filter || openMenu == OpenMenu.More -> 0.5f
-                                else -> 1f
-                            },
-                        ),
-                    ) { tint ->
-                        Icon(
-                            DarkroomIcons.Sort,
-                            contentDescription = stringResource(R.string.cd_sort),
-                            tint = tint,
-                            modifier = Modifier.size(Dimens.ToolIcon).graphicsLayer { rotationZ = sortRotation.value },
-                        )
-                    }
-                    ToolIconButton(
-                        onClick = { openMenu = if (openMenu == OpenMenu.Filter) OpenMenu.None else OpenMenu.Filter },
-                        active = openMenu == OpenMenu.Filter,
-                        showPip = filterActive,
-                        enabled = enabled,
-                        modifier = Modifier.alpha(
-                            when {
-                                loading -> 0.4f
-                                openMenu == OpenMenu.Sort || openMenu == OpenMenu.More -> 0.5f
-                                else -> 1f
-                            },
-                        ),
-                    ) { tint -> Icon(DarkroomIcons.Filter, contentDescription = stringResource(R.string.cd_filter), tint = tint, modifier = Modifier.size(Dimens.ToolIcon)) }
-                    // ⋯：目前只有「语言」一项（不单独做设置页）
-                    ToolIconButton(
-                        onClick = { openMenu = if (openMenu == OpenMenu.More) OpenMenu.None else OpenMenu.More },
-                        active = openMenu == OpenMenu.More,
-                        modifier = Modifier.alpha(if (openMenu == OpenMenu.Sort || openMenu == OpenMenu.Filter) 0.5f else 1f),
-                    ) { tint -> Icon(DarkroomIcons.More, contentDescription = stringResource(R.string.cd_more), tint = tint, modifier = Modifier.size(Dimens.ToolIcon)) }
-                  }
-                },
+            Column(
+                Modifier.graphicsLayer { translationY = collapse.offsetPx },
+            ) {
+                ScreenHeader(
+                    leftAlpha = if (menuOpen) 0.5f else 1f,
+                    count = {
+                        when {
+                            selecting -> HeaderCount(
+                                selection.count,
+                                unit = pluralStringResource(R.plurals.count_unit, selection.count),
+                                sub = stringResource(R.string.header_sub_selected),
+                            )
+                            loading -> {
+                                SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
+                                Text(
+                                    stringResource(R.string.photos_loading),
+                                    style = DarkroomText.CountSub,
+                                    modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
+                                )
+                            }
+                            showingSimilar -> HeaderCount(
+                                similarState.groups.size,
+                                unit = pluralStringResource(R.plurals.unit_group, similarState.groups.size),
+                                sub = pluralStringResource(
+                                    R.plurals.header_sub_can_move,
+                                    similarState.removableCount,
+                                    similarState.removableCount,
+                                ),
+                            )
+                            uiState.scope.showsByteTotal -> HeaderCount(
+                                uiState.visibleCount,
+                                unit = pluralStringResource(R.plurals.count_unit, uiState.visibleCount),
+                                sub = stringResource(R.string.header_sub_bytes, FileSizeFormatter.format(uiState.visibleBytes, locale)),
+                            )
+                            else -> HeaderCount(
+                                uiState.visibleCount,
+                                unit = pluralStringResource(R.plurals.count_unit, uiState.visibleCount),
+                            )
+                        }
+                    },
+                    actions = {
+                        if (selecting) {
+                            ToolIconButton(onClick = selectionActions.onExit) { tint ->
+                                Icon(DarkroomIcons.Close, contentDescription = stringResource(R.string.cd_exit_selection), tint = tint, modifier = Modifier.size(Dimens.ToolIcon))
+                            }
+                        } else {
+                            ToolIconButton(
+                                onClick = { menuOpen = !menuOpen },
+                                active = menuOpen,
+                                showPip = uiState.unseenOnly,
+                            ) { tint ->
+                                Icon(DarkroomIcons.More, contentDescription = stringResource(R.string.cd_more), tint = tint, modifier = Modifier.size(Dimens.ToolIcon))
+                            }
+                        }
+                    },
+                )
+                ScopeChipRow(scopeChips(uiState, onScopeChanged))
+            }
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(WindowInsets.statusBars)
+                    .background(DarkroomColors.Room),
             )
 
             SelectionActionBar(
@@ -288,82 +351,57 @@ fun AllPhotosScreen(
                 onMoveToTrash = selectionActions.onMoveToTrash,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+            val undo = if (showingSimilar) similarState.undo else selection.undo
             BatchUndoBar(
-                undo = selection.undo,
-                visible = !selecting,
-                onUndo = selectionActions.onUndo,
-                onExpired = selectionActions.onUndoExpired,
+                undo = undo,
+                visible = undo != null && !selecting,
+                onUndo = if (showingSimilar) onSimilarUndo else selectionActions.onUndo,
+                onExpired = if (showingSimilar) onSimilarUndoExpired else selectionActions.onUndoExpired,
                 modifier = Modifier.align(Alignment.BottomCenter),
-            )
-            TrashReminderBar(
-                message = uiState.trashReminder?.asString(),
-                visible = uiState.trashReminder != null,
-                onReview = onReviewTrashReminder,
-                onDismiss = onDismissTrashReminder,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(
-                        start = Dimens.ScreenSide,
-                        end = Dimens.ScreenSide,
-                        bottom = Dimens.NavBottom + Dimens.NavHeight + Dimens.UndoAboveNav,
-                    )
-                    .fillMaxWidth(),
             )
 
             SortToast(sortToast)
 
             DarkroomMenu(
-                visible = openMenu == OpenMenu.Sort,
-                header = stringResource(R.string.menu_sort_header),
-                options = listOf(
-                    MenuOption(stringResource(R.string.sort_newest), stringResource(R.string.sort_default), uiState.sortOrder == PhotoSortOrder.NewestFirst) {
-                        onSortOrderChanged(PhotoSortOrder.NewestFirst); openMenu = OpenMenu.None
-                    },
-                    MenuOption(stringResource(R.string.sort_oldest), null, uiState.sortOrder == PhotoSortOrder.OldestFirst) {
-                        onSortOrderChanged(PhotoSortOrder.OldestFirst); openMenu = OpenMenu.None
-                    },
-                ),
-            )
-            DarkroomMenu(
-                visible = openMenu == OpenMenu.Filter,
-                header = stringResource(R.string.menu_filter_header),
-                options = buildList {
-                    add(MenuOption(stringResource(R.string.filter_all), NumberFormatter.formatCount(uiState.totalCount, locale), uiState.filterMode == PhotoFilterMode.AllPhotos) {
-                        onFilterModeChanged(PhotoFilterMode.AllPhotos); openMenu = OpenMenu.None
-                    })
-                    add(MenuOption(stringResource(R.string.filter_unseen), NumberFormatter.formatCount(uiState.unseenCount, locale), unseenOnly) {
-                        onFilterModeChanged(PhotoFilterMode.UnseenOnly); openMenu = OpenMenu.None
-                    })
-                    add(MenuOption(stringResource(R.string.filter_screenshots), NumberFormatter.formatCount(uiState.screenshotCount, locale), uiState.filterMode == PhotoFilterMode.Screenshots) {
-                        onFilterModeChanged(PhotoFilterMode.Screenshots); openMenu = OpenMenu.None
-                    })
-                    add(MenuOption(stringResource(R.string.filter_large_files), NumberFormatter.formatCount(uiState.largeFileCount, locale), uiState.filterMode == PhotoFilterMode.LargeFiles) {
-                        onFilterModeChanged(PhotoFilterMode.LargeFiles); openMenu = OpenMenu.None
-                    })
-                    add(MenuOption(stringResource(R.string.filter_chat_apps), NumberFormatter.formatCount(uiState.chatAppCount, locale), uiState.filterMode == PhotoFilterMode.ChatApps) {
-                        onFilterModeChanged(PhotoFilterMode.ChatApps); openMenu = OpenMenu.None
-                    })
-                    if (uiState.showOnThisDayMenu) {
-                        add(MenuOption(stringResource(R.string.filter_on_this_day), NumberFormatter.formatCount(uiState.onThisDayCount, locale), uiState.filterMode == PhotoFilterMode.OnThisDay) {
-                            onFilterModeChanged(PhotoFilterMode.OnThisDay); openMenu = OpenMenu.None
-                        })
-                    }
-                    // 不是筛选：不改 filterMode，关掉菜单后离开本页
-                    add(MenuOption(stringResource(R.string.similar_photos), stringResource(R.string.similar_menu_go), false) {
-                        openMenu = OpenMenu.None
-                        onOpenSimilar()
-                    })
-                },
-            )
-            DarkroomMenu(
-                visible = openMenu == OpenMenu.More,
-                header = stringResource(R.string.menu_more_header),
-                options = listOf(
-                    MenuOption(stringResource(R.string.menu_language), stringResource(currentLanguage.labelRes()), false) {
-                        openMenu = OpenMenu.None
-                        onLanguageClick()
-                    },
+                visible = menuOpen,
+                // 顶栏只剩 56dp：菜单紧贴 ⋯ 下方，盖住范围行而不是悬在它下面
+                top = Dimens.HeaderHeight,
+                sections = listOf(
+                    MenuSection(
+                        header = stringResource(R.string.menu_sort_header),
+                        options = listOf(
+                            MenuOption(stringResource(R.string.sort_newest), stringResource(R.string.sort_default), uiState.sortOrder == PhotoSortOrder.NewestFirst) {
+                                onSortOrderChanged(PhotoSortOrder.NewestFirst)
+                                menuOpen = false
+                            },
+                            MenuOption(stringResource(R.string.sort_oldest), null, uiState.sortOrder == PhotoSortOrder.OldestFirst) {
+                                onSortOrderChanged(PhotoSortOrder.OldestFirst)
+                                menuOpen = false
+                            },
+                        ),
+                    ),
+                    MenuSection(
+                        options = listOf(
+                            MenuOption(
+                                label = stringResource(R.string.menu_unseen_only),
+                                trailing = null,
+                                selected = false,
+                                onClick = {
+                                    onShowUnseenChanged(!uiState.unseenOnly)
+                                    menuOpen = false
+                                },
+                                toggle = uiState.unseenOnly,
+                            ),
+                        ),
+                    ),
+                    MenuSection(
+                        options = listOf(
+                            MenuOption(stringResource(R.string.menu_language), stringResource(currentLanguage.labelRes()), false) {
+                                menuOpen = false
+                                onLanguageClick()
+                            },
+                        ),
+                    ),
                 ),
             )
             LanguageSheet(
@@ -377,19 +415,32 @@ fun AllPhotosScreen(
 }
 
 @Composable
+private fun scopeChips(uiState: AllPhotosUiState, onScopeChanged: (LibraryScope) -> Unit): List<ScopeChipItem> {
+    fun chip(label: String, scope: LibraryScope) = ScopeChipItem(label, uiState.scope == scope) { onScopeChanged(scope) }
+    return buildList {
+        add(chip(stringResource(R.string.scope_all), LibraryScope.All))
+        add(chip(stringResource(R.string.scope_similar), LibraryScope.Similar))
+        add(chip(stringResource(R.string.filter_large_files), LibraryScope.LargeFiles))
+        add(chip(stringResource(R.string.filter_screenshots), LibraryScope.Screenshots))
+        add(chip(stringResource(R.string.scope_chat), LibraryScope.ChatApps))
+        if (uiState.showOnThisDay) add(chip(stringResource(R.string.filter_on_this_day), LibraryScope.OnThisDay))
+    }
+}
+
+@Composable
 private fun PhotoList(
     uiState: AllPhotosUiState,
     onPhotoClick: (Long) -> Unit,
     selection: PhotoSelectionState,
     actions: PhotoSelectionActions,
+    gridState: LazyGridState,
+    topPadding: Dp,
 ) {
     val view = LocalView.current
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
-    val gridState = rememberPhotoGridState()
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
-    val anchor = rememberReorderAnchor(gridState, uiState.sortOrder to uiState.filterMode)
-    // 甩动中 / 停稳后约 280ms 内不响应点按与长按，避免惯性抬手误开清理页
+    val anchor = rememberReorderAnchor(gridState, Triple(uiState.sortOrder, uiState.scope, uiState.unseenOnly))
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
     LazyVerticalGrid(
@@ -409,16 +460,15 @@ private fun PhotoList(
                 onDrag = actions.onDrag,
             ),
         horizontalArrangement = Arrangement.spacedBy(Dimens.GridGap),
-        contentPadding = PaddingValues(bottom = dockListBottomPadding()),
+        contentPadding = PaddingValues(top = topPadding, bottom = dockListBottomPadding()),
     ) {
         photoDaySections(
             sections = uiState.sections,
-            unseen = { it !in uiState.seenIds },
             right = { section ->
-                if (section.unseenCount > 0) {
-                    MonoWithBold(section.unseenCount.toString(), stringResource(R.string.section_unseen, section.totalCount))
+                if (section.totalCount > 0 && section.seenCount >= section.totalCount) {
+                    MonoWithBold(null, stringResource(R.string.section_all_seen))
                 } else {
-                    MonoWithBold(null, stringResource(R.string.section_done, section.totalCount))
+                    MonoWithBold(section.seenCount.toString(), stringResource(R.string.section_seen_of, section.totalCount))
                 }
             },
             develop = develop,
@@ -426,19 +476,20 @@ private fun PhotoList(
             reorderAnchor = anchor,
             onPhotoClick = openPhoto,
             selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay, actions.onToggle, actions.onLongPress),
+            showChevron = false,
         )
     }
 }
 
 /** 骨架天标题（24×20 + 64×12）与呼吸格，三组 8 / 6 / 4 格，错开 200ms。 */
 @Composable
-private fun LoadingSkeleton() {
+private fun LoadingSkeleton(modifier: Modifier = Modifier) {
     val groups = listOf(
         listOf(0, 200, 400, 600, 800, 1000, 200, 400),
         listOf(0, 200, 400, 600, 800, 1000),
         listOf(300, 500, 700, 900),
     )
-    Column {
+    Column(modifier) {
         groups.forEach { delays ->
             Row(
                 Modifier.fillMaxWidth().height(Dimens.DayHeight).padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, top = Dimens.DayTop, bottom = Dimens.DayBottom),
@@ -455,7 +506,7 @@ private fun LoadingSkeleton() {
     }
 }
 
-/** 截图 / 大文件 / 聊天软件存图 / 那年今天筛到 0 张：标题 + 切回全部。不用「全部看过了」那一套。 */
+/** 截图 / 大文件 / 聊天 / 那年今天本身 0 张：标题 + 切回全部。 */
 @Composable
 private fun SmartFilterEmpty(title: String, onShowAll: () -> Unit) {
     EmptyStateArea {
@@ -468,18 +519,25 @@ private fun SmartFilterEmpty(title: String, onShowAll: () -> Unit) {
     }
 }
 
-private val PhotoFilterMode.isSmartFilter: Boolean
-    get() = this == PhotoFilterMode.Screenshots ||
-        this == PhotoFilterMode.LargeFiles ||
-        this == PhotoFilterMode.ChatApps ||
-        this == PhotoFilterMode.OnThisDay
+/** 范围里有照片，但叠上「只看没看过」之后一张不剩。 */
+@Composable
+private fun ScopeSeenEmpty(onShowSeen: () -> Unit) {
+    EmptyStateArea {
+        Text(stringResource(R.string.scope_seen_title), style = DarkroomText.EmptyH4, textAlign = TextAlign.Center)
+        Text(
+            stringResource(R.string.show_seen),
+            style = DarkroomText.TextButton,
+            modifier = Modifier.padding(top = 24.dp).plainClickable(onClick = onShowSeen),
+        )
+    }
+}
 
-private fun PhotoFilterMode.emptyTitleRes(): Int = when (this) {
-    PhotoFilterMode.Screenshots -> R.string.filter_empty_screenshots
-    PhotoFilterMode.LargeFiles -> R.string.filter_empty_large_files
-    PhotoFilterMode.ChatApps -> R.string.filter_empty_chat_apps
-    PhotoFilterMode.OnThisDay -> R.string.filter_empty_on_this_day
-    PhotoFilterMode.AllPhotos, PhotoFilterMode.UnseenOnly -> error("$this 没有筛选空状态")
+private fun LibraryScope.emptyTitleRes(): Int = when (this) {
+    LibraryScope.Screenshots -> R.string.filter_empty_screenshots
+    LibraryScope.LargeFiles -> R.string.filter_empty_large_files
+    LibraryScope.ChatApps -> R.string.filter_empty_chat_apps
+    LibraryScope.OnThisDay -> R.string.filter_empty_on_this_day
+    LibraryScope.All, LibraryScope.Similar -> error("$this 没有范围空状态")
 }
 
 @Composable
@@ -489,9 +547,9 @@ private fun MessageState(title: String, body: String) {
     }
 }
 
-/** 「全部看过了」：晾绳 + 文案 + 收藏 N / 垃圾桶 N 张 / 待释放 X GB（决定 11）。 */
+/** 「全部看过了」：晾绳 + 文案 + 收藏 N / 垃圾桶 N 张 / 待释放 X GB。按钮关掉「只看没看过」。 */
 @Composable
-private fun AllSeenContent(uiState: AllPhotosUiState, onTrashClick: () -> Unit, onShowAll: () -> Unit) {
+private fun AllSeenContent(uiState: AllPhotosUiState, onTrashClick: () -> Unit, onShowSeen: () -> Unit) {
     val stats = uiState.allSeenStats
     val locale = currentLocale()
     EmptyStateArea {
@@ -511,9 +569,9 @@ private fun AllSeenContent(uiState: AllPhotosUiState, onTrashClick: () -> Unit, 
             GhostButton(stringResource(R.string.all_seen_view_trash), onClick = onTrashClick, mono = stringResource(R.string.all_seen_trash_mono, FileSizeFormatter.format(stats.trashBytes, locale)))
         }
         Text(
-            stringResource(R.string.show_all_photos),
+            stringResource(R.string.show_seen),
             style = DarkroomText.TextButton,
-            modifier = Modifier.padding(top = 12.dp).plainClickable(onClick = onShowAll),
+            modifier = Modifier.padding(top = 12.dp).plainClickable(onClick = onShowSeen),
         )
     }
 }
@@ -530,12 +588,9 @@ private fun DoneStat(value: String, unit: String?, color: androidx.compose.ui.gr
             },
             style = DarkroomText.DoneNum.copy(color = color),
         )
-        // 11px 的 span 落在 16px × 1.45 的父行盒里：行高 23.2dp，基线在 18.56dp（16 × 1.16）
         Text(label, style = DarkroomText.DoneLabel, modifier = Modifier.paddingFromBaseline(top = 18.56.dp, bottom = 4.64.dp))
     }
 }
-
-private fun sortAngle(order: PhotoSortOrder): Float = if (order == PhotoSortOrder.OldestFirst) 180f else 0f
 
 /** 排序提示：减速淡入并上移 → 停留 → 淡出。只在绘制阶段读进度。 */
 private class SortToastState {
