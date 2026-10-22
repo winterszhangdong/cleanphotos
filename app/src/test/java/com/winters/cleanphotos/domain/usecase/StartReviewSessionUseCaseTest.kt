@@ -2,9 +2,11 @@ package com.winters.cleanphotos.domain.usecase
 
 import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
+import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ReviewScope
+import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.fake.FakePhotoRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -114,5 +116,31 @@ class StartReviewSessionUseCaseTest {
 
         val session = useCase(2L, PhotoSortOrder.NewestFirst, PhotoFilterMode.UnseenOnly, ReviewScope.AllPhotos)
         assertEquals(4L, session.photos[session.currentIndex].id)
+    }
+
+    @Test
+    fun `智能筛选下会话只有筛选结果_收藏范围跳过过滤`() = runTest {
+        val fakeRepo = FakePhotoRepository()
+        val shot = TestPhotoData.createTestPhoto(1).copy(relativePath = "Pictures/Screenshots/")
+        val camera = TestPhotoData.createTestPhoto(2).copy(relativePath = "DCIM/Camera/")
+        val big = TestPhotoData.createTestPhoto(3).copy(
+            size = SmartFilterRules.LARGE_FILE_MIN_BYTES,
+            mediaType = MediaType.Video,
+            relativePath = "DCIM/Camera/",
+        )
+        fakeRepo.setPhotos(listOf(shot, camera, big))
+        val useCase = createUseCase(fakeRepo)
+
+        val screenshots = useCase(1L, PhotoSortOrder.NewestFirst, PhotoFilterMode.Screenshots, ReviewScope.AllPhotos)
+        assertEquals(listOf(1L), screenshots.photos.map { it.id })
+        assertEquals(0, screenshots.currentIndex)
+
+        val large = useCase(3L, PhotoSortOrder.NewestFirst, PhotoFilterMode.LargeFiles, ReviewScope.AllPhotos)
+        assertEquals(listOf(3L), large.photos.map { it.id })
+        assertEquals(3L, large.photos[large.currentIndex].id)
+
+        fakeRepo.setFavoritedPhotos(listOf(shot, camera, big))
+        val favorites = useCase(2L, PhotoSortOrder.NewestFirst, PhotoFilterMode.Screenshots, ReviewScope.Favorites)
+        assertEquals(listOf(3L, 2L, 1L), favorites.photos.map { it.id })
     }
 }

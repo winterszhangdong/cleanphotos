@@ -27,6 +27,12 @@
     <string name="menu_filter_header">Show</string>
     <string name="filter_all">All photos</string>
     <string name="filter_unseen">Unseen only</string>
+    <string name="filter_screenshots">Screenshots</string>
+    <string name="filter_large_files">Large files</string>
+    <string name="filter_chat_apps">Chat app images</string>
+    <string name="filter_empty_screenshots">No screenshots</string>
+    <string name="filter_empty_large_files">No large files</string>
+    <string name="filter_empty_chat_apps">No chat app images</string>
     <string name="cd_more">More</string>
     <string name="menu_more_header">More</string>
     <string name="menu_language">Language</string>

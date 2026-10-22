@@ -27,6 +27,12 @@
     <string name="menu_filter_header">显示</string>
     <string name="filter_all">全部照片</string>
     <string name="filter_unseen">仅未看过</string>
+    <string name="filter_screenshots">截图</string>
+    <string name="filter_large_files">大文件</string>
+    <string name="filter_chat_apps">聊天软件存图</string>
+    <string name="filter_empty_screenshots">没有截图</string>
+    <string name="filter_empty_large_files">没有大文件</string>
+    <string name="filter_empty_chat_apps">没有聊天软件存图</string>
     <string name="cd_more">更多</string>
     <string name="menu_more_header">更多</string>
     <string name="menu_language">语言</string>

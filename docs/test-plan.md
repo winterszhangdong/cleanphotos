@@ -91,7 +91,7 @@ Compose UI 测试
 ```text
 日期分组逻辑
 照片排序逻辑（NewestFirst / OldestFirst）
-照片过滤逻辑（AllPhotos / UnseenOnly）
+照片过滤逻辑（AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps）
 清理队列索引计算
 撤回插入位置
 教学状态判断
@@ -477,6 +477,70 @@ P1
 仅返回 photo_1 和 photo_3
 photo_2 被过滤掉
 返回结果仅包含未看过的照片
+```
+
+***
+
+### 用例：智能筛选规则与 FilterPhotosUseCase
+
+优先级：
+
+```text
+P1
+```
+
+前置条件：
+
+```text
+自行构造 PhotoItem（mediaType / relativePath / bucketName / size）
+```
+
+操作步骤：
+
+```text
+1. 截图：relativePath 或 bucketName 含 screenshot / 截屏 / 截图（含大写），以及 null、不含关键字的反例
+2. 大文件：size = 10 * 1024 * 1024、恰少 1 字节、null；图片和视频各一
+3. 聊天软件：relativePath 含 weixin / whatsapp / telegram，或以 Pictures/QQ/ 开头（含大小写）；Pictures/QQ 无斜杠、Download/QQ/、仅 bucketName 为反例
+4. 对同一列表执行 FilterPhotosUseCase 的 Screenshots / LargeFiles / ChatApps，seenIds 含命中项
+```
+
+预期结果：
+
+```text
+正例命中、反例不命中
+三个新模式只返回命中项，已看过的命中项仍保留
+UnseenOnly 与 AllPhotos 行为不变
+```
+
+***
+
+### 用例：首页筛选数量与结果
+
+优先级：
+
+```text
+P1
+```
+
+前置条件：
+
+```text
+照片页同时有截图、大文件、聊天软件存图和普通照片，其中一张截图已看过
+```
+
+操作步骤：
+
+```text
+1. 读取 AllPhotosUiState 的 screenshotCount / largeFileCount / chatAppCount
+2. 依次切换 Screenshots、LargeFiles、ChatApps、AllPhotos
+```
+
+预期结果：
+
+```text
+三项数量按全部照片计算，已看过的截图仍计入 screenshotCount
+当前筛选的可见列表只含命中项，且保留排序
+切回 AllPhotos 后可见数量恢复为全部照片
 ```
 
 ***
@@ -2945,6 +3009,38 @@ photos 仅包含 photo_1 和 photo_3
 photo_2 被过滤掉
 currentIndex = 0
 totalCount = 2
+```
+
+***
+
+### 用例：智能筛选下会话只含筛选结果
+
+优先级：
+
+```text
+P1
+```
+
+前置条件：
+
+```text
+AllPhotos 列表含一张截图、一张普通照片、一张达到 10 MB 的视频
+Favorites 列表含这三张
+```
+
+操作步骤：
+
+```text
+1. scope = AllPhotos，filterMode = Screenshots，从截图启动
+2. scope = AllPhotos，filterMode = LargeFiles，从该视频启动
+3. scope = Favorites，filterMode = Screenshots，从普通照片启动
+```
+
+预期结果：
+
+```text
+AllPhotos 会话的 photos 只有该筛选的命中项，currentIndex 指向起点
+Favorites 会话跳过过滤，三张都在
 ```
 
 ***

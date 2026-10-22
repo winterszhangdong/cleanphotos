@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
+import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
@@ -91,10 +92,22 @@ class AllPhotosViewModel @Inject constructor(
             ) { allPhotos, sortOrder, filterMode, seenIds, stats ->
                 val sorted = sortPhotosUseCase(allPhotos, sortOrder)
                 val filtered = filterPhotosUseCase(sorted, filterMode, seenIds)
+                // 菜单数量按照片页全集算，不随「仅未看过」或当前筛选缩小
+                var screenshotCount = 0
+                var largeFileCount = 0
+                var chatAppCount = 0
+                for (photo in allPhotos) {
+                    if (SmartFilterRules.isScreenshot(photo)) screenshotCount++
+                    if (SmartFilterRules.isLargeFile(photo)) largeFileCount++
+                    if (SmartFilterRules.isChatApp(photo)) chatAppCount++
+                }
                 val current = _uiState.value
                 current.copy(
                     totalCount = allPhotos.size,
                     unseenCount = allPhotos.count { it.id !in seenIds },
+                    screenshotCount = screenshotCount,
+                    largeFileCount = largeFileCount,
+                    chatAppCount = chatAppCount,
                     visibleCount = filtered.size,
                     sortOrder = sortOrder,
                     filterMode = filterMode,
