@@ -12,6 +12,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 安卓：支持视频。视频和照片一起按日期显示，可以收藏、移入垃圾桶、撤回和清空；只显示首帧，网格右下角和清理页底部显示时长。Android 13+ 会多申请视频权限（与照片同一个系统弹窗），已授权照片的用户启动时补请求一次。
 - 安卓：首页筛选新增「截图」「大文件」（≥ 10 MB）「聊天软件存图」（微信 / WhatsApp / Telegram / QQ），右侧显示数量，进清理页后只在筛选结果里翻页。
 - 安卓：新增「相似照片」页（筛选菜单最后一项）：拍摄时间相差 10 秒以内、画面相近的照片成组，默认保留像素最高的一张，点缩略图可改，「移走其余 N 张」一键移入垃圾桶并可撤回。
+- 安卓：首页筛选新增「那年今天」：往年同月同日的照片和视频，右侧显示数量，没有时不显示这一项。
+- 安卓：垃圾桶空状态显示「累计已释放 X」，只计清空后确实从图库删掉的照片。
+- 安卓：垃圾桶超过 1 GB 或有照片放了 30 天以上时，照片页底部提醒一次（每 7 天最多一次），「去看看」直接切到垃圾桶。只在 App 内提示，不发系统通知。
 - iOS：读屏（VoiceOver）可用性：清理页照片整页朗读拍摄时间，提供「收藏 / 取消收藏」「移入垃圾桶」自定义操作，上下轻扫翻页。
 - iOS：只授权了部分照片时，照片页 ⋯ 菜单里多一项「选择更多照片」；系统不再在启动时自动弹出选择提示。
 - iOS：新增隐私清单（PrivacyInfo.xcprivacy）：不追踪、不收集数据，声明用到的本地设置存储与系统时钟接口。
@@ -60,6 +63,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Android: video support. Videos sit alongside photos by date and can be favorited, moved to trash, undone and emptied; only the first frame is shown, with the duration in the grid corner and in the review footer. Android 13+ also asks for video access (same system prompt as photos); users who already granted photo access are asked once on launch.
 - Android: new home filters "Screenshots", "Large files" (≥ 10 MB) and "Chat app images" (WeChat / WhatsApp / Telegram / QQ), each with a count; review then pages only through the filtered photos.
 - Android: new "Similar photos" page (last item in the filter menu): photos taken within 10 seconds of each other that look alike are grouped, the highest-resolution one is kept by default (tap a thumbnail to change it), and "Remove the other N" moves the rest to the trash with undo.
+- Android: new "On this day" home filter: photos and videos from the same date in earlier years, with a count; hidden when there are none.
+- Android: the empty trash shows "Freed X in total", counting only items actually removed from the gallery.
+- Android: when the trash holds over 1 GB or has items older than 30 days, the Photos page shows a reminder (at most once every 7 days); "Review" jumps to the trash. In-app only, no system notification.
 - iOS: VoiceOver support in review: the photo page reads its capture time as one element, offers Favorite/Unfavorite and Move to Trash custom actions, and swiping up or down pages between photos.
 - iOS: with limited photo access, the Photos ⋯ menu has a new "Select more photos" entry; the system no longer pops up its own selection prompt on launch.
 - iOS: added a privacy manifest (PrivacyInfo.xcprivacy): no tracking, no data collection, and declarations for the local settings storage and system clock APIs used.
