@@ -30,9 +30,11 @@
     <string name="filter_screenshots">Screenshots</string>
     <string name="filter_large_files">Large files</string>
     <string name="filter_chat_apps">Chat app images</string>
+    <string name="filter_on_this_day">On this day</string>
     <string name="filter_empty_screenshots">No screenshots</string>
     <string name="filter_empty_large_files">No large files</string>
     <string name="filter_empty_chat_apps">No chat app images</string>
+    <string name="filter_empty_on_this_day">No photos from this day</string>
     <string name="similar_photos">Similar photos</string>
     <string name="similar_menu_go">›</string>
     <string name="similar_comparing">Comparing %1$d / %2$d</string>

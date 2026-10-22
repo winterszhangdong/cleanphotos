@@ -29,9 +29,11 @@
     <string name="filter_screenshots">截图</string>
     <string name="filter_large_files">大文件</string>
     <string name="filter_chat_apps">聊天软件存图</string>
+    <string name="filter_on_this_day">那年今天</string>
     <string name="filter_empty_screenshots">没有截图</string>
     <string name="filter_empty_large_files">没有大文件</string>
     <string name="filter_empty_chat_apps">没有聊天软件存图</string>
+    <string name="filter_empty_on_this_day">那年今天没有照片</string>
     <string name="similar_photos">相似照片</string>
     <string name="similar_menu_go">›</string>
     <string name="similar_comparing">正在比对 %1$d / %2$d</string>
