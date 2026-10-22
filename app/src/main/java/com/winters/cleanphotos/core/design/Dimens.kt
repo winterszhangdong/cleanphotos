@@ -42,18 +42,17 @@ object Dimens {
     val SegDashGap = 2.dp
     val SegGlow = 6.dp
 
-    // 未看光点
-    val UnseenDot = 6.dp
-    val UnseenRing = 1.5.dp
-    val UnseenGlow = 8.dp
-    val UnseenInset = 6.dp
-
     // 菜单 / 对话框 / 按钮
     val MenuWidth = 192.dp
     val MenuCorner = 16.dp
     val MenuPadding = 4.dp
     val MenuItemHeight = 44.dp
     val MenuItemCorner = 12.dp
+    /** ⋯ 菜单里的开关：轨道 36×20，圆钮 16，内边 2（task032 G6）。 */
+    val MenuSwitchTrackWidth = 36.dp
+    val MenuSwitchTrackHeight = 20.dp
+    val MenuSwitchThumb = 16.dp
+    val MenuSwitchInset = 2.dp
     val DialogCorner = 24.dp
     val DialogSide = 24.dp
     val PrimaryButtonHeight = 52.dp
@@ -66,14 +65,19 @@ object Dimens {
     val ScreenSide = 16.dp
 
     // —— P3 列表 / 页面骨架 ——
-    /** .bar：高 84，状态栏下方，内边距 0 16 12。 */
-    val HeaderHeight = 84.dp
-    val HeaderBottomPadding = 12.dp
+    /** .bar：高 56，状态栏下方，内边距 0 16 8（没有 eyebrow，task032 G1）。 */
+    val HeaderHeight = 56.dp
+    val HeaderBottomPadding = 8.dp
     val EyebrowGap = 4.dp
     val CountHeight = 32.dp
     val CountGap = 4.dp
     val CountSubGap = 8.dp
     val HeaderActionGap = 8.dp
+    /** 照片页范围按钮（task032 G3）：胶囊高 32、左右 14、间距 8；整行高 40（含下边 8）。 */
+    val ScopeChipHeight = 32.dp
+    val ScopeChipPadH = 14.dp
+    val ScopeChipGap = 8.dp
+    val ScopeRowHeight = 40.dp
     /** .year：高 32，左右 16，间距 12。 */
     val YearHeight = 32.dp
     val YearGap = 12.dp

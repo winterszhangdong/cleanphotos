@@ -73,12 +73,11 @@ fun Modifier.plainClickable(enabled: Boolean = true, role: Role = Role.Button, o
     )
 
 /**
- * .bar：状态栏下 84dp，内边距 0 16 12，底对齐。左边 eyebrow + 计数行，右边按钮组（间距 8）。
+ * .bar：状态栏下 56dp，内边距 0 16 8，底对齐。左边计数行，右边按钮组（间距 8）。
  * [leftAlpha] 用于菜单打开时左侧变 50%。
  */
 @Composable
 fun ScreenHeader(
-    eyebrow: @Composable RowScope.() -> Unit,
     count: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
     leftAlpha: Float = 1f,
@@ -92,23 +91,20 @@ fun ScreenHeader(
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.HeaderBottomPadding),
         verticalAlignment = Alignment.Bottom,
     ) {
-        // 84dp 固定高度（与 ScreenHeaderSpacer 对齐）：大字号时缩放封顶，计数行不被顶出状态栏（1.0 时不变）
+        // 固定高度（与 ScreenHeaderSpacer 对齐）：大字号时缩放封顶，计数行不被顶出状态栏（1.0 时不变）
         CappedFontScale(FontScaleCaps.HEADER) {
-            Column(Modifier.weight(1f).alpha(leftAlpha)) {
-                Row(Modifier.padding(bottom = Dimens.EyebrowGap), verticalAlignment = Alignment.CenterVertically, content = eyebrow)
-                Row(
-                    Modifier.heightIn(min = Dimens.CountHeight),
-                    horizontalArrangement = Arrangement.spacedBy(Dimens.CountGap),
-                    verticalAlignment = Alignment.Bottom,
-                    content = count,
-                )
-            }
+            Row(
+                Modifier.weight(1f).alpha(leftAlpha).heightIn(min = Dimens.CountHeight),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.CountGap),
+                verticalAlignment = Alignment.Bottom,
+                content = count,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(Dimens.HeaderActionGap), content = actions)
         }
     }
 }
 
-/** 页头占位：与 [ScreenHeader] 同高（状态栏 + 84dp），用于把头部画在遮罩之上。 */
+/** 页头占位：与 [ScreenHeader] 同高（状态栏 + 56dp），用于把头部画在遮罩之上。 */
 @Composable
 fun ScreenHeaderSpacer() {
     Spacer(Modifier.fillMaxWidth().statusBarsPadding().height(Dimens.HeaderHeight))
@@ -120,28 +116,35 @@ fun Eyebrow(text: String) {
     Text(text, style = DarkroomText.Eyebrow)
 }
 
-/** .eyebrow .fav-pip：5dp 琥珀点，左距 6，琥珀光 6dp。 */
+/**
+ * 单位后面的收藏标记：5dp 琥珀点，左距 6dp，琥珀光 6dp。
+ * 外盒与单位字号同高并底对齐计数行，点在这行里垂直居中。
+ */
 @Composable
 fun FavPip() {
+    val unitLine = with(LocalDensity.current) { DarkroomText.CountUnit.fontSize.toDp() }
     Box(
-        Modifier
-            .padding(start = 6.dp)
-            .size(5.dp)
-            .dropShadow(CircleShape, Shadow(radius = 6.dp, color = DarkroomColors.AmberGlow))
-            .clip(CircleShape)
-            .background(DarkroomColors.Amber),
-    )
+        Modifier.height(unitLine).padding(start = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(5.dp)
+                .dropShadow(CircleShape, Shadow(radius = 6.dp, color = DarkroomColors.AmberGlow))
+                .clip(CircleShape)
+                .background(DarkroomColors.Amber),
+        )
+    }
 }
 
 /**
- * .count：大数字（里程表）+ 单位（中文「张」，英文不写）+ 可选 .sub（左距 8 = gap 4 + 4）。
+ * .count：大数字（里程表）+ 单位（[unit]，默认 header_count_unit）+ 可选 .sub（左距 8 = gap 4 + 4）。
  * 放得下时三者同一行按基线对齐；宽度不够（大数字、英文、大字号）时 .sub 换到数字下方单独一行，
  * 仍放不下才省略号截断。占满标题区剩余宽度，不会挤到右侧按钮。
  */
 @Composable
-fun RowScope.HeaderCount(count: Int, sub: String? = null) {
+fun RowScope.HeaderCount(count: Int, unit: String = stringResource(R.string.header_count_unit), sub: String? = null) {
     val locale = currentLocale()
-    val unit = stringResource(R.string.header_count_unit)
     val gapPx = with(LocalDensity.current) { Dimens.CountGap.roundToPx() }
     val subGapPx = with(LocalDensity.current) { Dimens.CountSubGap.roundToPx() }
     Layout(
@@ -152,7 +155,7 @@ fun RowScope.HeaderCount(count: Int, sub: String? = null) {
                 style = DarkroomText.CountBig,
                 format = { NumberFormatter.formatCount(it.toInt(), locale) },
             )
-            // 英文不写单位（标题已说明是照片），中文保留「张」；空串时量出 0 宽
+            // 空单位量出 0 宽，不留间距
             Text(
                 unit, style = DarkroomText.CountUnit,
                 maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,

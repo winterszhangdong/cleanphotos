@@ -45,7 +45,6 @@ import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.feature.allphotos.AllPhotosRoute
 import com.winters.cleanphotos.feature.favorites.FavoritesRoute
-import com.winters.cleanphotos.feature.similar.SimilarRoute
 import com.winters.cleanphotos.feature.review.ReviewRoute
 import com.winters.cleanphotos.feature.trash.TrashRoute
 
@@ -113,24 +112,15 @@ fun NavGraph(
                     composable(NavRoutes.ALL_PHOTOS) { e ->
                         DockEntry(e, this) { capture ->
                             AllPhotosRoute(
-                                onNavigateToReview = { photoId, sortOrder, filterMode ->
+                                onNavigateToReview = { photoId, sortOrder, filterMode, unseenOnly ->
                                     e.ifCurrent {
                                         capture()
-                                        navController.navigate(NavRoutes.reviewRoute(photoId, sortOrder, filterMode, "AllPhotos"))
+                                        navController.navigate(
+                                            NavRoutes.reviewRoute(photoId, sortOrder, filterMode, "AllPhotos", unseenOnly),
+                                        )
                                     }
                                 },
                                 onNavigateToTrash = { selectTab(BottomTab.Trash) },
-                                onNavigateToSimilar = {
-                                    e.ifCurrent { navController.navigate(NavRoutes.SIMILAR) }
-                                },
-                            )
-                        }
-                    }
-
-                    composable(NavRoutes.SIMILAR) { e ->
-                        DockEntry(e, this) { _ ->
-                            SimilarRoute(
-                                onNavigateBack = { e.ifCurrent { navController.popBackStack() } },
                             )
                         }
                     }
@@ -156,6 +146,10 @@ fun NavGraph(
                             navArgument("sortOrder") { type = NavType.StringType },
                             navArgument("filterMode") { type = NavType.StringType },
                             navArgument("scope") { type = NavType.StringType },
+                            navArgument("unseenOnly") {
+                                type = NavType.BoolType
+                                defaultValue = false
+                            },
                         ),
                     ) { e ->
                         val args = requireNotNull(e.arguments)
@@ -165,6 +159,7 @@ fun NavGraph(
                                 sortOrder = requireNotNull(args.getString("sortOrder")),
                                 filterMode = requireNotNull(args.getString("filterMode")),
                                 scope = requireNotNull(args.getString("scope")),
+                                unseenOnly = args.getBoolean("unseenOnly"),
                                 onNavigateBack = { e.ifCurrent { navController.popBackStack() } },
                                 onNavigateToTrash = { e.ifCurrent { navController.navigate(NavRoutes.TRASH) } },
                             )

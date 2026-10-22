@@ -189,13 +189,12 @@ com.example.photocleaner
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
 * Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，清理页、小结页、垃圾桶预览直接用视频 uri 画首帧（不播放）；网格缩略图和清理页大图都用 `RGB_565`。清理页环境光（全屏模糊）只画当前页、离场页和撤回让位页，左右邻页和 alpha 为 0 的垫底页不画
-* 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、未看光点 `UnseenDot`
+* 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、范围按钮 `ScopeChipRow`
 * 间距
 * 通用组件
-* 图标（`DraftIcons` 画排序、筛选、返回、日期箭头和勾；其余仍可用 `MaterialSymbol`）
-* `AppDropdownMenu`（P3 改为暗色玻璃菜单：192dp、圆角 16、内边距 4、菜单项 44dp/圆角 12）
+* 图标（`DraftIcons` 画返回、日期箭头和勾；其余仍可用 `MaterialSymbol`）
+* `DarkroomMenu`（暗色玻璃菜单：192dp、圆角 16、内边距 4、菜单项 44dp/圆角 12；可分多段，段间细线；开关项画 36×20 轨道）
 * 动效常量
-* 未看标记是 6dp 相纸白光点（1.5dp 暗环 + 8dp 柔光）
 
 ### core/navigation
 
@@ -329,7 +328,7 @@ domain
 ```text
 PhotoItem（含 mediaType / durationMs / relativePath / bucketName）
 MediaType（枚举：Image / Video）
-PhotoFilterMode（枚举：AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps / OnThisDay）
+PhotoFilterMode（枚举：AllPhotos / Screenshots / LargeFiles / ChatApps / OnThisDay）。「只看没看过」是布尔 unseenOnly，不是枚举项
 SmartFilterRules（截图 / 大文件 / 聊天软件存图判定）
 OnThisDayRules（那年今天：本地月日相同且年份更早；今天由调用方传入）
 SimilarGroup、SimilarRules、DHash（相似照片分组）
@@ -339,7 +338,7 @@ PhotoActionType（枚举：Favorite / Unfavorite / MoveToTrash）
 ReviewSession
 ReviewScope（枚举：AllPhotos / Favorites）
 AppTrashEntry（App 内垃圾桶条目：photoId + movedToTrashAt + wasFavorited + favoritedAt）
-TrashReminder、TrashReminderReason、TrashReminderRules（照片页垃圾桶提醒：1 GB 或 30 天，间隔 7 天；两条都满足用大小文案）
+TrashReminderRules（只留 AGE_THRESHOLD_MS = 30 天，给垃圾桶页用）
 AppFavoriteEntry（App 内收藏条目：photoId + favoritedAt）
 TrashScreenMode（枚举：Grid / Selection / Preview）
 ```
@@ -352,7 +351,7 @@ TrashScreenMode（枚举：Grid / Selection / Preview）
 PhotoRepository（observeAllPhotos 排除 App 垃圾桶和 App 收藏中的照片；observeFavoritedPhotos 返回 App 收藏中且不在垃圾桶的照片；observeTrashedPhotos 返回 App 内垃圾桶照片；refreshPhotos 含一次性迁移和失效条目清理；只有部分照片访问权时两者都跳过，否则会把未选中照片的状态当成失效删掉）
 ReviewRepository（favoritePhoto / removeFavorite / moveToTrash / restoreFromTrash 直接写 DataStore 后返回 Success，不触发系统授权；照片页多选另有 favoritePhotos / removeFavorites / movePhotosToTrash 批量接口，每个 Store 一次写入；deletePhotosPermanently 仍通过 MediaStore）
 SimilarPhotoRepository（hashPhotos：给指定照片算 dHash，返回进度流；单张失败跳过）
-UserPreferencesRepository（另有 observeTrashReminderShownAt / setTrashReminderShownAt，对应 DataStore `trash_reminder_shown_at`）
+UserPreferencesRepository（教学、滑动次数、累计释放。不再读写 trash_reminder_shown_at）
 ```
 
 ### usecase
@@ -365,7 +364,7 @@ ObserveTrashedPhotosUseCase
 SortPhotosUseCase
 FilterPhotosUseCase
 BuildPhotoDateGroupsUseCase
-StartReviewSessionUseCase（接受 sortOrder 和 filterMode 参数）
+StartReviewSessionUseCase（接受 sortOrder、filterMode、scope、unseenOnly）
 SwitchReviewPhotoUseCase
 FavoritePhotoUseCase
 RemoveFavoritePhotoUseCase
@@ -378,8 +377,6 @@ ObserveTutorialStateUseCase
 SetTutorialSeenUseCase
 ObserveTotalFreedBytesUseCase（读 total_freed_bytes）
 AddFreedBytesUseCase（累加已确认删除的字节，bytes 必须 > 0）
-ObserveTrashReminderUseCase（汇总垃圾桶大小、最早移入时间和上次提醒时间）
-MarkTrashReminderShownUseCase（胶囊出现时写入 trash_reminder_shown_at）
 ```
 
 ---
@@ -393,14 +390,12 @@ MarkTrashReminderShownUseCase（胶囊出现时写入 trash_reminder_shown_at）
 包含：
 
 ```text
-AllPhotosRoute
-AllPhotosScreen
-AllPhotosViewModel
+AllPhotosRoute（照片页导航项里同时持有 SimilarViewModel；第一次切到相似才 start，且只启动一次）
+AllPhotosScreen（顶栏 + 范围行 quick return；相似列表嵌在这一页）
+AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化）
 AllPhotosUiState
-AllPhotosTopBar
 PhotoDateSection
-DatePhotoGrid
-DatePhotoThumbnail
+PhotoChromeCollapse
 ```
 
 ### review
@@ -474,15 +469,15 @@ TrashScreenMode
 ```text
 all_photos
 favorites
-review/{photoId}/{sortOrder}/{filterMode}/{scope}
+review/{photoId}/{sortOrder}/{filterMode}/{scope}?unseenOnly={unseenOnly}
 trash
 ```
 
 说明：
 
-* `all_photos` 是首页。
+* `all_photos` 是首页。相似没有独立路由，分组列表画在这一页里。
 * `favorites` 是收藏页。
-* `review/{photoId}/{sortOrder}/{filterMode}/{scope}` 是清理页，从指定照片开始，携带排序、过滤和 scope 上下文，确保清理页的切换顺序与入口页一致。scope 决定手势语义（AllPhotos 上滑收藏，Favorites 上滑取消收藏）。
+* `review/{photoId}/{sortOrder}/{filterMode}/{scope}?unseenOnly={unseenOnly}` 是清理页。查询参数默认 false，收藏页仍用四个路径参数调用，生成的地址带 `?unseenOnly=false`。scope 决定手势语义（AllPhotos 上滑收藏，Favorites 上滑取消收藏）。AllPhotos 会话再按 filterMode 和 unseenOnly 过滤。
 * `trash` 是垃圾桶页。
 
 ---
@@ -587,7 +582,7 @@ Compose
 说明：
 
 * `SortPhotosUseCase`：按日期、大小等维度排序照片列表。
-* `FilterPhotosUseCase`：根据条件过滤照片。UnseenOnly 过滤需要读取 AppSeenStateDataSource，因此是 suspend 函数。
+* `FilterPhotosUseCase`：先按范围过滤，再按 unseenOnly 去掉已看过的。suspend 版本读 seenIds；纯函数版本由调用方传入 seenIds。
 * `BuildPhotoDateGroupsUseCase`：将照片列表按日期分组为 `PhotoDateGroup` 列表。
 * 原 `ObservePhotoDateGroupsUseCase` 已删除，拆分为以上三个独立 UseCase。
 

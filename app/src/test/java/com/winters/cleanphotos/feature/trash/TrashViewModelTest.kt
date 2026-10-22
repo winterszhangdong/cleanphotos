@@ -5,7 +5,9 @@ import com.winters.cleanphotos.core.text.UiText
 import android.net.Uri
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
+import com.winters.cleanphotos.domain.model.AppTrashEntry
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
+import com.winters.cleanphotos.domain.model.TrashReminderRules
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
 import com.winters.cleanphotos.domain.usecase.DeletePhotosPermanentlyUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTrashedPhotosUseCase
@@ -118,6 +120,27 @@ class TrashViewModelTest {
             assertEquals("空垃圾桶应显示 0 张照片", 0, state.photos.size)
             assertFalse("加载完成后 isLoading 应为 false", state.isLoading)
         }
+    }
+
+    @Test
+    fun `最早一张满 30 天写入天数，未满或清空后为 null`() = runTest(testDispatcher) {
+        val now = System.currentTimeMillis()
+        fakePhotoRepository.trashEntriesFlow.value = listOf(
+            AppTrashEntry(1L, now - TrashReminderRules.AGE_THRESHOLD_MS - 5_000L),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        assertEquals(30, viewModel.uiState.value.oldestDays)
+
+        fakePhotoRepository.trashEntriesFlow.value = listOf(
+            AppTrashEntry(1L, now - TrashReminderRules.AGE_THRESHOLD_MS + 60_000L),
+        )
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.oldestDays)
+
+        fakePhotoRepository.trashEntriesFlow.value = emptyList()
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.oldestDays)
     }
 
     @Test

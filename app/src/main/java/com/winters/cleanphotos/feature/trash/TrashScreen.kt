@@ -74,7 +74,6 @@ import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.EmptyPileArt
 import com.winters.cleanphotos.core.design.EmptyStateArea
 import com.winters.cleanphotos.core.design.EmptyTitleAndBody
-import com.winters.cleanphotos.core.design.Eyebrow
 import com.winters.cleanphotos.core.design.GhostButton
 import com.winters.cleanphotos.core.design.GlassBackdropHost
 import com.winters.cleanphotos.core.design.HeaderCount
@@ -186,8 +185,12 @@ fun TrashScreen(
                         )
                     } else {
                         ScreenHeader(
-                            eyebrow = { Eyebrow(stringResource(R.string.tab_trash)) },
-                            count = { HeaderCount(uiState.photos.size) },
+                            count = {
+                                HeaderCount(
+                                    uiState.photos.size,
+                                    unit = pluralStringResource(R.plurals.trash_count_unit, uiState.photos.size),
+                                )
+                            },
                             actions = {
                                 if (uiState.photos.isNotEmpty()) TrayTextButton(stringResource(R.string.trash_select), onClick = onEnterSelectionMode)
                             },
@@ -197,7 +200,7 @@ fun TrashScreen(
                         when {
                             uiState.dissolving != null -> TrashDissolveGrid(
                                 dissolve = uiState.dissolving,
-                                header = { bytes -> FreeCard(bytes, onClear = {}) },
+                                header = { bytes -> FreeCard(bytes, uiState.oldestDays, onClear = {}) },
                                 onFinished = {
                                     scrollToTopNext[0] = true
                                     onDissolveFinished()
@@ -226,7 +229,7 @@ fun TrashScreen(
                                     onToggleSelection = onToggleSelection,
                                     state = gridState,
                                     header = {
-                                        if (isSelection) SelectionSummary(selectedBytes) else FreeCard(uiState.totalBytes, onShowEmptyTrashConfirm)
+                                        if (isSelection) SelectionSummary(selectedBytes) else FreeCard(uiState.totalBytes, uiState.oldestDays, onShowEmptyTrashConfirm)
                                     },
                                 )
                             }
@@ -317,9 +320,9 @@ fun TrashScreen(
         }
 }
 
-/** .free：「清空后可释放」卡片（外边距 4 16 16，网格自身 2dp 间隔从下边距里扣掉）。 */
+/** .free：「清空后可释放」卡片（外边距 4 16 16，网格自身 2dp 间隔从下边距里扣掉）。[oldestDays] 满 30 天才换副文字。 */
 @Composable
-private fun FreeCard(totalBytes: Long, onClear: () -> Unit) {
+private fun FreeCard(totalBytes: Long, oldestDays: Int?, onClear: () -> Unit) {
     val shape = RoundedCornerShape(Dimens.FreeCorner)
     val (num, unit) = FileSizeFormatter.parts(totalBytes, currentLocale())
     Row(
@@ -339,13 +342,18 @@ private fun FreeCard(totalBytes: Long, onClear: () -> Unit) {
                 Text(num, style = DarkroomText.FreeNum, modifier = Modifier.alignByBaseline())
                 Text(unit, style = DarkroomText.FreeUnit, modifier = Modifier.alignByBaseline())
             }
-            Text(stringResource(R.string.free_sub), style = DarkroomText.FreeSub, modifier = Modifier.padding(top = 4.dp))
+            val sub = if (oldestDays != null) {
+                pluralStringResource(R.plurals.free_oldest_days, oldestDays, oldestDays)
+            } else {
+                stringResource(R.string.free_sub)
+            }
+            Text(sub, style = DarkroomText.FreeSub, modifier = Modifier.padding(top = 4.dp))
         }
         DeleteOutlineButton(stringResource(R.string.empty_trash), onClick = onClear)
     }
 }
 
-/** .sel-bar：三栏（取消 / 已选择 N 项 / 移出垃圾桶），状态栏下 84dp，底对齐。 */
+/** .sel-bar：三栏（取消 / 已选择 N 项 / 移出垃圾桶），与顶栏同高（状态栏下 HeaderHeight），底对齐。 */
 @Composable
 private fun SelectionBar(selectedCount: Int, onExit: () -> Unit, onBatchRestore: () -> Unit, isRestoreEnabled: Boolean) {
     Box(
@@ -355,7 +363,7 @@ private fun SelectionBar(selectedCount: Int, onExit: () -> Unit, onBatchRestore:
             .height(Dimens.HeaderHeight)
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.HeaderBottomPadding),
     ) {
-      // 84dp 固定高度：大字号时缩放封顶（1.0 时不变）
+      // 与顶栏同高：大字号时缩放封顶（1.0 时不变）
       CappedFontScale(FontScaleCaps.HEADER) {
         TrayTextButton(stringResource(R.string.cancel), onClick = onExit, modifier = Modifier.align(Alignment.BottomStart))
         Row(

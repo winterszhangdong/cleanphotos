@@ -74,7 +74,7 @@ class SmartFilterRulesTest {
         assertEquals(listOf(1L), filter(photos, PhotoFilterMode.Screenshots, seen).map { it.id })
         assertEquals(listOf(2L), filter(photos, PhotoFilterMode.LargeFiles, seen).map { it.id })
         assertEquals(listOf(3L), filter(photos, PhotoFilterMode.ChatApps, seen).map { it.id })
-        assertEquals(listOf(4L), filter(photos, PhotoFilterMode.UnseenOnly, seen).map { it.id })
+        assertEquals(listOf(4L), filter(photos, PhotoFilterMode.AllPhotos, seen, unseenOnly = true).map { it.id })
         assertEquals(4, filter(photos, PhotoFilterMode.AllPhotos, seen).size)
     }
 }

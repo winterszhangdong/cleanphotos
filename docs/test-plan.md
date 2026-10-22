@@ -91,8 +91,9 @@ Compose UI 测试
 ```text
 日期分组逻辑
 照片排序逻辑（NewestFirst / OldestFirst）
-照片过滤逻辑（AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps / OnThisDay）
-照片过滤逻辑（AllPhotos / UnseenOnly）
+照片过滤逻辑（AllPhotos / Screenshots / LargeFiles / ChatApps / OnThisDay，再叠 unseenOnly）
+日期行已看数（总数 − 未看）
+相似 start() 只哈希一次
 dHash（9×8 亮度 → 64 位、汉明距离）
 相似分组（10 秒与距离 10 的边界、链式、单张不成组、视频排除、取图失败跳过、默认保留）
 清理队列索引计算
@@ -456,7 +457,7 @@ P1
 
 ***
 
-### 用例：首页过滤 UnseenOnly
+### 用例：首页「只看没看过」叠加
 
 优先级：
 
@@ -473,9 +474,9 @@ P1
 操作步骤：
 
 ```text
-1. 设置 filterMode = UnseenOnly
-2. 执行 FilterPhotosUseCase
-3. 检查过滤结果
+1. filterMode = AllPhotos，unseenOnly = true，执行 FilterPhotosUseCase
+2. 检查过滤结果
+3. 同一列表再跑 Screenshots 等范围，unseenOnly = true：先留命中项，再去掉已看过
 ```
 
 预期结果：
@@ -483,7 +484,7 @@ P1
 ```text
 仅返回 photo_1 和 photo_3
 photo_2 被过滤掉
-返回结果仅包含未看过的照片
+范围本身的命中项里，已看过的被去掉；unseenOnly = false 时已看过的命中项仍在
 ```
 
 ***
@@ -516,8 +517,8 @@ P1
 
 ```text
 正例命中、反例不命中
-四个新模式只返回命中项，已看过的命中项仍保留
-UnseenOnly 与 AllPhotos 行为不变
+四个范围只返回命中项；unseenOnly = false 时已看过的命中项仍保留
+unseenOnly = true 时 AllPhotos 只剩未看过的
 ```
 
 ***
@@ -539,18 +540,21 @@ P1
 操作步骤：
 
 ```text
-1. 读取 AllPhotosUiState 的 screenshotCount / largeFileCount / chatAppCount / onThisDayCount
-2. 依次切换 Screenshots、LargeFiles、ChatApps、OnThisDay、AllPhotos
-3. onThisDayCount 为 0 且 filterMode 不是 OnThisDay 时 showOnThisDayMenu 为 false；数量大于 0，或当前已是 OnThisDay，则为 true
+1. 依次切换 Screenshots、LargeFiles、ChatApps、OnThisDay、Similar、All
+2. 在截图上打开 unseenOnly，再切到相似
+3. onThisDayCount 为 0 且 scope 不是 OnThisDay 时 showOnThisDay 为 false；数量大于 0，或当前已是 OnThisDay，则为 true
+4. 截图范围的 visibleBytes 等于可见照片 size 之和，null 记 0
 ```
 
 预期结果：
 
 ```text
-四项数量按全部照片计算，已看过的截图和「那年今天」命中项仍计入
-当前筛选的可见列表只含命中项，且保留排序
-切回 AllPhotos 后可见数量恢复为全部照片
-「那年今天」在数量为 0 且未选中时不出现在菜单
+onThisDayCount 按全部照片计算，已看过的「那年今天」命中项仍计入
+当前范围的可见列表只含命中项，且保留排序；scopeCount 是叠开关之前的张数
+打开 unseenOnly 后，截图里已看过的消失，visibleBytes 只加剩下的
+相似范围忽略 unseenOnly，可见张数回到全部
+切回 All 并关掉开关后，可见数量恢复为全部照片
+「那年今天」在数量为 0 且未选中时不出现在范围行
 ```
 
 ***
@@ -584,7 +588,7 @@ photo_1 未收藏（isFavorite=false）
 photo_1 的 isFavorite 变为 true
 首页照片列表更新后 photo_1 不再可见
 Favorites 页可见 photo_1
-如果 filterMode 为 UnseenOnly，photo_1 不在过滤结果中可见
+如果 unseenOnly 为 true，已看过的 photo_1 不在过滤结果中可见
 ```
 
 ***
@@ -1975,6 +1979,28 @@ P1
 
 ***
 
+## 7.1 收藏页顶栏
+
+### 用例：收藏页顶栏单位与琥珀点
+
+优先级：
+
+```text
+P1
+```
+
+检查点：
+
+```text
+没有小标题
+大号张数后的单位：中文「张」，英文 1 张为 favorite、其余 favorites
+非空时琥珀点在单位后面，左距 6dp，大小与光晕不变
+空状态不显示琥珀点
+右侧没有按钮
+```
+
+***
+
 ## 8 垃圾桶页测试用例
 
 ### 用例：垃圾桶页加载 App 内垃圾桶照片成功
@@ -2033,6 +2059,62 @@ FakeTrashRepository 返回空列表
 ```text
 显示空状态
 页面不崩溃
+「清空后可释放」卡片不出现，天数副文字也不出现
+```
+
+***
+
+### 用例：最早一张已放天数
+
+优先级：
+
+```text
+P1
+```
+
+前置条件：
+
+```text
+TrashOldestDays.wholeDays(movedAt, now)
+一天按 24 小时，与 TrashReminderRules.AGE_THRESHOLD_MS 同一把尺子
+```
+
+操作步骤：
+
+```text
+1. 垃圾桶没有移入时间
+2. 最早一张距现在正好 30 天
+3. 最早一张距现在差 1 毫秒不满 30 天
+4. 最早一张超过 30 天（另有较新的照片）
+```
+
+预期结果：
+
+```text
+1. 返回 null，卡片副文字保持 free_sub
+2. 返回 30，副文字为「最早一张已放 30 天」/ “Oldest item: 30 days in trash”
+3. 返回 null，副文字保持 free_sub
+4. 返回已放的整天数（取最早一张），英文 N 用 day / days
+没有间隔，没有关闭按钮
+```
+
+***
+
+### 用例：垃圾桶顶栏与多选栏
+
+优先级：
+
+```text
+P1
+```
+
+检查点：
+
+```text
+没有小标题
+大号张数后的单位：中文「张」，英文 1 张为 item、其余 items
+多选栏高度与顶栏相同（状态栏下 56dp），底对齐
+英文单位不截断
 ```
 
 ***
@@ -3023,7 +3105,7 @@ currentIndex = 0
 
 ***
 
-### 用例：使用 UnseenOnly 过滤启动会话
+### 用例：使用 unseenOnly 启动会话
 
 优先级：
 
@@ -3037,13 +3119,14 @@ P1
 照片列表包含 photo_1（未看过）、photo_2（已看过）、photo_3（未看过）
 startPhotoId = photo_1.id
 sortOrder = NewestFirst
-filterMode = UnseenOnly
+filterMode = AllPhotos
+unseenOnly = true
 ```
 
 操作步骤：
 
 ```text
-1. 调用 StartReviewSessionUseCase(startPhotoId, NewestFirst, UnseenOnly)
+1. 调用 StartReviewSessionUseCase(startPhotoId, NewestFirst, AllPhotos, AllPhotos, unseenOnly = true)
 ```
 
 预期结果：
@@ -3106,13 +3189,14 @@ P0
 照片列表包含 photo_1（未看过）、photo_2（已看过）
 startPhotoId = photo_2.id
 sortOrder = NewestFirst
-filterMode = UnseenOnly
+filterMode = AllPhotos
+unseenOnly = true
 ```
 
 操作步骤：
 
 ```text
-1. 调用 StartReviewSessionUseCase(startPhotoId, NewestFirst, UnseenOnly)
+1. 调用 StartReviewSessionUseCase(startPhotoId, NewestFirst, AllPhotos, AllPhotos, unseenOnly = true)
 ```
 
 预期结果：
@@ -3681,21 +3765,4 @@ TrashPreviewOverlay 与 ReviewScreen 横滑行为不一致
 
 ## 17 垃圾桶提醒
 
-### 规则（TrashReminderRules）
-
-```text
-空垃圾桶不提醒，即使总大小或移入时间看起来已经够
-正好 1 GB（1024³ 字节）用大小文案；差 1 字节且未满 30 天不提醒
-正好 30 天用天数文案；两条同时满足用大小文案
-从没提醒过可以提醒；正好隔 7 天可以再提醒；差 1 毫秒不满 7 天不提醒
-size 为 null 记 0
-```
-
-### 照片页 ViewModel
-
-```text
-条件满足且照片页有照片：出现提醒，并写入 trash_reminder_shown_at
-照片页没有照片、多选中、批量撤回胶囊还在、菜单打开：不出现，也不写入
-点 ✕ 后本次进程不再出现
-点「去看看」收起，并触发切到垃圾桶的导航
-```
+照片页提醒整条链路已删除（胶囊、Observe / Mark UseCase、DataStore 读写、对应单测）。`TrashReminderRules` 只保留 `AGE_THRESHOLD_MS`（30 天），名字和数值不变，垃圾桶页使用。不再测大小阈值、7 天间隔或照片页胶囊。

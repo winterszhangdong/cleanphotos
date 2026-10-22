@@ -57,10 +57,6 @@ object DarkroomColors {
     val SegPending = Paper.copy(alpha = 0.34f)
     val SegKept = Paper.copy(alpha = 0.78f)
     val SegCurrentGlow = Color(0xFFFFF6E8).copy(alpha = 0.8f)
-    /** 未看光点 #FFFBF5，暗环 rgba(15,14,13,0.5) 1.5dp，柔光 rgba(255,246,232,0.7) 8dp。 */
-    val UnseenDot = Color(0xFFFFFBF5)
-    val UnseenRing = Room.copy(alpha = 0.5f)
-    val UnseenGlow = Color(0xFFFFF6E8).copy(alpha = 0.7f)
 
     // —— P3 ——
     /** .tile 占位底 #1c1a18。 */
@@ -92,7 +88,7 @@ object DarkroomColors {
     val PrintShadow = Color.Black.copy(alpha = 0.5f)
     val HangClip = Color(0xFF3A3632)
     val HangLine = Paper.copy(alpha = 0.24f)
-    /** .eyebrow .fav-pip 琥珀光 0.6。 */
+    /** 收藏页单位后琥珀点的光，0.6。 */
     val AmberGlow = Amber.copy(alpha = 0.6f)
     /** .tile .ck 投影 rgba(0,0,0,0.5)。 */
     val CheckShadow = Color.Black.copy(alpha = 0.5f)

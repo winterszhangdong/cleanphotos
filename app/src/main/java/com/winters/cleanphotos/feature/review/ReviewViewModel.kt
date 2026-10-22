@@ -153,7 +153,7 @@ class ReviewViewModel @Inject constructor(
     }
 
     /** 携带入口页的排序、过滤和 scope。旋转屏幕时 ViewModel 存活，不重复初始化。 */
-    fun initialize(photoId: Long, sortOrder: String, filterMode: String, scope: String) {
+    fun initialize(photoId: Long, sortOrder: String, filterMode: String, scope: String, unseenOnly: Boolean = false) {
         if (initialized) return
         initialized = true
         val reviewScope = ReviewScope.valueOf(scope)
@@ -163,7 +163,11 @@ class ReviewViewModel @Inject constructor(
                 // 进程重建：从上次正在看的照片开始；它已被处理 / 不在列表里时由 UseCase 就近选一张
                 val startId = savedStateHandle.get<Long>(KEY_CURRENT_PHOTO) ?: photoId
                 val session = startReviewSessionUseCase(
-                    startId, PhotoSortOrder.valueOf(sortOrder), PhotoFilterMode.valueOf(filterMode), reviewScope,
+                    startId,
+                    PhotoSortOrder.valueOf(sortOrder),
+                    PhotoFilterMode.valueOf(filterMode),
+                    reviewScope,
+                    unseenOnly,
                 )
                 val start = session.photos[session.currentIndex]
                 core.update {

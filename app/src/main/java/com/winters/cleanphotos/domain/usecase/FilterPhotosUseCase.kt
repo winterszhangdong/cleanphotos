@@ -10,19 +10,27 @@ import java.time.LocalDate
 import javax.inject.Inject
 
 /**
- * 按过滤模式筛照片。「看过」状态只经由 [SeenStateRepository] 读取。
+ * 先按范围筛，再按需叠「只看没看过」。
+ * 「看过」状态只经由 [SeenStateRepository] 读取。
  * 已经在流里拿到 seenIds 的调用方用纯函数版本，保证同一帧数据一致。
  */
 class FilterPhotosUseCase @Inject constructor(
     private val seenStateRepository: SeenStateRepository,
 ) {
-    suspend operator fun invoke(photos: List<PhotoItem>, filterMode: PhotoFilterMode): List<PhotoItem> =
-        invoke(photos, filterMode, seenStateRepository.observeSeenIds().first())
+    suspend operator fun invoke(
+        photos: List<PhotoItem>,
+        filterMode: PhotoFilterMode,
+        unseenOnly: Boolean = false,
+    ): List<PhotoItem> = invoke(photos, filterMode, seenStateRepository.observeSeenIds().first(), unseenOnly)
 
-    operator fun invoke(photos: List<PhotoItem>, filterMode: PhotoFilterMode, seenIds: Set<Long>): List<PhotoItem> =
-        when (filterMode) {
+    operator fun invoke(
+        photos: List<PhotoItem>,
+        filterMode: PhotoFilterMode,
+        seenIds: Set<Long>,
+        unseenOnly: Boolean = false,
+    ): List<PhotoItem> {
+        val ranged = when (filterMode) {
             PhotoFilterMode.AllPhotos -> photos
-            PhotoFilterMode.UnseenOnly -> photos.filter { it.id !in seenIds }
             PhotoFilterMode.Screenshots,
             PhotoFilterMode.LargeFiles,
             PhotoFilterMode.ChatApps,
@@ -33,4 +41,6 @@ class FilterPhotosUseCase @Inject constructor(
                 photos.filter { OnThisDayRules.isOnThisDay(it, today) }
             }
         }
+        return if (unseenOnly) ranged.filter { it.id !in seenIds } else ranged
+    }
 }

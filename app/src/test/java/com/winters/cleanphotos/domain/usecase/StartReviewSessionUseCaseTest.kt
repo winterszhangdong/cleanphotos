@@ -102,7 +102,7 @@ class StartReviewSessionUseCaseTest {
         val seen = FakeSeenStateRepository(setOf(3L, 2L))
         val useCase = StartReviewSessionUseCase(fakeRepo, SortPhotosUseCase(), FilterPhotosUseCase(seen))
 
-        val session = useCase(3L, PhotoSortOrder.NewestFirst, PhotoFilterMode.UnseenOnly, ReviewScope.AllPhotos)
+        val session = useCase(3L, PhotoSortOrder.NewestFirst, PhotoFilterMode.AllPhotos, ReviewScope.AllPhotos, unseenOnly = true)
         assertEquals(listOf(5L, 4L, 1L), session.photos.map { it.id })
         assertEquals("落到 3 后面最近的未看照片 1", 1L, session.photos[session.currentIndex].id)
     }
@@ -114,7 +114,7 @@ class StartReviewSessionUseCaseTest {
         val seen = FakeSeenStateRepository(setOf(1L, 2L, 3L))
         val useCase = StartReviewSessionUseCase(fakeRepo, SortPhotosUseCase(), FilterPhotosUseCase(seen))
 
-        val session = useCase(2L, PhotoSortOrder.NewestFirst, PhotoFilterMode.UnseenOnly, ReviewScope.AllPhotos)
+        val session = useCase(2L, PhotoSortOrder.NewestFirst, PhotoFilterMode.AllPhotos, ReviewScope.AllPhotos, unseenOnly = true)
         assertEquals(4L, session.photos[session.currentIndex].id)
     }
 

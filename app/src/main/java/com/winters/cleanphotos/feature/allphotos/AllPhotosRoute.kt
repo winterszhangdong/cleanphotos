@@ -21,19 +21,21 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.feature.language.LanguageViewModel
+import com.winters.cleanphotos.feature.similar.SimilarViewModel
 
 @Composable
 fun AllPhotosRoute(
-    onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String) -> Unit,
+    onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String, unseenOnly: Boolean) -> Unit,
     onNavigateToTrash: () -> Unit,
-    onNavigateToSimilar: () -> Unit,
     viewModel: AllPhotosViewModel = hiltViewModel(),
+    similarViewModel: SimilarViewModel = hiltViewModel(),
     languageViewModel: LanguageViewModel = hiltViewModel(),
 ) {
     val currentLanguage by languageViewModel.current.collectAsStateWithLifecycle()
     var showLanguageSheet by rememberSaveable { mutableStateOf(false) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
+    val similarState by similarViewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // 拒绝且系统不再弹窗：主按钮改为「去系统设置开启」（interaction.md）
     var permanentlyDenied by rememberSaveable { mutableStateOf(false) }
@@ -59,8 +61,8 @@ fun AllPhotosRoute(
         permissionLauncher.launch(missing)
     }
 
-    LaunchedEffect(viewModel) {
-        viewModel.reviewTrash.collect { onNavigateToTrash() }
+    LaunchedEffect(uiState.scope) {
+        if (uiState.scope == LibraryScope.Similar) similarViewModel.start()
     }
 
     LifecycleResumeEffect(Unit) {
@@ -82,12 +84,22 @@ fun AllPhotosRoute(
             }
         },
         onPhotoClick = { photoId ->
-            onNavigateToReview(photoId, uiState.sortOrder.name, uiState.filterMode.name)
+            onNavigateToReview(
+                photoId,
+                uiState.sortOrder.name,
+                uiState.scope.toFilterMode().name,
+                uiState.unseenOnly,
+            )
         },
         onTrashClick = onNavigateToTrash,
-        onOpenSimilar = onNavigateToSimilar,
         onSortOrderChanged = viewModel::onSortOrderChanged,
-        onFilterModeChanged = viewModel::onFilterModeChanged,
+        onScopeChanged = viewModel::onScopeChanged,
+        onShowUnseenChanged = viewModel::onShowUnseenChanged,
+        similarState = similarState,
+        onSimilarKeep = similarViewModel::onKeep,
+        onSimilarMoveRest = similarViewModel::onMoveRest,
+        onSimilarUndo = similarViewModel::onUndo,
+        onSimilarUndoExpired = similarViewModel::onUndoExpired,
         selection = selection,
         currentLanguage = currentLanguage,
         showLanguageSheet = showLanguageSheet,
@@ -99,9 +111,6 @@ fun AllPhotosRoute(
             languageViewModel.select(language)
         },
         onDismissLanguageSheet = { showLanguageSheet = false },
-        onReviewTrashReminder = viewModel::onReviewTrashReminder,
-        onDismissTrashReminder = viewModel::onDismissTrashReminder,
-        onTrashReminderBlocked = viewModel::onTrashReminderBlocked,
         selectionActions = remember(viewModel) {
             PhotoSelectionActions(
                 onLongPress = viewModel::onLongPressPhoto,

@@ -7,6 +7,24 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+
+- 安卓：照片页改版，减少界面上的「点」。顶栏下一排常驻的范围按钮（全部 / 相似 / 大文件 / 截图 / 聊天 / 那年今天），取代原来的筛选菜单，一步就能切到；大号数字显示当前范围的张数，大文件、截图、聊天再显示总大小。往下翻时顶栏和按钮收起，往上一拨就回来。
+- 安卓：相似照片不再单独开一页，切到「相似」就在照片页里成组对比。
+- 安卓：顶栏只留 ⋯（排序、只看没看过、语言）；「只看没看过」改成开关，可以和截图、大文件等范围叠加。
+- 安卓：缩略图不再画未看光点，日期行改为「已看 / 总数」，看完显示「已看完」。照片、收藏、垃圾桶三页顶栏去掉小标题。
+- 安卓：垃圾桶提醒不再在照片页弹胶囊；最早一张放满 30 天时，垃圾桶「清空后可释放」卡片写明「最早一张已放 N 天」。
+
+---
+
+### Changed
+
+- Android: redesigned Photos page with less visual noise. A permanent row of scope buttons under the header (All / Similar / Large files / Screenshots / Chat / On this day) replaces the filter menu; the big number shows the count for the current scope, plus total size for large files, screenshots and chats. The header and buttons slide away as you scroll down and come back when you scroll up a little.
+- Android: similar photos no longer open a separate page; choose "Similar" to compare groups right on the Photos page.
+- Android: the header keeps only ⋯ (sort, unseen only, language). "Unseen only" is now a switch that combines with any scope, such as screenshots or large files.
+- Android: thumbnails no longer carry unseen dots; each day shows "seen / total", or "All seen" when done. Photos, Favorites and Trash headers drop their small titles.
+- Android: the trash reminder no longer pops up on the Photos page; once the oldest item has been in the trash for 30 days, the "Empty to free up" card on the Trash page says so.
+
 ## [1.3.0] - 2026-10-22
 
 ### Added
