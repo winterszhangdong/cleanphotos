@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,7 +52,7 @@ import com.winters.cleanphotos.core.design.gridScrollTapGuard
 import com.winters.cleanphotos.core.design.whenSettled
 
 /**
- * 收藏页与空状态。没有排序和筛选；eyebrow 旁一颗琥珀点。
+ * 收藏页与空状态。没有排序和筛选；单位后面一颗琥珀点（左距 6dp）。
  */
 @Composable
 fun FavoritesScreen(
@@ -69,8 +70,14 @@ fun FavoritesScreen(
             Column(Modifier.fillMaxSize()) {
                 ScreenHeader(
                     count = {
-                        HeaderCount(uiState.totalCount)
-                        if (!empty) FavPip()
+                        // 内层不再吃外层的 CountGap，琥珀点左距只剩 FavPip 自己的 6dp，贴在单位后面。
+                        Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.Bottom) {
+                            HeaderCount(
+                                uiState.totalCount,
+                                unit = pluralStringResource(R.plurals.favorites_count_unit, uiState.totalCount),
+                            )
+                            if (!empty) FavPip()
+                        }
                     },
                 )
                 if (!empty) {

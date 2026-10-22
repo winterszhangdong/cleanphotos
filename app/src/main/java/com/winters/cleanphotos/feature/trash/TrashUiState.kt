@@ -15,6 +15,11 @@ data class TrashUiState(
     val errorMessage: UiText? = null,
     /** 垃圾桶总大小（「清空后可释放」）。 */
     val totalBytes: Long = 0L,
+    /**
+     * 最早一张已放的整天数。满 30 天才有值，卡片副文字换成天数；
+     * null 时保持原来的「只在 App 内标记」副文字。
+     */
+    val oldestDays: Int? = null,
     /** photoId → 移入时间。 */
     val movedAt: Map<Long, Long> = emptyMap(),
     /** 清空成功后正在依次溶解的那一批格子（清空前的快照）；播完由界面回调清掉。 */
