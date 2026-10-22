@@ -25,7 +25,11 @@ import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.ResolveBatchFavoriteUseCase
+import com.winters.cleanphotos.domain.usecase.MarkTrashReminderShownUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTrashMovedAtUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTrashReminderUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
+import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
 import org.junit.Assert.assertTrue
 import io.mockk.every
 import io.mockk.mockk
@@ -121,11 +125,18 @@ class AllPhotosViewModelTest {
             batchFavoritePhotosUseCase = BatchFavoritePhotosUseCase(ResolveBatchFavoriteUseCase(), fakeReviewRepository, mockSeenDataSource),
             batchMovePhotosToTrashUseCase = BatchMovePhotosToTrashUseCase(fakeReviewRepository, mockSeenDataSource),
             undoBatchActionUseCase = UndoBatchActionUseCase(fakeReviewRepository),
+            observeTrashReminderUseCase = ObserveTrashReminderUseCase(
+                ObserveTrashSummaryUseCase(fakePhotoRepository),
+                ObserveTrashMovedAtUseCase(fakePhotoRepository),
+                fakeUserPreferencesRepository,
+            ),
+            markTrashReminderShownUseCase = MarkTrashReminderShownUseCase(fakeUserPreferencesRepository),
             computeDispatcher = testDispatcher,
         )
     }
 
     private val fakeReviewRepository = FakeReviewRepository()
+    private val fakeUserPreferencesRepository = FakeUserPreferencesRepository()
 
     // ====== 多选 ======
 
@@ -379,4 +390,56 @@ class AllPhotosViewModelTest {
         advanceUntilIdle()
         assertEquals(5, vm.uiState.value.visibleCount)
     }
+
+    @Test
+    fun `那年今天菜单_数量为0且未选中时隐藏_选中时仍显示`() {
+        val hidden = AllPhotosUiState(onThisDayCount = 0, filterMode = PhotoFilterMode.AllPhotos)
+        assertFalse(hidden.showOnThisDayMenu)
+        assertTrue(hidden.copy(filterMode = PhotoFilterMode.OnThisDay).showOnThisDayMenu)
+        assertTrue(hidden.copy(onThisDayCount = 2).showOnThisDayMenu)
+    }
+
+    @Test
+    fun `那年今天数量按全部照片计算_已看过仍计入_筛选只留命中项`() = runTest(testDispatcher) {
+        val zone = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now(zone)
+        fun at(date: java.time.LocalDate) = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val photos = listOf(
+            TestPhotoData.createTestPhoto(1).copy(dateTaken = at(previousSameDay(today, 1))),
+            TestPhotoData.createTestPhoto(2).copy(dateTaken = at(previousSameDay(today, 2)), mediaType = MediaType.Video),
+            TestPhotoData.createTestPhoto(3).copy(dateTaken = at(today)),
+            TestPhotoData.createTestPhoto(4).copy(dateTaken = at(today.minusDays(3))),
+            TestPhotoData.createTestPhoto(5).copy(dateTaken = 0L),
+        )
+        fakePhotoRepository.setPhotos(photos)
+        mockSeenDataSource.seenIds.value = setOf(1L)
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        val counted = vm.uiState.value
+        assertEquals(2, counted.onThisDayCount)
+        assertTrue(counted.showOnThisDayMenu)
+        assertEquals(5, counted.totalCount)
+
+        vm.onFilterModeChanged(PhotoFilterMode.OnThisDay)
+        advanceUntilIdle()
+        val filtered = vm.uiState.value
+        assertEquals(PhotoFilterMode.OnThisDay, filtered.filterMode)
+        assertEquals(listOf(1L, 2L), filtered.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(2, filtered.visibleCount)
+        assertEquals(2, filtered.onThisDayCount)
+        assertTrue(filtered.showOnThisDayMenu)
+    }
+}
+
+/** 往前第 n 个与今天月日相同的日期。2 月 29 日跳过非闰年。 */
+private fun previousSameDay(today: java.time.LocalDate, nth: Int): java.time.LocalDate {
+    var year = today.year
+    var found = 0
+    while (found < nth) {
+        year -= 1
+        if (today.monthValue == 2 && today.dayOfMonth == 29 && !java.time.Year.isLeap(year.toLong())) continue
+        found++
+    }
+    return java.time.LocalDate.of(year, today.monthValue, today.dayOfMonth)
 }

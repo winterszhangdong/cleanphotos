@@ -14,4 +14,6 @@ enum class PhotoFilterMode {
     LargeFiles,
     /** 聊天软件存图（微信 / WhatsApp / Telegram / QQ 目录） */
     ChatApps,
+    /** 那年今天：本地月日与今天相同，且年份更早 */
+    OnThisDay,
 }

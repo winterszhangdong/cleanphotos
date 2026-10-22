@@ -29,9 +29,11 @@
     <string name="filter_screenshots">截图</string>
     <string name="filter_large_files">大文件</string>
     <string name="filter_chat_apps">聊天软件存图</string>
+    <string name="filter_on_this_day">那年今天</string>
     <string name="filter_empty_screenshots">没有截图</string>
     <string name="filter_empty_large_files">没有大文件</string>
     <string name="filter_empty_chat_apps">没有聊天软件存图</string>
+    <string name="filter_empty_on_this_day">那年今天没有照片</string>
     <string name="similar_photos">相似照片</string>
     <string name="similar_menu_go">›</string>
     <string name="similar_comparing">正在比对 %1$d / %2$d</string>
@@ -131,6 +133,7 @@
     <string name="trash_empty_title">垃圾桶是空的</string>
     <string name="trash_just_freed">刚刚释放了 %1$s</string>
     <string name="trash_empty_body">在清理页把照片向下一拉，它会先放在这里，清空前都能找回。</string>
+    <string name="trash_total_freed">累计已释放 %1$s</string>
     <string name="free_label">清空后可释放</string>
     <string name="free_sub">只在 App 内标记，清空时才真正删除</string>
     <string name="empty_trash">清空</string>
@@ -191,4 +194,8 @@
     <plurals name="similar_move_rest">
         <item quantity="other">移走其余 %1$d 张</item>
     </plurals>
+    <string name="trash_reminder_size">垃圾桶有 %1$s 待释放</string>
+    <string name="trash_reminder_age">有照片已在垃圾桶放了 30 天以上</string>
+    <string name="trash_reminder_review">去看看</string>
+    <string name="cd_dismiss_trash_reminder">关闭</string>
 </resources>

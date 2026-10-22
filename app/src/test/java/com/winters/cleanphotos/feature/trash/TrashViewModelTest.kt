@@ -11,8 +11,11 @@ import com.winters.cleanphotos.domain.usecase.DeletePhotosPermanentlyUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTrashedPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.RestorePhotoFromTrashUseCase
 import com.winters.cleanphotos.domain.usecase.RestorePhotosFromTrashUseCase
+import com.winters.cleanphotos.domain.usecase.AddFreedBytesUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTotalFreedBytesUseCase
 import com.winters.cleanphotos.fake.FakePhotoRepository
 import com.winters.cleanphotos.fake.FakeReviewRepository
+import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -49,11 +52,13 @@ class TrashViewModelTest {
 
     private lateinit var fakePhotoRepository: FakePhotoRepository
     private lateinit var fakeReviewRepository: FakeReviewRepository
+    private lateinit var fakePreferences: FakeUserPreferencesRepository
 
     @Before
     fun setUp() {
         fakePhotoRepository = FakePhotoRepository()
         fakeReviewRepository = FakeReviewRepository()
+        fakePreferences = FakeUserPreferencesRepository()
 
         Dispatchers.setMain(testDispatcher)
 
@@ -79,6 +84,8 @@ class TrashViewModelTest {
             observeTrashSummaryUseCase = com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase(fakePhotoRepository),
             observeTrashMovedAtUseCase = com.winters.cleanphotos.domain.usecase.ObserveTrashMovedAtUseCase(fakePhotoRepository),
             sumPhotoBytesUseCase = com.winters.cleanphotos.domain.usecase.SumPhotoBytesUseCase(),
+            observeTotalFreedBytesUseCase = ObserveTotalFreedBytesUseCase(fakePreferences),
+            addFreedBytesUseCase = AddFreedBytesUseCase(fakePreferences),
             computeDispatcher = testDispatcher,
         )
     }
@@ -572,5 +579,64 @@ class TrashViewModelTest {
 
         assertEquals(UiText.Res(R.string.msg_trash_emptied), viewModel.uiState.value.actionMessage)
         assertFalse(viewModel.uiState.value.isProcessingAction)
+        assertEquals("进程重建没有快照，不计入累计", 0L, fakePreferences.totalFreedBytesFlow.value)
+    }
+
+    @Test
+    fun `清空全部成功_累计等于快照总大小`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(3).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onShowEmptyTrashConfirm()
+        viewModel.onConfirmEmptyTrash()
+        fakePhotoRepository.setTrashedPhotos(emptyList())
+        advanceUntilIdle()
+
+        val expected = photos.sumOf { it.size!! }
+        assertEquals(expected, fakePreferences.totalFreedBytesFlow.value)
+        assertEquals(expected, viewModel.uiState.value.totalFreedBytes)
+    }
+
+    @Test
+    fun `部分残留_只累计消失的_size 为 null 记 0`() = runTest(testDispatcher) {
+        val photos = listOf(
+            TestPhotoData.createTestPhoto(1).copy(isTrashed = true, size = 100L),
+            TestPhotoData.createTestPhoto(2).copy(isTrashed = true, size = null),
+            TestPhotoData.createTestPhoto(3).copy(isTrashed = true, size = 50L),
+        )
+        fakePhotoRepository.setTrashedPhotos(photos)
+        fakeReviewRepository.deletePermanentlyResult =
+            PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        fakeReviewRepository.onDeletePermanently = {
+            fakePhotoRepository.setTrashedPhotos(photos.filter { it.id == 3L })
+        }
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onShowEmptyTrashConfirm()
+        viewModel.onConfirmEmptyTrash()
+        advanceUntilIdle()
+
+        assertEquals(100L, fakePreferences.totalFreedBytesFlow.value)
+        assertEquals(100L, viewModel.uiState.value.totalFreedBytes)
+    }
+
+    @Test
+    fun `刷新后没有照片消失_不写入累计`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(2).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        fakeReviewRepository.deletePermanentlyResult =
+            PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onShowEmptyTrashConfirm()
+        viewModel.onConfirmEmptyTrash()
+        advanceUntilIdle()
+
+        assertEquals(0L, fakePreferences.totalFreedBytesFlow.value)
+        assertEquals(0L, viewModel.uiState.value.totalFreedBytes)
     }
 }

@@ -27,10 +27,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -239,11 +241,28 @@ fun TrashScreen(
                     uiState.dissolving != null -> ListFade()
                     uiState.photos.isEmpty() && !uiState.isLoading -> RisingEmpty(rise = uiState.justFreedBytes != null) {
                         EmptyPileArt(sink = true, modifier = Modifier.padding(bottom = 32.dp))
-                        EmptyTitleAndBody(
-                            stringResource(R.string.trash_empty_title),
-                            uiState.justFreedBytes?.let { stringResource(R.string.trash_just_freed, FileSizeFormatter.format(it, currentLocale())) }
-                                ?: stringResource(R.string.trash_empty_body),
-                        )
+                        val body = uiState.justFreedBytes?.let { stringResource(R.string.trash_just_freed, FileSizeFormatter.format(it, currentLocale())) }
+                            ?: stringResource(R.string.trash_empty_body)
+                        if (uiState.totalFreedBytes > 0L) {
+                            // 有累计行时自己排正文，间距用 CountSubGap；下边距沿用 DialogSide（与空状态说明的 24dp 下边距同值）。
+                            Text(stringResource(R.string.trash_empty_title), style = DarkroomText.EmptyH4, textAlign = TextAlign.Center)
+                            Text(
+                                body,
+                                style = DarkroomText.EmptyP,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = Dimens.CountSubGap).width(Dimens.EmptyTextWidth),
+                            )
+                            Text(
+                                stringResource(R.string.trash_total_freed, FileSizeFormatter.format(uiState.totalFreedBytes, currentLocale())),
+                                style = DarkroomText.MenuItemRight,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .padding(top = Dimens.CountSubGap, bottom = Dimens.DialogSide)
+                                    .width(Dimens.EmptyTextWidth),
+                            )
+                        } else {
+                            EmptyTitleAndBody(stringResource(R.string.trash_empty_title), body)
+                        }
                     }
                     else -> ListFade()
                 }

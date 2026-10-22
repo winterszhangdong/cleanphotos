@@ -138,7 +138,8 @@ enum class PhotoFilterMode {
     UnseenOnly,
     Screenshots,
     LargeFiles,
-    ChatApps
+    ChatApps,
+    OnThisDay
 }
 ```
 
@@ -148,6 +149,7 @@ enum class PhotoFilterMode {
 AllPhotos：展示全部照片（默认）
 UnseenOnly：仅展示未看过的照片
 Screenshots / LargeFiles / ChatApps：与前两项单选互斥，规则见 SmartFilterRules
+OnThisDay：与上面全部单选互斥，规则见 OnThisDayRules
 ```
 
 判定在 `domain/model/SmartFilterRules.kt`（纯函数，大小写不敏感）：
@@ -156,6 +158,16 @@ Screenshots / LargeFiles / ChatApps：与前两项单选互斥，规则见 Smart
 截图：relativePath 或 bucketName 含 "screenshot"、"截屏"、"截图"；字段为 null 不命中
 大文件：size ≥ 10 * 1024 * 1024 字节，图片和视频同一阈值；size 为 null 不算
 聊天软件存图：relativePath 含 "weixin"、"whatsapp"、"telegram"，或以 "Pictures/QQ/" 开头
+```
+
+「那年今天」在 `domain/model/OnThisDayRules.kt`（纯函数，今天和时区由调用方传入；生产路径用 `LocalDate.now()` 和 `ZoneId.systemDefault()`）：
+
+```text
+dateTaken（毫秒）≤ 0 或没有：不命中
+按系统时区换成当地日期：月、日都等于今天，且年份早于今年 → 命中
+2 月 29 日的照片只在今天也是 2 月 29 日时命中
+图片和视频都算
+今天只在照片列表或看过状态变化时重算，跨过午夜不会自动刷新
 ```
 
 ***
@@ -415,7 +427,8 @@ data class AllPhotosUiState(
     val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos,
     val screenshotCount: Int = 0,
     val largeFileCount: Int = 0,
-    val chatAppCount: Int = 0
+    val chatAppCount: Int = 0,
+    val onThisDayCount: Int = 0
 )
 ```
 
@@ -430,8 +443,9 @@ isLoading：是否加载中
 hasPermission：是否有相册权限
 errorMessage：错误信息
 sortOrder：当前排序方式。菜单文案是「最新优先」和「最早优先」
-filterMode：当前筛选模式。菜单文案是「全部照片」「仅未看过」「截图」「大文件」「聊天软件存图」
-screenshotCount / largeFileCount / chatAppCount：照片页全部照片里命中对应规则的张数，不受「看过」影响
+filterMode：当前筛选模式。菜单文案是「全部照片」「仅未看过」「截图」「大文件」「聊天软件存图」「那年今天」
+screenshotCount / largeFileCount / chatAppCount / onThisDayCount：照片页全部照片里命中对应规则的张数，不受「看过」影响
+showOnThisDayMenu：onThisDayCount > 0，或当前筛选已经是 OnThisDay；否则菜单不显示「那年今天」
 ```
 
 ***
@@ -625,6 +639,10 @@ deletePhotosPermanently 通过 MediaStore 操作，可能返回 NeedSystemApprov
 interface UserPreferencesRepository {
     fun observeHasSeenReviewTutorial(): Flow<Boolean>
     suspend fun setHasSeenReviewTutorial(seen: Boolean)
+    fun observeSwipeActionCount(): Flow<Int>
+    suspend fun incrementSwipeActionCount()
+    fun observeTotalFreedBytes(): Flow<Long>
+    suspend fun addFreedBytes(bytes: Long) // bytes 必须 > 0，只增不减
 }
 ```
 
@@ -639,6 +657,8 @@ app_favorite_entries
 app_seen_entries
 has_migrated_favorites
 review_swipe_action_count
+total_freed_bytes
+trash_reminder_shown_at
 ```
 
 含义：
@@ -650,6 +670,8 @@ app_favorite_entries：App 内收藏条目集合（Set<String>，格式 "photoId
 app_seen_entries：已看过的照片 ID 集合（Set<String>，每条为 photoId 字符串）
 has_migrated_favorites：是否已完成系统 IS_FAVORITE 到 AppFavoriteStore 的一次性迁移
 review_swipe_action_count：累计成功的上滑 / 下滑处理次数（Int）。≥ 20 时清理页永久隐藏方向提示小点
+total_freed_bytes：累计已确认从垃圾桶永久删除的字节（Long）。只增不减。只计刷新后确认已从图库消失的照片（size 未知按 0）；进程重建后没有删除前快照的那一次不计入
+trash_reminder_shown_at：上次在照片页出现垃圾桶提醒的时间（Long，epoch ms）。没有这条键表示从没提醒过，不能写成 0
 ```
 
 默认值：
@@ -661,6 +683,8 @@ app_favorite_entries = emptySet()
 app_seen_entries = emptySet()
 has_migrated_favorites = false
 review_swipe_action_count = 0
+total_freed_bytes = 0
+trash_reminder_shown_at = 未写入（读取为 null）
 ```
 
 当用户第一次完成有效的向上或向下清理滑动后：
@@ -716,6 +740,7 @@ class FilterPhotosUseCase {
 AllPhotos：返回全部照片
 UnseenOnly：读取 AppSeenStateDataSource，仅返回未看过的照片（id 不在 seenIds 中的照片）
 Screenshots / LargeFiles / ChatApps：按 SmartFilterRules 过滤，不读取「看过」状态
+OnThisDay：按 OnThisDayRules 过滤，今天取 LocalDate.now()，不读取「看过」状态
 ```
 
 ***
@@ -813,7 +838,7 @@ class StartReviewSessionUseCase(
 
 ```text
 接受 startPhotoId、sortOrder、filterMode、scope 四个参数
-执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤（含截图 / 大文件 / 聊天软件存图），Favorites 跳过过滤 → 查找起始照片
+执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤（含截图 / 大文件 / 聊天软件存图 / 那年今天），Favorites 跳过过滤 → 查找起始照片
 找不到 startPhotoId 直接抛错，不回退到 0
 scope 决定候选队列：AllPhotos 排除垃圾桶和已收藏，Favorites 只取已收藏且不在垃圾桶的
 ```
@@ -985,6 +1010,24 @@ summarizedDays：本次会话已出过小结的天
 | ObserveTrashSummaryUseCase | `TrashSummary(count, totalBytes)`，size 未知按 0 |
 | ObserveAllSeenStatsUseCase | 决定 11：`AllSeenStats(favoriteCount, trashCount, trashBytes)` |
 | ObserveShowDirectionHintsUseCase / RecordSwipeActionUseCase | 决定 10：`review_swipe_action_count` < 20 时显示方向提示小点；成功上下滑后 +1，撤回不回退 |
+| ObserveTotalFreedBytesUseCase / AddFreedBytesUseCase | 垃圾桶空状态「累计已释放」：读 / 累加 `total_freed_bytes` |
+| ObserveTrashReminderUseCase | 垃圾桶是否该开始一次提醒：`TrashSummary` + 最早 `movedToTrashAt` + `trash_reminder_shown_at`，交给 `TrashReminderRules` |
+| MarkTrashReminderShownUseCase | 胶囊出现时写入 `trash_reminder_shown_at` |
+
+### TrashReminder
+
+```text
+TrashReminderReason：Size / Age。总大小和天数同时满足时用 Size
+TrashReminder：reason + totalBytes（size 为 null 已按 0 计入）
+TrashReminderRules：
+  SIZE_THRESHOLD_BYTES = 1024³
+  AGE_THRESHOLD_MS = 30 天
+  INTERVAL_MS = 7 天
+  totalBytes(sizes)：null 记 0
+  evaluate(count, totalBytes, earliestMovedAt, lastShownAt, now)：空垃圾桶返回 null；从没提醒过视为间隔已满足
+```
+
+`UserPreferencesRepository` 新增 `observeTrashReminderShownAt(): Flow<Long?>`、`setTrashReminderShownAt(at: Long)`。
 
 ### Repository 变更
 

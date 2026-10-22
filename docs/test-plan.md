@@ -91,7 +91,7 @@ Compose UI 测试
 ```text
 日期分组逻辑
 照片排序逻辑（NewestFirst / OldestFirst）
-照片过滤逻辑（AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps）
+照片过滤逻辑（AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps / OnThisDay）
 照片过滤逻辑（AllPhotos / UnseenOnly）
 dHash（9×8 亮度 → 64 位、汉明距离）
 相似分组（10 秒与距离 10 的边界、链式、单张不成组、视频排除、取图失败跳过、默认保留）
@@ -509,13 +509,14 @@ P1
 2. 大文件：size = 10 * 1024 * 1024、恰少 1 字节、null；图片和视频各一
 3. 聊天软件：relativePath 含 weixin / whatsapp / telegram，或以 Pictures/QQ/ 开头（含大小写）；Pictures/QQ 无斜杠、Download/QQ/、仅 bucketName 为反例
 4. 对同一列表执行 FilterPhotosUseCase 的 Screenshots / LargeFiles / ChatApps，seenIds 含命中项
+5. 那年今天：固定「今天」传入纯函数。同月日且更早年份命中；今年不命中；不同日不命中；2 月 29 日只在 2 月 29 日命中；dateTaken 为 null 或 ≤0 不命中；视频同样命中。FilterPhotosUseCase 的 OnThisDay 只返回命中项，seenIds 含命中项时仍保留
 ```
 
 预期结果：
 
 ```text
 正例命中、反例不命中
-三个新模式只返回命中项，已看过的命中项仍保留
+四个新模式只返回命中项，已看过的命中项仍保留
 UnseenOnly 与 AllPhotos 行为不变
 ```
 
@@ -538,16 +539,18 @@ P1
 操作步骤：
 
 ```text
-1. 读取 AllPhotosUiState 的 screenshotCount / largeFileCount / chatAppCount
-2. 依次切换 Screenshots、LargeFiles、ChatApps、AllPhotos
+1. 读取 AllPhotosUiState 的 screenshotCount / largeFileCount / chatAppCount / onThisDayCount
+2. 依次切换 Screenshots、LargeFiles、ChatApps、OnThisDay、AllPhotos
+3. onThisDayCount 为 0 且 filterMode 不是 OnThisDay 时 showOnThisDayMenu 为 false；数量大于 0，或当前已是 OnThisDay，则为 true
 ```
 
 预期结果：
 
 ```text
-三项数量按全部照片计算，已看过的截图仍计入 screenshotCount
+四项数量按全部照片计算，已看过的截图和「那年今天」命中项仍计入
 当前筛选的可见列表只含命中项，且保留排序
 切回 AllPhotos 后可见数量恢复为全部照片
+「那年今天」在数量为 0 且未选中时不出现在菜单
 ```
 
 ***
@@ -2530,6 +2533,41 @@ photos 为空
 showEmptyTrashConfirmDialog 为 false
 显示清空成功提示
 显示垃圾桶空状态
+total_freed_bytes 增加本次确认消失照片的 size 之和（null 记 0）
+空状态在累计大于 0 时显示「累计已释放 X」，且包含这一次
+```
+
+***
+
+### 用例：累计已释放只计确认消失的照片
+
+优先级：
+
+```text
+P0
+```
+
+前置条件：
+
+```text
+垃圾桶中有若干照片，部分 size 为 null
+```
+
+操作步骤：
+
+```text
+1. 清空垃圾桶
+2. 刷新后只有一部分照片从垃圾桶消失
+```
+
+预期结果：
+
+```text
+total_freed_bytes 只增加已消失照片的 size 之和，null 记 0
+合计为 0 时不写入
+刷新后没有照片消失时不写入
+进程重建后收到授权结果、没有删除前快照时不写入
+累计为 0 时空状态不显示「累计已释放」
 ```
 
 ***
@@ -3041,6 +3079,7 @@ Favorites 列表含这三张
 1. scope = AllPhotos，filterMode = Screenshots，从截图启动
 2. scope = AllPhotos，filterMode = LargeFiles，从该视频启动
 3. scope = Favorites，filterMode = Screenshots，从普通照片启动
+4. scope = AllPhotos，filterMode = OnThisDay，列表里只有往年同月日的照片（含一条视频），从其中一张启动
 ```
 
 预期结果：
@@ -3048,6 +3087,7 @@ Favorites 列表含这三张
 ```text
 AllPhotos 会话的 photos 只有该筛选的命中项，currentIndex 指向起点
 Favorites 会话跳过过滤，三张都在
+OnThisDay 会话的 photos 只有往年同月日的命中项
 ```
 
 ***
@@ -3469,6 +3509,38 @@ P0
 
 ***
 
+### 用例：累计释放字节默认 0 且只增
+
+优先级：
+
+```text
+P0
+```
+
+前置条件：
+
+```text
+DataStore 中不存在 total_freed_bytes
+```
+
+操作步骤：
+
+```text
+1. 读取 observeTotalFreedBytes
+2. 调用 addFreedBytes 两次（每次 bytes > 0）
+3. 再次读取
+```
+
+预期结果：
+
+```text
+默认返回 0
+两次累加后等于两次之和
+bytes <= 0 直接失败
+```
+
+***
+
 ## 14 MediaStore 相关测试说明
 
 MediaStore 行为受 Android 版本、设备厂商、权限状态影响较大，不能完全依赖单元测试。
@@ -3603,4 +3675,27 @@ App 在核心流程中崩溃
 横滑轮转动画中当前页或进入页不可见
 切页边界位置不连续导致闪烁
 TrashPreviewOverlay 与 ReviewScreen 横滑行为不一致
+```
+
+***
+
+## 17 垃圾桶提醒
+
+### 规则（TrashReminderRules）
+
+```text
+空垃圾桶不提醒，即使总大小或移入时间看起来已经够
+正好 1 GB（1024³ 字节）用大小文案；差 1 字节且未满 30 天不提醒
+正好 30 天用天数文案；两条同时满足用大小文案
+从没提醒过可以提醒；正好隔 7 天可以再提醒；差 1 毫秒不满 7 天不提醒
+size 为 null 记 0
+```
+
+### 照片页 ViewModel
+
+```text
+条件满足且照片页有照片：出现提醒，并写入 trash_reminder_shown_at
+照片页没有照片、多选中、批量撤回胶囊还在、菜单打开：不出现，也不写入
+点 ✕ 后本次进程不再出现
+点「去看看」收起，并触发切到垃圾桶的导航
 ```

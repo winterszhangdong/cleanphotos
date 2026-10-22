@@ -30,9 +30,11 @@
     <string name="filter_screenshots">Screenshots</string>
     <string name="filter_large_files">Large files</string>
     <string name="filter_chat_apps">Chat app images</string>
+    <string name="filter_on_this_day">On this day</string>
     <string name="filter_empty_screenshots">No screenshots</string>
     <string name="filter_empty_large_files">No large files</string>
     <string name="filter_empty_chat_apps">No chat app images</string>
+    <string name="filter_empty_on_this_day">No photos from this day</string>
     <string name="similar_photos">Similar photos</string>
     <string name="similar_menu_go">›</string>
     <string name="similar_comparing">Comparing %1$d / %2$d</string>
@@ -132,6 +134,7 @@
     <string name="trash_empty_title">Trash is empty</string>
     <string name="trash_just_freed">Just freed %1$s</string>
     <string name="trash_empty_body">While reviewing, swipe a photo down and it waits here. It\'s recoverable until you empty the trash.</string>
+    <string name="trash_total_freed">Freed %1$s in total</string>
     <string name="free_label">Empty to free up</string>
     <string name="free_sub">Only marked in the app until you empty it</string>
     <string name="empty_trash">Empty</string>
@@ -206,6 +209,10 @@
         <item quantity="one">Move the other photo</item>
         <item quantity="other">Move the other %1$d</item>
     </plurals>
+    <string name="trash_reminder_size">%1$s waiting in the trash</string>
+    <string name="trash_reminder_age">Some items have been in the trash for over 30 days</string>
+    <string name="trash_reminder_review">Review</string>
+    <string name="cd_dismiss_trash_reminder">Close</string>
     <!-- 语言名用各自的语言写，任何界面语言下都一样 -->
     <string name="language_zh" translatable="false">简体中文</string>
     <string name="language_en" translatable="false">English</string>

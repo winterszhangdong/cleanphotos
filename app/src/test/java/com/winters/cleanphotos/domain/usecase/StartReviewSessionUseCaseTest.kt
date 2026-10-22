@@ -143,4 +143,37 @@ class StartReviewSessionUseCaseTest {
         val favorites = useCase(2L, PhotoSortOrder.NewestFirst, PhotoFilterMode.Screenshots, ReviewScope.Favorites)
         assertEquals(listOf(3L, 2L, 1L), favorites.photos.map { it.id })
     }
+
+    @Test
+    fun `那年今天会话只含往年同月日`() = runTest {
+        val zone = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now(zone)
+        fun at(date: java.time.LocalDate) = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val fakeRepo = FakePhotoRepository()
+        val hit = TestPhotoData.createTestPhoto(1).copy(dateTaken = at(previousSameDay(today, 1)))
+        val miss = TestPhotoData.createTestPhoto(2).copy(dateTaken = at(today.minusDays(1)))
+        val video = TestPhotoData.createTestPhoto(3).copy(
+            dateTaken = at(previousSameDay(today, 2)),
+            mediaType = MediaType.Video,
+        )
+        fakeRepo.setPhotos(listOf(hit, miss, video))
+        val useCase = createUseCase(fakeRepo)
+
+        val session = useCase(1L, PhotoSortOrder.NewestFirst, PhotoFilterMode.OnThisDay, ReviewScope.AllPhotos)
+        assertEquals(listOf(1L, 3L), session.photos.map { it.id })
+        assertEquals(0, session.currentIndex)
+        assertEquals(2, session.totalCount)
+    }
+}
+
+/** 往前第 n 个与今天月日相同的日期。2 月 29 日跳过非闰年。 */
+private fun previousSameDay(today: java.time.LocalDate, nth: Int): java.time.LocalDate {
+    var year = today.year
+    var found = 0
+    while (found < nth) {
+        year -= 1
+        if (today.monthValue == 2 && today.dayOfMonth == 29 && !java.time.Year.isLeap(year.toLong())) continue
+        found++
+    }
+    return java.time.LocalDate.of(year, today.monthValue, today.dayOfMonth)
 }

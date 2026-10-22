@@ -86,6 +86,7 @@ import com.winters.cleanphotos.core.design.SkeletonBlock
 import com.winters.cleanphotos.core.design.SystemBarIcons
 import com.winters.cleanphotos.core.design.TileGrid
 import com.winters.cleanphotos.core.design.ToolIconButton
+import com.winters.cleanphotos.core.design.TrashReminderBar
 import com.winters.cleanphotos.core.design.dockListBottomPadding
 import com.winters.cleanphotos.core.design.glassBackdropSource
 import com.winters.cleanphotos.core.design.plainClickable
@@ -122,6 +123,9 @@ fun AllPhotosScreen(
     showLanguageSheet: Boolean = false,
     onLanguageSelected: (AppLanguage) -> Unit = {},
     onDismissLanguageSheet: () -> Unit = {},
+    onReviewTrashReminder: () -> Unit = {},
+    onDismissTrashReminder: () -> Unit = {},
+    onTrashReminderBlocked: (Boolean) -> Unit = {},
 ) {
     SystemBarIcons(lightBackground = false)
 
@@ -132,6 +136,8 @@ fun AllPhotosScreen(
     }
 
     var openMenu by remember { mutableStateOf(OpenMenu.None) }
+    val reminderBlocked = openMenu != OpenMenu.None || showLanguageSheet
+    LaunchedEffect(reminderBlocked) { onTrashReminderBlocked(reminderBlocked) }
     // 系统返回先关菜单
     BackHandler(enabled = openMenu != OpenMenu.None) { openMenu = OpenMenu.None }
     BackHandler(enabled = showLanguageSheet) { onDismissLanguageSheet() }
@@ -291,6 +297,21 @@ fun AllPhotosScreen(
                 onExpired = selectionActions.onUndoExpired,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+            TrashReminderBar(
+                message = uiState.trashReminder?.asString(),
+                visible = uiState.trashReminder != null,
+                onReview = onReviewTrashReminder,
+                onDismiss = onDismissTrashReminder,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(
+                        start = Dimens.ScreenSide,
+                        end = Dimens.ScreenSide,
+                        bottom = Dimens.NavBottom + Dimens.NavHeight + Dimens.UndoAboveNav,
+                    )
+                    .fillMaxWidth(),
+            )
 
             SortToast(sortToast)
 
@@ -309,28 +330,33 @@ fun AllPhotosScreen(
             DarkroomMenu(
                 visible = openMenu == OpenMenu.Filter,
                 header = stringResource(R.string.menu_filter_header),
-                options = listOf(
-                    MenuOption(stringResource(R.string.filter_all), NumberFormatter.formatCount(uiState.totalCount, locale), uiState.filterMode == PhotoFilterMode.AllPhotos) {
+                options = buildList {
+                    add(MenuOption(stringResource(R.string.filter_all), NumberFormatter.formatCount(uiState.totalCount, locale), uiState.filterMode == PhotoFilterMode.AllPhotos) {
                         onFilterModeChanged(PhotoFilterMode.AllPhotos); openMenu = OpenMenu.None
-                    },
-                    MenuOption(stringResource(R.string.filter_unseen), NumberFormatter.formatCount(uiState.unseenCount, locale), unseenOnly) {
+                    })
+                    add(MenuOption(stringResource(R.string.filter_unseen), NumberFormatter.formatCount(uiState.unseenCount, locale), unseenOnly) {
                         onFilterModeChanged(PhotoFilterMode.UnseenOnly); openMenu = OpenMenu.None
-                    },
-                    MenuOption(stringResource(R.string.filter_screenshots), NumberFormatter.formatCount(uiState.screenshotCount, locale), uiState.filterMode == PhotoFilterMode.Screenshots) {
+                    })
+                    add(MenuOption(stringResource(R.string.filter_screenshots), NumberFormatter.formatCount(uiState.screenshotCount, locale), uiState.filterMode == PhotoFilterMode.Screenshots) {
                         onFilterModeChanged(PhotoFilterMode.Screenshots); openMenu = OpenMenu.None
-                    },
-                    MenuOption(stringResource(R.string.filter_large_files), NumberFormatter.formatCount(uiState.largeFileCount, locale), uiState.filterMode == PhotoFilterMode.LargeFiles) {
+                    })
+                    add(MenuOption(stringResource(R.string.filter_large_files), NumberFormatter.formatCount(uiState.largeFileCount, locale), uiState.filterMode == PhotoFilterMode.LargeFiles) {
                         onFilterModeChanged(PhotoFilterMode.LargeFiles); openMenu = OpenMenu.None
-                    },
-                    MenuOption(stringResource(R.string.filter_chat_apps), NumberFormatter.formatCount(uiState.chatAppCount, locale), uiState.filterMode == PhotoFilterMode.ChatApps) {
+                    })
+                    add(MenuOption(stringResource(R.string.filter_chat_apps), NumberFormatter.formatCount(uiState.chatAppCount, locale), uiState.filterMode == PhotoFilterMode.ChatApps) {
                         onFilterModeChanged(PhotoFilterMode.ChatApps); openMenu = OpenMenu.None
-                    },
+                    })
+                    if (uiState.showOnThisDayMenu) {
+                        add(MenuOption(stringResource(R.string.filter_on_this_day), NumberFormatter.formatCount(uiState.onThisDayCount, locale), uiState.filterMode == PhotoFilterMode.OnThisDay) {
+                            onFilterModeChanged(PhotoFilterMode.OnThisDay); openMenu = OpenMenu.None
+                        })
+                    }
                     // 不是筛选：不改 filterMode，关掉菜单后离开本页
-                    MenuOption(stringResource(R.string.similar_photos), stringResource(R.string.similar_menu_go), false) {
+                    add(MenuOption(stringResource(R.string.similar_photos), stringResource(R.string.similar_menu_go), false) {
                         openMenu = OpenMenu.None
                         onOpenSimilar()
-                    },
-                ),
+                    })
+                },
             )
             DarkroomMenu(
                 visible = openMenu == OpenMenu.More,
@@ -431,7 +457,7 @@ private fun LoadingSkeleton() {
     }
 }
 
-/** 截图 / 大文件 / 聊天软件存图筛到 0 张：标题 + 切回全部。不用「全部看过了」那一套。 */
+/** 截图 / 大文件 / 聊天软件存图 / 那年今天筛到 0 张：标题 + 切回全部。不用「全部看过了」那一套。 */
 @Composable
 private fun SmartFilterEmpty(title: String, onShowAll: () -> Unit) {
     EmptyStateArea {
@@ -445,12 +471,16 @@ private fun SmartFilterEmpty(title: String, onShowAll: () -> Unit) {
 }
 
 private val PhotoFilterMode.isSmartFilter: Boolean
-    get() = this == PhotoFilterMode.Screenshots || this == PhotoFilterMode.LargeFiles || this == PhotoFilterMode.ChatApps
+    get() = this == PhotoFilterMode.Screenshots ||
+        this == PhotoFilterMode.LargeFiles ||
+        this == PhotoFilterMode.ChatApps ||
+        this == PhotoFilterMode.OnThisDay
 
 private fun PhotoFilterMode.emptyTitleRes(): Int = when (this) {
     PhotoFilterMode.Screenshots -> R.string.filter_empty_screenshots
     PhotoFilterMode.LargeFiles -> R.string.filter_empty_large_files
     PhotoFilterMode.ChatApps -> R.string.filter_empty_chat_apps
+    PhotoFilterMode.OnThisDay -> R.string.filter_empty_on_this_day
     PhotoFilterMode.AllPhotos, PhotoFilterMode.UnseenOnly -> error("$this 没有筛选空状态")
 }
 
