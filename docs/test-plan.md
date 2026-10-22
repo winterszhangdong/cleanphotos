@@ -2533,6 +2533,41 @@ photos 为空
 showEmptyTrashConfirmDialog 为 false
 显示清空成功提示
 显示垃圾桶空状态
+total_freed_bytes 增加本次确认消失照片的 size 之和（null 记 0）
+空状态在累计大于 0 时显示「累计已释放 X」，且包含这一次
+```
+
+***
+
+### 用例：累计已释放只计确认消失的照片
+
+优先级：
+
+```text
+P0
+```
+
+前置条件：
+
+```text
+垃圾桶中有若干照片，部分 size 为 null
+```
+
+操作步骤：
+
+```text
+1. 清空垃圾桶
+2. 刷新后只有一部分照片从垃圾桶消失
+```
+
+预期结果：
+
+```text
+total_freed_bytes 只增加已消失照片的 size 之和，null 记 0
+合计为 0 时不写入
+刷新后没有照片消失时不写入
+进程重建后收到授权结果、没有删除前快照时不写入
+累计为 0 时空状态不显示「累计已释放」
 ```
 
 ***
@@ -3470,6 +3505,38 @@ P0
 第一次进入 showTutorial 为 true
 完成有效滑动后写入 true
 再次进入 showTutorial 为 false
+```
+
+***
+
+### 用例：累计释放字节默认 0 且只增
+
+优先级：
+
+```text
+P0
+```
+
+前置条件：
+
+```text
+DataStore 中不存在 total_freed_bytes
+```
+
+操作步骤：
+
+```text
+1. 读取 observeTotalFreedBytes
+2. 调用 addFreedBytes 两次（每次 bytes > 0）
+3. 再次读取
+```
+
+预期结果：
+
+```text
+默认返回 0
+两次累加后等于两次之和
+bytes <= 0 直接失败
 ```
 
 ***

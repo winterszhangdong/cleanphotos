@@ -292,6 +292,7 @@ UserPreferencesDataSource
 
 * 保存是否看过教学。
 * 读取用户偏好。
+* `total_freed_bytes`（Long，默认 0）：累计已确认永久删除的字节，只增不减。
 
 ### repository
 
@@ -374,6 +375,8 @@ DeletePhotosPermanentlyUseCase
 UndoPhotoActionUseCase
 ObserveTutorialStateUseCase
 SetTutorialSeenUseCase
+ObserveTotalFreedBytesUseCase（读 total_freed_bytes）
+AddFreedBytesUseCase（累加已确认删除的字节，bytes 必须 > 0）
 ```
 
 ---

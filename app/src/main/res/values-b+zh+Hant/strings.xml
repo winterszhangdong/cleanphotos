@@ -134,6 +134,7 @@
     <string name="trash_empty_title">垃圾桶是空的</string>
     <string name="trash_just_freed">刚刚释放了 %1$s</string>
     <string name="trash_empty_body">在清理页把照片向下一拉，它会先放在这里，清空前都能找回。</string>
+    <string name="trash_total_freed">累计已释放 %1$s</string>
     <string name="free_label">清空后可释放</string>
     <string name="free_sub">只在 App 内标记，清空时才真正删除</string>
     <string name="empty_trash">清空</string>

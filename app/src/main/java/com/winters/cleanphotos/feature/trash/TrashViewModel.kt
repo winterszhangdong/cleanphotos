@@ -16,6 +16,8 @@ import com.winters.cleanphotos.domain.usecase.RestorePhotosFromTrashUseCase
 import com.winters.cleanphotos.domain.usecase.RestorePhotoFromTrashUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTrashMovedAtUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase
+import com.winters.cleanphotos.domain.usecase.AddFreedBytesUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTotalFreedBytesUseCase
 import com.winters.cleanphotos.domain.usecase.SumPhotoBytesUseCase
 import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -48,6 +50,8 @@ class TrashViewModel @Inject constructor(
     private val observeTrashSummaryUseCase: ObserveTrashSummaryUseCase,
     private val observeTrashMovedAtUseCase: ObserveTrashMovedAtUseCase,
     private val sumPhotoBytesUseCase: SumPhotoBytesUseCase,
+    private val observeTotalFreedBytesUseCase: ObserveTotalFreedBytesUseCase,
+    private val addFreedBytesUseCase: AddFreedBytesUseCase,
     @DefaultDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -84,6 +88,11 @@ class TrashViewModel @Inject constructor(
         viewModelScope.launch {
             observeTrashMovedAtUseCase().collect { movedAt ->
                 _uiState.value = _uiState.value.copy(movedAt = movedAt)
+            }
+        }
+        viewModelScope.launch {
+            observeTotalFreedBytesUseCase().collect { bytes ->
+                _uiState.value = _uiState.value.copy(totalFreedBytes = bytes)
             }
         }
     }
@@ -487,6 +496,7 @@ class TrashViewModel @Inject constructor(
 
     /** 进程重建后收到系统删除授权结果：刷新，垃圾桶空了就提示已清空。 */
     private suspend fun handleEmptyTrashAfterRecreate() {
+        // shortcut: 进程重建后没有删除前快照，这次释放的空间不计入累计；要精确就把快照存进 SavedStateHandle
         refreshPhotoLists()
         val remaining = observeTrashedPhotosUseCase().first()
         _uiState.value = _uiState.value.copy(
@@ -510,6 +520,18 @@ class TrashViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "清理已删除照片的记录失败", e)
+            }
+            // 只计刷新后确认不在垃圾桶里的；size 未知按 0。为 0 不写。
+            val freed = sumPhotoBytesUseCase(snapshot, gone)
+            if (freed > 0L) {
+                // 照片已经删掉了：累计写不进去（存储满等）只少记一次，不能让清空流程崩掉
+                try {
+                    addFreedBytesUseCase(freed)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "记录累计释放空间失败", e)
+                }
             }
         }
         return remainingIds

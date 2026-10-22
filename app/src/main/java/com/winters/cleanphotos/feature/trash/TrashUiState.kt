@@ -21,6 +21,8 @@ data class TrashUiState(
     val dissolving: TrashDissolve? = null,
     /** 本次停留期间刚清空释放的大小，空状态写「刚刚释放了 X」。 */
     val justFreedBytes: Long? = null,
+    /** 累计已确认释放的字节。0 不显示。 */
+    val totalFreedBytes: Long = 0L,
 )
 
 /** 清空前的网格快照：照片按阅读顺序，[totalBytes] 是「可释放」数字滚动归零的起点。 */
