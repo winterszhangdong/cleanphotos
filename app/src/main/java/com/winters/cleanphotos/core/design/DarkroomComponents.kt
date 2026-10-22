@@ -116,21 +116,29 @@ fun Eyebrow(text: String) {
     Text(text, style = DarkroomText.Eyebrow)
 }
 
-/** .eyebrow .fav-pip：5dp 琥珀点，左距 6，琥珀光 6dp。 */
+/**
+ * 单位后面的收藏标记：5dp 琥珀点，左距 6dp，琥珀光 6dp。
+ * 外盒与单位字号同高并底对齐计数行，点在这行里垂直居中。
+ */
 @Composable
 fun FavPip() {
+    val unitLine = with(LocalDensity.current) { DarkroomText.CountUnit.fontSize.toDp() }
     Box(
-        Modifier
-            .padding(start = 6.dp)
-            .size(5.dp)
-            .dropShadow(CircleShape, Shadow(radius = 6.dp, color = DarkroomColors.AmberGlow))
-            .clip(CircleShape)
-            .background(DarkroomColors.Amber),
-    )
+        Modifier.height(unitLine).padding(start = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(5.dp)
+                .dropShadow(CircleShape, Shadow(radius = 6.dp, color = DarkroomColors.AmberGlow))
+                .clip(CircleShape)
+                .background(DarkroomColors.Amber),
+        )
+    }
 }
 
 /**
- * .count：大数字（里程表）+ 单位（[unit]，默认中文「张」、英文空）+ 可选 .sub（左距 8 = gap 4 + 4）。
+ * .count：大数字（里程表）+ 单位（[unit]，默认 header_count_unit）+ 可选 .sub（左距 8 = gap 4 + 4）。
  * 放得下时三者同一行按基线对齐；宽度不够（大数字、英文、大字号）时 .sub 换到数字下方单独一行，
  * 仍放不下才省略号截断。占满标题区剩余宽度，不会挤到右侧按钮。
  */
@@ -147,7 +155,7 @@ fun RowScope.HeaderCount(count: Int, unit: String = stringResource(R.string.head
                 style = DarkroomText.CountBig,
                 format = { NumberFormatter.formatCount(it.toInt(), locale) },
             )
-            // 英文不写单位（标题已说明是照片），中文保留「张」；空串时量出 0 宽
+            // 空单位量出 0 宽，不留间距
             Text(
                 unit, style = DarkroomText.CountUnit,
                 maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,

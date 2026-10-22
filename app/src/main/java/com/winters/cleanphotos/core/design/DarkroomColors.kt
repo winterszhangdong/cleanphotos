@@ -92,7 +92,7 @@ object DarkroomColors {
     val PrintShadow = Color.Black.copy(alpha = 0.5f)
     val HangClip = Color(0xFF3A3632)
     val HangLine = Paper.copy(alpha = 0.24f)
-    /** .eyebrow .fav-pip 琥珀光 0.6。 */
+    /** 收藏页单位后琥珀点的光，0.6。 */
     val AmberGlow = Amber.copy(alpha = 0.6f)
     /** .tile .ck 投影 rgba(0,0,0,0.5)。 */
     val CheckShadow = Color.Black.copy(alpha = 0.5f)

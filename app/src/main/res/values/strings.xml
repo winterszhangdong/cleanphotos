@@ -155,11 +155,19 @@
     <string name="photo_load_failed">Couldn\'t load image</string>
     <string name="language_title">Language</string>
     <string name="language_follow_system">Follow system</string>
-    <!-- 页头大数字后的单位：英文留空（标题已是 Photos / Favorites / Trash，再写 photos 重复）；中文「张」 -->
+    <!-- 未传入 HeaderCount.unit 时的默认单位：英文留空，中文「张」。收藏 / 垃圾桶各自用下面的 plurals。 -->
     <string name="header_count_unit"></string>
     <plurals name="count_unit">
         <item quantity="one">photo</item>
         <item quantity="other">photos</item>
+    </plurals>
+    <plurals name="favorites_count_unit">
+        <item quantity="one">favorite</item>
+        <item quantity="other">favorites</item>
+    </plurals>
+    <plurals name="trash_count_unit">
+        <item quantity="one">item</item>
+        <item quantity="other">items</item>
     </plurals>
     <plurals name="all_seen_body">
         <item quantity="one">You\'ve been through %1$s photo. New photos will show up here.</item>
@@ -196,6 +204,10 @@
     <plurals name="trash_moved_days">
         <item quantity="one">Moved %1$d day ago</item>
         <item quantity="other">Moved %1$d days ago</item>
+    </plurals>
+    <plurals name="free_oldest_days">
+        <item quantity="one">Oldest item: %1$d day in trash</item>
+        <item quantity="other">Oldest item: %1$d days in trash</item>
     </plurals>
     <plurals name="dialog_delete_title">
         <item quantity="one">Permanently delete %1$d photo?</item>

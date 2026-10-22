@@ -159,6 +159,12 @@
     <plurals name="count_unit">
         <item quantity="other">张</item>
     </plurals>
+    <plurals name="favorites_count_unit">
+        <item quantity="other">张</item>
+    </plurals>
+    <plurals name="trash_count_unit">
+        <item quantity="other">张</item>
+    </plurals>
     <plurals name="all_seen_body">
         <item quantity="other">%1$s 张照片都过了一遍。新拍的照片会出现在这里。</item>
     </plurals>
@@ -185,6 +191,9 @@
     </plurals>
     <plurals name="trash_moved_days">
         <item quantity="other">%1$d天前移入</item>
+    </plurals>
+    <plurals name="free_oldest_days">
+        <item quantity="other">最早一张已放 %1$d 天</item>
     </plurals>
     <plurals name="dialog_delete_title">
         <item quantity="other">永久删除 %1$d 张照片？</item>

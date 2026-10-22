@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
+import com.winters.cleanphotos.domain.model.TrashOldestDays
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.usecase.DeletePhotosPermanentlyUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTrashedPhotosUseCase
@@ -78,7 +79,7 @@ class TrashViewModel @Inject constructor(
         observeTrashDetails()
     }
 
-    /** 「清空后可释放 X GB」与单张预览「N天前移入」。 */
+    /** 「清空后可释放 X GB」、最早一张天数，与单张预览「N天前移入」。 */
     private fun observeTrashDetails() {
         viewModelScope.launch {
             observeTrashSummaryUseCase().collect { summary ->
@@ -87,7 +88,10 @@ class TrashViewModel @Inject constructor(
         }
         viewModelScope.launch {
             observeTrashMovedAtUseCase().collect { movedAt ->
-                _uiState.value = _uiState.value.copy(movedAt = movedAt)
+                _uiState.value = _uiState.value.copy(
+                    movedAt = movedAt,
+                    oldestDays = TrashOldestDays.wholeDays(movedAt.values, System.currentTimeMillis()),
+                )
             }
         }
         viewModelScope.launch {
