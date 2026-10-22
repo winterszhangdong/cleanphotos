@@ -33,7 +33,7 @@ Apache License 2.0，见 [LICENSE](LICENSE)。第三方字体、照片和依赖�
 
 ## 权限
 
-应用只申请读取照片。Android 8–10 上第一次清空垃圾桶时会额外申请 `WRITE_EXTERNAL_STORAGE`，这些版本删除照片需要它；Android 11+ 改用系统删除确认弹窗。清单未声明 `INTERNET`。收藏、垃圾桶和整理记录写在本机 DataStore，照片文件留在系统相册里，直到清空垃圾桶。详见 [隐私说明](PRIVACY.md)。
+应用只申请读取照片和视频。Android 8–10 上第一次清空垃圾桶时会额外申请 `WRITE_EXTERNAL_STORAGE`，这些版本删除照片需要它；Android 11+ 改用系统删除确认弹窗。清单未声明 `INTERNET`。收藏、垃圾桶和整理记录写在本机 DataStore，照片文件留在系统相册里，直到清空垃圾桶。详见 [隐私说明](PRIVACY.md)。
 
 ## 技术栈
 

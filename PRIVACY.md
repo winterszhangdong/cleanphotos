@@ -11,7 +11,7 @@ CleanPhotos works entirely on your device.
 - **No network access.** The app does not declare the `INTERNET` permission, so it cannot send or receive data over the network.
 - **No analytics, ads, crash reporting or accounts.** The app includes no third-party SDKs for these purposes.
 - **Permissions requested:**
-  - `READ_MEDIA_IMAGES` (Android 13+) or `READ_EXTERNAL_STORAGE` (Android 12L and below) to show your photos.
+  - `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` (Android 13+) or `READ_EXTERNAL_STORAGE` (Android 12L and below) to show your photos and videos.
   - `READ_MEDIA_VISUAL_USER_SELECTED` (Android 14+) so you can grant access to selected photos only.
   - `WRITE_EXTERNAL_STORAGE` (Android 8–10 only), requested when you first empty the trash, so the app can delete the photos you confirmed. Android 11+ shows the system delete confirmation instead.
 - **What is stored, on the device only** (Jetpack DataStore, `cleanphotos_preferences`):
@@ -32,7 +32,7 @@ Questions: open an issue at <https://github.com/winterszhangdong/cleanphotos/iss
 - **不联网**：清单没有声明 `INTERNET` 权限，App 无法通过网络收发任何数据。
 - **没有统计、广告、崩溃上报或账号**：不包含这类第三方 SDK。
 - **申请的权限**：
-  - `READ_MEDIA_IMAGES`（Android 13+）或 `READ_EXTERNAL_STORAGE`（Android 12L 及以下），用于显示你的照片；
+  - `READ_MEDIA_IMAGES` 和 `READ_MEDIA_VIDEO`（Android 13+）或 `READ_EXTERNAL_STORAGE`（Android 12L 及以下），用于显示你的照片和视频；
   - `READ_MEDIA_VISUAL_USER_SELECTED`（Android 14+），可以只授权部分照片；
   - `WRITE_EXTERNAL_STORAGE`（仅 Android 8–10），第一次清空垃圾桶时申请，用于删除你确认过的照片。Android 11+ 改用系统删除确认。
 - **只存在本机的数据**（Jetpack DataStore，`cleanphotos_preferences`）：
