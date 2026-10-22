@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +32,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 /**
- * 方形缩略图（.tile）：#1c1a18 占位、居中裁切；[unseen] 时左上 6dp 画未看光点。
+ * 方形缩略图（.tile）：#1c1a18 占位、居中裁切。
  * 视频在右下角用 [DarkroomText.TileSize] 标时长（已有文字阴影，亮图上也能读）。不画播放图标。
  * 首次从磁盘解码才按 [developProfile] 显影（决定 7），命中内存缓存直接显示。显影不拦截点击。
  */
@@ -42,7 +41,6 @@ fun PhotoTile(
     model: Any?,
     contentDescription: String?,
     modifier: Modifier = Modifier,
-    unseen: Boolean = false,
     isVideo: Boolean = false,
     durationMs: Long? = null,
     developProfile: DevelopProfile? = DevelopProfiles.GridFirstScreen,
@@ -94,9 +92,6 @@ fun PhotoTile(
                 .fillMaxSize()
                 .then(if (developing && develop != null) Modifier.develop(develop) else Modifier),
         )
-        if (unseen) {
-            UnseenDot(Modifier.align(Alignment.TopStart).offset(Dimens.UnseenInset, Dimens.UnseenInset))
-        }
         if (durationLabel != null) {
             Text(
                 durationLabel,

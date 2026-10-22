@@ -9,9 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.domain.model.OnThisDayRules
-import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
-import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
@@ -20,32 +18,25 @@ import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
 import com.winters.cleanphotos.domain.usecase.FilterPhotosUseCase
-import com.winters.cleanphotos.domain.model.TrashReminder
-import com.winters.cleanphotos.domain.model.TrashReminderReason
-import com.winters.cleanphotos.domain.usecase.MarkTrashReminderShownUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllSeenStatsUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveSeenIdsUseCase
-import com.winters.cleanphotos.domain.usecase.ObserveTrashReminderUseCase
 import com.winters.cleanphotos.domain.usecase.SortPhotosUseCase
 import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
 
 /**
- * 照片页。数据链：ObserveAllPhotos + ObserveSeenIds + ObserveAllSeenStats → 排序 → 筛选 → BuildPhotoSections。
- * 「看过」状态只经由 UseCase 读取。
+ * 照片页。数据链：ObserveAllPhotos + ObserveSeenIds + ObserveAllSeenStats → 排序 → 范围 → 未看叠加 → BuildPhotoSections。
+ * 「看过」状态只经由 UseCase 读取。范围和「只看没看过」都不持久化。
  */
 @HiltViewModel
 class AllPhotosViewModel @Inject constructor(
@@ -60,8 +51,6 @@ class AllPhotosViewModel @Inject constructor(
     private val batchFavoritePhotosUseCase: BatchFavoritePhotosUseCase,
     private val batchMovePhotosToTrashUseCase: BatchMovePhotosToTrashUseCase,
     private val undoBatchActionUseCase: UndoBatchActionUseCase,
-    private val observeTrashReminderUseCase: ObserveTrashReminderUseCase,
-    private val markTrashReminderShownUseCase: MarkTrashReminderShownUseCase,
     @DefaultDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : AndroidViewModel(application) {
 
@@ -77,9 +66,10 @@ class AllPhotosViewModel @Inject constructor(
     private var dragAnchor: Long? = null
     private var undoSeq = 0L
 
-    /** 排序、筛选不持久化，进入页面时为默认值。 */
+    /** 排序、范围、「只看没看过」不持久化，进入页面时为默认值。 */
     private val _sortOrder = MutableStateFlow(PhotoSortOrder.NewestFirst)
-    private val _filterMode = MutableStateFlow(PhotoFilterMode.AllPhotos)
+    private val _scope = MutableStateFlow(LibraryScope.All)
+    private val _unseenOnly = MutableStateFlow(false)
 
     private val initialPermission = PermissionChecker.hasPhotoPermission(application)
     private val enteredWithPhotoPermission = initialPermission
@@ -88,62 +78,57 @@ class AllPhotosViewModel @Inject constructor(
     )
     val uiState: StateFlow<AllPhotosUiState> = _uiState.asStateFlow()
 
-    /** 照片页张数。提醒要等列表里真有照片才出现，不能跟照片流抢同一份 uiState。 */
-    private val libraryCount = MutableStateFlow(0)
-    private val permissionGranted = MutableStateFlow(initialPermission)
-    /** 排序 / 筛选 / 更多菜单或语言弹层打开时，胶囊让位。 */
-    private val reminderBlocked = MutableStateFlow(false)
-    /** 这次进程里用户点过「去看看」或 ✕。 */
-    private var reminderDismissed = false
-    /** 已经出现过的文案。shownAt 写入后观察流会变成 null，这次不能跟着消失。 */
-    private var latchedReminder: UiText? = null
-
-    private val reviewTrashChannel = Channel<Unit>(capacity = Channel.CONFLATED)
-    /** 「去看看」：切到垃圾桶 tab。 */
-    val reviewTrash: Flow<Unit> = reviewTrashChannel.receiveAsFlow()
-
     init {
         observePhotos()
-        observeTrashReminder()
         if (initialPermission) refreshPhotos()
     }
 
     private fun observePhotos() {
         viewModelScope.launch {
             combine(
-                observeAllPhotosUseCase(),
-                _sortOrder,
-                _filterMode,
-                observeSeenIdsUseCase(),
+                combine(
+                    observeAllPhotosUseCase(),
+                    _sortOrder,
+                    _scope,
+                    _unseenOnly,
+                    observeSeenIdsUseCase(),
+                ) { allPhotos, sortOrder, scope, unseenOnly, seenIds ->
+                    PhotoFrame(allPhotos, sortOrder, scope, unseenOnly, seenIds)
+                },
                 observeAllSeenStatsUseCase(),
-            ) { allPhotos, sortOrder, filterMode, seenIds, stats ->
+            ) { frame, stats ->
+                val allPhotos = frame.allPhotos
+                val sortOrder = frame.sortOrder
+                val scope = frame.scope
+                val unseenOnly = frame.unseenOnly
+                val seenIds = frame.seenIds
                 val sorted = sortPhotosUseCase(allPhotos, sortOrder)
-                val filtered = filterPhotosUseCase(sorted, filterMode, seenIds)
-                // 菜单数量按照片页全集算，不随「仅未看过」或当前筛选缩小
+                // 相似不吃范围过滤，分组自己算；网格数据仍按「全部」留着，切回去不用重排
+                val filterMode = scope.toFilterMode()
+                val scoped = if (scope == LibraryScope.Similar) {
+                    sorted
+                } else {
+                    filterPhotosUseCase(sorted, filterMode, seenIds, unseenOnly = false)
+                }
+                val applyUnseen = unseenOnly && scope != LibraryScope.Similar
+                val visible = if (applyUnseen) scoped.filter { it.id !in seenIds } else scoped
                 // shortcut: 今天只在照片列表 / 看过状态变化时重算，跨过午夜不会自动刷新；要精确就加一个按日期变化的 Flow
                 val today = LocalDate.now()
-                var screenshotCount = 0
-                var largeFileCount = 0
-                var chatAppCount = 0
                 var onThisDayCount = 0
                 for (photo in allPhotos) {
-                    if (SmartFilterRules.isScreenshot(photo)) screenshotCount++
-                    if (SmartFilterRules.isLargeFile(photo)) largeFileCount++
-                    if (SmartFilterRules.isChatApp(photo)) chatAppCount++
                     if (OnThisDayRules.isOnThisDay(photo, today)) onThisDayCount++
                 }
                 val current = _uiState.value
                 current.copy(
                     totalCount = allPhotos.size,
-                    unseenCount = allPhotos.count { it.id !in seenIds },
-                    screenshotCount = screenshotCount,
-                    largeFileCount = largeFileCount,
-                    chatAppCount = chatAppCount,
                     onThisDayCount = onThisDayCount,
-                    visibleCount = filtered.size,
+                    scopeCount = scoped.size,
+                    visibleCount = visible.size,
+                    visibleBytes = visible.sumOf { it.size ?: 0L },
                     sortOrder = sortOrder,
-                    filterMode = filterMode,
-                    sections = buildPhotoSectionsUseCase(filtered, dayPool = allPhotos, seenIds = seenIds),
+                    scope = scope,
+                    unseenOnly = unseenOnly,
+                    sections = buildPhotoSectionsUseCase(visible, dayPool = allPhotos, seenIds = seenIds),
                     seenIds = seenIds,
                     allSeenStats = stats,
                     hangPhotos = sorted.take(HANG_PHOTO_COUNT),
@@ -154,17 +139,14 @@ class AllPhotosViewModel @Inject constructor(
                 .collect { state ->
                     visiblePhotos = state.sections.flatMap { it.photos }
                     visibleById = visiblePhotos.associateBy { it.id }
-                    libraryCount.value = state.totalCount
-                    // 列表变了（照片被移走、筛选切换）：选中集合只保留还在列表里的；一张不剩即退出多选
+                    // 列表变了（照片被移走、范围切换）：选中集合只保留还在列表里的；一张不剩即退出多选
                     updateSelection(_selection.value.selectedIds)
-                    // 数据流更新不覆盖加载 / 权限 / 错误 / 提醒这几个由别的流程维护的字段
                     val now = _uiState.value
                     _uiState.value = state.copy(
                         isLoading = now.isLoading,
                         isInitialLoad = now.isInitialLoad,
                         hasPermission = now.hasPermission,
                         errorMessage = now.errorMessage,
-                        trashReminder = now.trashReminder,
                     )
                 }
         }
@@ -172,7 +154,6 @@ class AllPhotosViewModel @Inject constructor(
 
     fun onPermissionResult(granted: Boolean) {
         if (granted && !_uiState.value.hasPermission) {
-            permissionGranted.value = true
             _uiState.value = _uiState.value.copy(hasPermission = true)
             refreshPhotos()
         }
@@ -201,82 +182,23 @@ class AllPhotosViewModel @Inject constructor(
         _sortOrder.value = order
     }
 
-    fun onFilterModeChanged(mode: PhotoFilterMode) {
-        _filterMode.value = mode
+    fun onScopeChanged(scope: LibraryScope) {
+        if (scope == LibraryScope.Similar) updateSelection(emptySet())
+        _scope.value = scope
     }
 
-    /** 菜单或语言弹层挡住底部时为 true。胶囊先让开，关掉之后如果这次还没被收起，再出现。 */
-    fun onTrashReminderBlocked(blocked: Boolean) {
-        reminderBlocked.value = blocked
-    }
-
-    fun onDismissTrashReminder() {
-        reminderDismissed = true
-        publishReminder(null)
-    }
-
-    /** 收起胶囊，并让路由切到垃圾桶。 */
-    fun onReviewTrashReminder() {
-        reminderDismissed = true
-        publishReminder(null)
-        reviewTrashChannel.trySend(Unit)
-    }
-
-    private fun observeTrashReminder() {
-        viewModelScope.launch {
-            combine(
-                observeTrashReminderUseCase(),
-                libraryCount,
-                permissionGranted,
-                _selection,
-                reminderBlocked,
-            ) { candidate, count, permission, selection, blocked ->
-                ReminderFrame(
-                    candidate = candidate,
-                    chromeOk = permission && count > 0 && !selection.isSelecting && selection.undo == null && !blocked,
-                )
-            }.collect { frame ->
-                when {
-                    reminderDismissed -> publishReminder(null)
-                    latchedReminder != null -> publishReminder(if (frame.chromeOk) latchedReminder else null)
-                    frame.candidate != null && frame.chromeOk -> {
-                        val message = frame.candidate.toMessage()
-                        latchedReminder = message
-                        publishReminder(message)
-                        // 出现的这一刻就记，不管用户后来点的是「去看看」还是 ✕
-                        // 写不进去（存储满等）只会让下次多提醒一回，不能让照片页的数据流跟着崩
-                        try {
-                            markTrashReminderShownUseCase(System.currentTimeMillis())
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.w(TAG, "记录垃圾桶提醒时间失败", e)
-                        }
-                    }
-                    else -> publishReminder(null)
-                }
-            }
-        }
-    }
-
-    private fun publishReminder(message: UiText?) {
-        if (_uiState.value.trashReminder == message) return
-        _uiState.value = _uiState.value.copy(trashReminder = message)
-    }
-
-    private fun TrashReminder.toMessage(): UiText = when (reason) {
-        TrashReminderReason.Size -> UiText.Res(R.string.trash_reminder_size, UiText.Bytes(totalBytes))
-        TrashReminderReason.Age -> UiText.Res(R.string.trash_reminder_age)
+    fun onShowUnseenChanged(enabled: Boolean) {
+        _unseenOnly.value = enabled
     }
 
     // ---------------------------------------------------------------- 多选
 
     /**
      * 长按某一格：进入多选并选中它（已在多选中则只是加选），同时作为拖选起点。
-     * 返回是否开始了拖选；没开始时网格不接管后续拖动（列表照常滚动），也不会拿旧的起点集合去拖选。
+     * 相似范围不能多选。返回是否开始了拖选。
      */
     fun onLongPressPhoto(photoId: Long): Boolean {
-        if (photoId !in visibleById || _selection.value.isProcessing) {
+        if (_scope.value == LibraryScope.Similar || photoId !in visibleById || _selection.value.isProcessing) {
             dragAnchor = null
             return false
         }
@@ -288,7 +210,7 @@ class AllPhotosViewModel @Inject constructor(
 
     /** 长按后不松手拖动：选中 = 长按前已选 ∪ 起点到当前格（按列表顺序）。 */
     fun onDragSelect(anchorId: Long, currentId: Long) {
-        if (anchorId != dragAnchor || _selection.value.isProcessing) return
+        if (_scope.value == LibraryScope.Similar || anchorId != dragAnchor || _selection.value.isProcessing) return
         val from = visiblePhotos.indexOfFirst { it.id == anchorId }
         val to = visiblePhotos.indexOfFirst { it.id == currentId }
         if (from < 0 || to < 0) return
@@ -401,4 +323,10 @@ class AllPhotosViewModel @Inject constructor(
     }
 }
 
-private data class ReminderFrame(val candidate: TrashReminder?, val chromeOk: Boolean)
+private data class PhotoFrame(
+    val allPhotos: List<PhotoItem>,
+    val sortOrder: PhotoSortOrder,
+    val scope: LibraryScope,
+    val unseenOnly: Boolean,
+    val seenIds: Set<Long>,
+)

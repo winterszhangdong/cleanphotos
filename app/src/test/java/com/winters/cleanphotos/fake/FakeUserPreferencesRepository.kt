@@ -35,12 +35,4 @@ class FakeUserPreferencesRepository(
         require(bytes > 0L) { "bytes 必须 > 0：$bytes" }
         totalFreedBytesFlow.value += bytes
     }
-
-    val trashReminderShownAt = MutableStateFlow<Long?>(null)
-
-    override fun observeTrashReminderShownAt(): Flow<Long?> = trashReminderShownAt
-
-    override suspend fun setTrashReminderShownAt(at: Long) {
-        trashReminderShownAt.value = at
-    }
 }

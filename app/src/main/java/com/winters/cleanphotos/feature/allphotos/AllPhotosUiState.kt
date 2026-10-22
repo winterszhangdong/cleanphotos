@@ -7,22 +7,47 @@ import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 
+/** 照片页范围。单选，不持久化。相似不是 [PhotoFilterMode]，列表换成分组卡片。 */
+enum class LibraryScope {
+    All,
+    Similar,
+    LargeFiles,
+    Screenshots,
+    ChatApps,
+    OnThisDay,
+}
+
+fun LibraryScope.toFilterMode(): PhotoFilterMode = when (this) {
+    LibraryScope.All, LibraryScope.Similar -> PhotoFilterMode.AllPhotos
+    LibraryScope.LargeFiles -> PhotoFilterMode.LargeFiles
+    LibraryScope.Screenshots -> PhotoFilterMode.Screenshots
+    LibraryScope.ChatApps -> PhotoFilterMode.ChatApps
+    LibraryScope.OnThisDay -> PhotoFilterMode.OnThisDay
+}
+
+/** 大文件 / 截图 / 聊天：顶栏副文字是可见照片的大小合计。 */
+val LibraryScope.showsByteTotal: Boolean
+    get() = this == LibraryScope.LargeFiles || this == LibraryScope.Screenshots || this == LibraryScope.ChatApps
+
+/** 除「全部」和「相似」以外的范围：本身 0 张时用范围空状态。 */
+val LibraryScope.isNarrowRange: Boolean
+    get() = this != LibraryScope.All && this != LibraryScope.Similar
+
 data class AllPhotosUiState(
     /** 照片页张数（不含收藏、垃圾桶）。 */
     val totalCount: Int = 0,
-    /** 其中还没看过的张数（「· 312 未看」）。 */
-    val unseenCount: Int = 0,
-    /** 全部照片里的截图张数（不受「看过」影响，筛选菜单右侧数量）。 */
-    val screenshotCount: Int = 0,
-    /** 全部照片里达到大文件阈值的张数。 */
-    val largeFileCount: Int = 0,
-    /** 全部照片里聊天软件存图的张数。 */
-    val chatAppCount: Int = 0,
     /** 全部照片里「那年今天」命中的张数（不受「看过」影响）。 */
     val onThisDayCount: Int = 0,
+    /** 当前范围、还没叠「只看没看过」的张数。相似范围不看这个数。 */
+    val scopeCount: Int = 0,
+    /** 当前范围叠上「只看没看过」之后的张数。 */
     val visibleCount: Int = 0,
+    /** [visibleCount] 这些照片的 size 之和，null 记 0。 */
+    val visibleBytes: Long = 0L,
     val sortOrder: PhotoSortOrder = PhotoSortOrder.NewestFirst,
-    val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos,
+    val scope: LibraryScope = LibraryScope.All,
+    /** 和范围叠加。不持久化。相似范围不吃这个开关。 */
+    val unseenOnly: Boolean = false,
     val sections: List<PhotoDaySection> = emptyList(),
     val seenIds: Set<Long> = emptySet(),
     /** 「全部看过了」三个数字（决定 11）。 */
@@ -34,12 +59,8 @@ data class AllPhotosUiState(
     val isInitialLoad: Boolean = true,
     val hasPermission: Boolean = false,
     val errorMessage: UiText? = null,
-    /**
-     * 垃圾桶提醒主文案。null 表示现在不画胶囊（条件不够、多选、撤回、菜单，或这次进程里已经收起）。
-     */
-    val trashReminder: UiText? = null,
 ) {
-    /** 数量为 0 且当前不是这个筛选时，菜单不显示「那年今天」。 */
-    val showOnThisDayMenu: Boolean
-        get() = onThisDayCount > 0 || filterMode == PhotoFilterMode.OnThisDay
+    /** 数量为 0 且当前不是这个范围时，不显示「那年今天」。 */
+    val showOnThisDay: Boolean
+        get() = onThisDayCount > 0 || scope == LibraryScope.OnThisDay
 }

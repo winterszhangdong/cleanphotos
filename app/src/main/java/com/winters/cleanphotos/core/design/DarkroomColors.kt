@@ -57,10 +57,6 @@ object DarkroomColors {
     val SegPending = Paper.copy(alpha = 0.34f)
     val SegKept = Paper.copy(alpha = 0.78f)
     val SegCurrentGlow = Color(0xFFFFF6E8).copy(alpha = 0.8f)
-    /** 未看光点 #FFFBF5，暗环 rgba(15,14,13,0.5) 1.5dp，柔光 rgba(255,246,232,0.7) 8dp。 */
-    val UnseenDot = Color(0xFFFFFBF5)
-    val UnseenRing = Room.copy(alpha = 0.5f)
-    val UnseenGlow = Color(0xFFFFF6E8).copy(alpha = 0.7f)
 
     // —— P3 ——
     /** .tile 占位底 #1c1a18。 */

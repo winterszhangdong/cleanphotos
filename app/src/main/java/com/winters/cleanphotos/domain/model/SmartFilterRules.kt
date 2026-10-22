@@ -1,7 +1,7 @@
 package com.winters.cleanphotos.domain.model
 
 /**
- * 智能筛选的判定。三个模式与「全部照片 / 仅未看过」互斥，且不看「看过」状态。
+ * 智能筛选的判定。三个模式与「全部照片」互斥，且不看「看过」状态。
  * 匹配都不区分大小写；路径和文件夹名为 null 时不命中。
  */
 object SmartFilterRules {
@@ -31,8 +31,7 @@ object SmartFilterRules {
         PhotoFilterMode.LargeFiles -> isLargeFile(photo)
         PhotoFilterMode.ChatApps -> isChatApp(photo)
         PhotoFilterMode.OnThisDay -> error("那年今天不走 SmartFilterRules")
-        PhotoFilterMode.AllPhotos, PhotoFilterMode.UnseenOnly ->
-            error("$mode 不是智能筛选")
+        PhotoFilterMode.AllPhotos -> error("$mode 不是智能筛选")
     }
 
     private fun containsAny(value: String?, needles: List<String>): Boolean {

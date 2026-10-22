@@ -42,18 +42,17 @@ object Dimens {
     val SegDashGap = 2.dp
     val SegGlow = 6.dp
 
-    // 未看光点
-    val UnseenDot = 6.dp
-    val UnseenRing = 1.5.dp
-    val UnseenGlow = 8.dp
-    val UnseenInset = 6.dp
-
     // 菜单 / 对话框 / 按钮
     val MenuWidth = 192.dp
     val MenuCorner = 16.dp
     val MenuPadding = 4.dp
     val MenuItemHeight = 44.dp
     val MenuItemCorner = 12.dp
+    /** ⋯ 菜单里的开关：轨道 36×20，圆钮 16，内边 2（task032 G6）。 */
+    val MenuSwitchTrackWidth = 36.dp
+    val MenuSwitchTrackHeight = 20.dp
+    val MenuSwitchThumb = 16.dp
+    val MenuSwitchInset = 2.dp
     val DialogCorner = 24.dp
     val DialogSide = 24.dp
     val PrimaryButtonHeight = 52.dp

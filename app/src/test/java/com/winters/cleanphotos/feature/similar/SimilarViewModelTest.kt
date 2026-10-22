@@ -53,6 +53,7 @@ class SimilarViewModelTest {
         val third = shot(3, 3_000, width = 10, height = 10)
         photos.setPhotos(listOf(keep, other, third))
         val vm = viewModel()
+        vm.start()
         advanceUntilIdle()
         val group = vm.uiState.value.groups.single()
         assertEquals(1L, group.keepId)
@@ -87,6 +88,7 @@ class SimilarViewModelTest {
         photos.setPhotos(listOf(shot(1, 1_000), shot(2, 2_000)))
         review.batchMoveResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
         val vm = viewModel()
+        vm.start()
         advanceUntilIdle()
         val key = vm.uiState.value.groups.single().key
         vm.onMoveRest(key)
@@ -100,6 +102,7 @@ class SimilarViewModelTest {
     fun `撤回过期后胶囊消失，过期的序号不会清掉新的一次`() = runTest(dispatcher) {
         photos.setPhotos(listOf(shot(1, 1_000), shot(2, 2_000)))
         val vm = viewModel()
+        vm.start()
         advanceUntilIdle()
         vm.onMoveRest(vm.uiState.value.groups.single().key)
         advanceUntilIdle()
@@ -110,11 +113,28 @@ class SimilarViewModelTest {
         assertNull(vm.uiState.value.undo)
     }
 
-    private fun viewModel(): SimilarViewModel {
+    @Test
+    fun `start 只比对一次，再调不重新哈希`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000), shot(2, 2_000)))
+        var hashes = 0
+        val vm = viewModel(onHash = { hashes++ })
+        advanceUntilIdle()
+        assertEquals(0, hashes)
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(1, hashes)
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(1, hashes)
+        assertEquals(1, vm.uiState.value.groups.size)
+    }
+
+    private fun viewModel(onHash: () -> Unit = {}): SimilarViewModel {
         val observe = ObserveSimilarGroupsUseCase(
             ObserveAllPhotosUseCase(photos),
             object : SimilarPhotoRepository {
                 override fun hashPhotos(photos: List<PhotoItem>): Flow<SimilarHashProgress> = flow {
+                    onHash()
                     emit(SimilarHashProgress(photos.size, photos.size, photos.associate { it.id to 0L }, finished = true))
                 }
             },

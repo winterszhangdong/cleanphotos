@@ -38,6 +38,7 @@ class P3ListUseCasesTest {
         assertEquals(8, s.photos.size)
         assertEquals(14, s.totalCount)
         assertEquals(9, s.unseenCount)
+        assertEquals(5, s.seenCount)
     }
 
     @Test
@@ -56,7 +57,7 @@ class P3ListUseCasesTest {
     fun filter_pure_overload_uses_given_seen_ids() {
         val photos = (1L..3L).map { createTestPhoto(it) }
         val f = FilterPhotosUseCase(FakeSeenStateRepository())
-        assertEquals(listOf(2L, 3L), f(photos, PhotoFilterMode.UnseenOnly, setOf(1L)).map { it.id })
+        assertEquals(listOf(2L, 3L), f(photos, PhotoFilterMode.AllPhotos, setOf(1L), unseenOnly = true).map { it.id })
         assertEquals(3, f(photos, PhotoFilterMode.AllPhotos, setOf(1L)).size)
     }
 

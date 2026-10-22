@@ -16,6 +16,7 @@ fun ReviewRoute(
     sortOrder: String,
     filterMode: String,
     scope: String,
+    unseenOnly: Boolean,
     onNavigateBack: () -> Unit,
     onNavigateToTrash: () -> Unit = {},
     viewModel: ReviewViewModel = hiltViewModel(),
@@ -37,7 +38,7 @@ fun ReviewRoute(
         }
     }
     LaunchedEffect(photoId) {
-        viewModel.initialize(photoId, sortOrder, filterMode, scope)
+        viewModel.initialize(photoId, sortOrder, filterMode, scope, unseenOnly)
     }
 
     ReviewScreen(

@@ -36,8 +36,14 @@ class SimilarViewModel @Inject constructor(
     /** 用户点过的保留项。组还在（同一批照片）时盖过默认选择。 */
     private val keepOverrides = HashMap<String, Long>()
     private var undoSeq = 0L
+    private var started = false
 
-    init {
+    /**
+     * 第一次切到「相似」才开始比对。再调一次什么都不做，切走再回来不重算。
+     */
+    fun start() {
+        if (started) return
+        started = true
         viewModelScope.launch {
             observeSimilarGroupsUseCase().collect { scan ->
                 when (scan) {

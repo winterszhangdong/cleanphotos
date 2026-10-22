@@ -24,7 +24,8 @@ class StartReviewSessionUseCase @Inject constructor(
         startPhotoId: Long,
         sortOrder: PhotoSortOrder,
         filterMode: PhotoFilterMode,
-        scope: ReviewScope
+        scope: ReviewScope,
+        unseenOnly: Boolean = false,
     ): ReviewSession {
         // 进程被回收后系统直接重建清理页：照片页还没刷新过，内存照片表是空的，先加载一次
         photoRepository.ensurePhotosLoaded()
@@ -34,14 +35,14 @@ class StartReviewSessionUseCase @Inject constructor(
             ReviewScope.Favorites -> sortPhotosUseCase(photoRepository.observeFavoritedPhotos().first(), sortOrder)
         }
         val photos = when (scope) {
-            ReviewScope.AllPhotos -> filterPhotosUseCase(sorted, filterMode)
-            // 收藏范围跳过过滤
+            ReviewScope.AllPhotos -> filterPhotosUseCase(sorted, filterMode, unseenOnly)
+            // 收藏范围跳过过滤，也不吃「只看没看过」
             ReviewScope.Favorites -> sorted
         }
 
         val startIndex = startIndexOf(startPhotoId, photos, sorted)
         check(startIndex >= 0) {
-            "照片 ID $startPhotoId 不在最终列表中（scope=$scope, sortOrder=$sortOrder, filterMode=$filterMode, listSize=${photos.size}）"
+            "照片 ID $startPhotoId 不在最终列表中（scope=$scope, sortOrder=$sortOrder, filterMode=$filterMode, unseenOnly=$unseenOnly, listSize=${photos.size}）"
         }
 
         return ReviewSession(
