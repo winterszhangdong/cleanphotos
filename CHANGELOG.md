@@ -7,6 +7,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-22
+
 ### Added
 
 - 安卓：支持视频。视频和照片一起按日期显示，可以收藏、移入垃圾桶、撤回和清空；只显示首帧，网格右下角和清理页底部显示时长。Android 13+ 会多申请视频权限（与照片同一个系统弹窗），已授权照片的用户启动时补请求一次。
@@ -235,7 +237,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.1.0...v1.2.0
