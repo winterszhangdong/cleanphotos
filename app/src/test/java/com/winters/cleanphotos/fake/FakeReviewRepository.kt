@@ -41,8 +41,9 @@ class FakeReviewRepository : ReviewRepository {
     override suspend fun removeFavorites(photos: List<PhotoItem>): PhotoOperationResult {
         batchCalls += "unfavorite" to photos.map { it.id }; return PhotoOperationResult.Success
     }
+    var batchMoveResult: PhotoOperationResult = PhotoOperationResult.Success
     override suspend fun movePhotosToTrash(photos: List<PhotoItem>): PhotoOperationResult {
-        batchCalls += "trash" to photos.map { it.id }; return PhotoOperationResult.Success
+        batchCalls += "trash" to photos.map { it.id }; return batchMoveResult
     }
     override suspend fun restorePhotosFromTrash(photos: List<PhotoItem>): PhotoOperationResult {
         batchCalls += "restore" to photos.map { it.id }; return batchRestoreResult

@@ -45,6 +45,7 @@ import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.feature.allphotos.AllPhotosRoute
 import com.winters.cleanphotos.feature.favorites.FavoritesRoute
+import com.winters.cleanphotos.feature.similar.SimilarRoute
 import com.winters.cleanphotos.feature.review.ReviewRoute
 import com.winters.cleanphotos.feature.trash.TrashRoute
 
@@ -119,6 +120,17 @@ fun NavGraph(
                                     }
                                 },
                                 onNavigateToTrash = { selectTab(BottomTab.Trash) },
+                                onNavigateToSimilar = {
+                                    e.ifCurrent { navController.navigate(NavRoutes.SIMILAR) }
+                                },
+                            )
+                        }
+                    }
+
+                    composable(NavRoutes.SIMILAR) { e ->
+                        DockEntry(e, this) { _ ->
+                            SimilarRoute(
+                                onNavigateBack = { e.ifCurrent { navController.popBackStack() } },
                             )
                         }
                     }

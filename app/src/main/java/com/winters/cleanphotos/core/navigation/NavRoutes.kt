@@ -8,6 +8,7 @@ package com.winters.cleanphotos.core.navigation
  */
 object NavRoutes {
     const val ALL_PHOTOS = "all_photos"
+    const val SIMILAR = "similar"
     const val FAVORITES = "favorites"
     const val REVIEW = "review/{photoId}/{sortOrder}/{filterMode}/{scope}"
     const val TRASH = "trash"

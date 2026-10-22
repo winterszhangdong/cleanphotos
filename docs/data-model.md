@@ -991,6 +991,55 @@ summarizedDays：本次会话已出过小结的天
 - 新增 `SeenStateRepository.observeSeenIds()`（实现包 `AppSeenStateDataSource`）。
 - `UserPreferencesRepository` 新增 `observeSwipeActionCount()`、`incrementSwipeActionCount()`。
 
+## 相似照片
+
+只读「全部照片」里的图片，不改 `PhotoItem`，也不改 MediaStore 主查询。
+
+### SimilarRules / DHash
+
+```text
+MAX_GAP_MS = 10_000
+MAX_HAMMING = 10
+HASH_PARALLELISM = 2
+DHash.fromLuminance：9×8 亮度（72 个）按行比较相邻像素，得到 64 位 Long
+DHash.hamming：两个 Long 的不同位数
+```
+
+### SimilarGroup
+
+```kotlin
+data class SimilarGroup(
+    val photos: List<PhotoItem>, // 拍摄时间升序，至少 2 张
+    val keepId: Long,
+)
+```
+
+`key` 由组内 id 串成，和当前留下哪张无关。扫描结果 `SimilarScan`：`Comparing(done, total)` 或 `Ready(groups)`。
+
+默认保留 `chooseSimilarKeep`：像素数（宽 × 高，缺失算 0）最大，其次 `size` 更大，再其次 `dateTaken` 更早，最后 id 更小。
+
+### SimilarPhotoRepository
+
+```kotlin
+interface SimilarPhotoRepository {
+    fun hashPhotos(photos: List<PhotoItem>): Flow<SimilarHashProgress>
+}
+```
+
+实现是 `SimilarPhotoRepositoryImpl`，在 IO 上计算，并发不超过 `HASH_PARALLELISM`。单张失败不写入结果。`PhotoHashDataSource` 把算成的哈希放在进程内 `Map<id, hash>`，进程重启后重算。
+
+### UseCase
+
+| UseCase | 作用 |
+| --- | --- |
+| GroupSimilarPhotosUseCase | 纯函数：时间窗 + 汉明距离链式分组，并给出 `hashCandidates`（只有 10 秒内有邻居的图片） |
+| ObserveSimilarGroupsUseCase | 观察全部照片，只给候选算哈希，算完一次性发出分组 |
+| chooseSimilarKeep | 一组里默认留下哪张 |
+
+移走和撤回复用 `BatchMovePhotosToTrashUseCase`、`UndoBatchActionUseCase`。
+
+***
+
 ### 文件大小文案
 
 `core/util/FileSizeFormatter`：1024 进制，< 10 保留一位小数，≥ 10 取整（「3.1 MB」「31 MB」「1.2 GB」）。

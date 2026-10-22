@@ -111,6 +111,7 @@ fun AllPhotosScreen(
     onRequestPermission: () -> Unit,
     onPhotoClick: (Long) -> Unit,
     onTrashClick: () -> Unit,
+    onOpenSimilar: () -> Unit = {},
     onSortOrderChanged: (PhotoSortOrder) -> Unit,
     onFilterModeChanged: (PhotoFilterMode) -> Unit,
     modifier: Modifier = Modifier,
@@ -323,6 +324,11 @@ fun AllPhotosScreen(
                     },
                     MenuOption(stringResource(R.string.filter_chat_apps), NumberFormatter.formatCount(uiState.chatAppCount, locale), uiState.filterMode == PhotoFilterMode.ChatApps) {
                         onFilterModeChanged(PhotoFilterMode.ChatApps); openMenu = OpenMenu.None
+                    },
+                    // 不是筛选：不改 filterMode，关掉菜单后离开本页
+                    MenuOption(stringResource(R.string.similar_photos), stringResource(R.string.similar_menu_go), false) {
+                        openMenu = OpenMenu.None
+                        onOpenSimilar()
                     },
                 ),
             )
