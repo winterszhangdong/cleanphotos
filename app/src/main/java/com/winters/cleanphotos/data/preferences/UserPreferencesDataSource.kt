@@ -55,4 +55,13 @@ class UserPreferencesDataSource @Inject constructor(
             prefs[totalFreedBytesKey] = Math.addExact(prefs[totalFreedBytesKey] ?: 0L, bytes)
         }
     }
+
+    private val trashReminderShownAtKey = longPreferencesKey(DataStoreKeys.TRASH_REMINDER_SHOWN_AT)
+
+    /** 没有写过时是 null，不能当成 0（0 会被当成 1970 年已经提醒过）。 */
+    fun observeTrashReminderShownAt(): Flow<Long?> = dataStore.data.map { it[trashReminderShownAtKey] }
+
+    suspend fun setTrashReminderShownAt(at: Long) {
+        dataStore.edit { it[trashReminderShownAtKey] = at }
+    }
 }

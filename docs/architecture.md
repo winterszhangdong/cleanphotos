@@ -339,6 +339,7 @@ PhotoActionType（枚举：Favorite / Unfavorite / MoveToTrash）
 ReviewSession
 ReviewScope（枚举：AllPhotos / Favorites）
 AppTrashEntry（App 内垃圾桶条目：photoId + movedToTrashAt + wasFavorited + favoritedAt）
+TrashReminder、TrashReminderReason、TrashReminderRules（照片页垃圾桶提醒：1 GB 或 30 天，间隔 7 天；两条都满足用大小文案）
 AppFavoriteEntry（App 内收藏条目：photoId + favoritedAt）
 TrashScreenMode（枚举：Grid / Selection / Preview）
 ```
@@ -351,7 +352,7 @@ TrashScreenMode（枚举：Grid / Selection / Preview）
 PhotoRepository（observeAllPhotos 排除 App 垃圾桶和 App 收藏中的照片；observeFavoritedPhotos 返回 App 收藏中且不在垃圾桶的照片；observeTrashedPhotos 返回 App 内垃圾桶照片；refreshPhotos 含一次性迁移和失效条目清理；只有部分照片访问权时两者都跳过，否则会把未选中照片的状态当成失效删掉）
 ReviewRepository（favoritePhoto / removeFavorite / moveToTrash / restoreFromTrash 直接写 DataStore 后返回 Success，不触发系统授权；照片页多选另有 favoritePhotos / removeFavorites / movePhotosToTrash 批量接口，每个 Store 一次写入；deletePhotosPermanently 仍通过 MediaStore）
 SimilarPhotoRepository（hashPhotos：给指定照片算 dHash，返回进度流；单张失败跳过）
-UserPreferencesRepository
+UserPreferencesRepository（另有 observeTrashReminderShownAt / setTrashReminderShownAt，对应 DataStore `trash_reminder_shown_at`）
 ```
 
 ### usecase
@@ -377,6 +378,8 @@ ObserveTutorialStateUseCase
 SetTutorialSeenUseCase
 ObserveTotalFreedBytesUseCase（读 total_freed_bytes）
 AddFreedBytesUseCase（累加已确认删除的字节，bytes 必须 > 0）
+ObserveTrashReminderUseCase（汇总垃圾桶大小、最早移入时间和上次提醒时间）
+MarkTrashReminderShownUseCase（胶囊出现时写入 trash_reminder_shown_at）
 ```
 
 ---

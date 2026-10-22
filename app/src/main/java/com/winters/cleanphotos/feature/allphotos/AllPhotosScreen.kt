@@ -86,6 +86,7 @@ import com.winters.cleanphotos.core.design.SkeletonBlock
 import com.winters.cleanphotos.core.design.SystemBarIcons
 import com.winters.cleanphotos.core.design.TileGrid
 import com.winters.cleanphotos.core.design.ToolIconButton
+import com.winters.cleanphotos.core.design.TrashReminderBar
 import com.winters.cleanphotos.core.design.dockListBottomPadding
 import com.winters.cleanphotos.core.design.glassBackdropSource
 import com.winters.cleanphotos.core.design.plainClickable
@@ -122,6 +123,9 @@ fun AllPhotosScreen(
     showLanguageSheet: Boolean = false,
     onLanguageSelected: (AppLanguage) -> Unit = {},
     onDismissLanguageSheet: () -> Unit = {},
+    onReviewTrashReminder: () -> Unit = {},
+    onDismissTrashReminder: () -> Unit = {},
+    onTrashReminderBlocked: (Boolean) -> Unit = {},
 ) {
     SystemBarIcons(lightBackground = false)
 
@@ -132,6 +136,8 @@ fun AllPhotosScreen(
     }
 
     var openMenu by remember { mutableStateOf(OpenMenu.None) }
+    val reminderBlocked = openMenu != OpenMenu.None || showLanguageSheet
+    LaunchedEffect(reminderBlocked) { onTrashReminderBlocked(reminderBlocked) }
     // 系统返回先关菜单
     BackHandler(enabled = openMenu != OpenMenu.None) { openMenu = OpenMenu.None }
     BackHandler(enabled = showLanguageSheet) { onDismissLanguageSheet() }
@@ -290,6 +296,21 @@ fun AllPhotosScreen(
                 onUndo = selectionActions.onUndo,
                 onExpired = selectionActions.onUndoExpired,
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+            TrashReminderBar(
+                message = uiState.trashReminder?.asString(),
+                visible = uiState.trashReminder != null,
+                onReview = onReviewTrashReminder,
+                onDismiss = onDismissTrashReminder,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(
+                        start = Dimens.ScreenSide,
+                        end = Dimens.ScreenSide,
+                        bottom = Dimens.NavBottom + Dimens.NavHeight + Dimens.UndoAboveNav,
+                    )
+                    .fillMaxWidth(),
             )
 
             SortToast(sortToast)

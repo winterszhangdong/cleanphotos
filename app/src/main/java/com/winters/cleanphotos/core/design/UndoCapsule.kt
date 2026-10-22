@@ -3,6 +3,8 @@ package com.winters.cleanphotos.core.design
 import com.winters.cleanphotos.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -90,10 +92,8 @@ fun UndoBar(
     AnimatedVisibility(
         visible = content != null && visible,
         modifier = modifier,
-        enter = fadeIn(tween(MotionDurations.MEDIUM, easing = MotionEasings.Standard)) +
-            slideInVertically(tween(MotionDurations.MEDIUM, easing = MotionEasings.Decelerate)) { it / 3 },
-        exit = fadeOut(tween(MotionDurations.UNDO_BAR_EXIT, easing = MotionEasings.Accelerate)) +
-            slideOutVertically(tween(MotionDurations.UNDO_BAR_EXIT, easing = MotionEasings.Accelerate)) { it / 3 },
+        enter = undoCapsuleEnter(),
+        exit = undoCapsuleExit(),
     ) {
         val info = content ?: last[0] ?: return@AnimatedVisibility
         UndoCapsule(info, if (info.seq == seq) startedAt else null, onUndo)
@@ -196,8 +196,17 @@ private fun UndoThumb(key: Long, model: Any?, fav: Boolean) {
     }
 }
 
+/** 入场 280ms 减速上移，收起 200ms 加速离场。垃圾桶提醒胶囊共用，不另写一套时长。 */
+internal fun undoCapsuleEnter(): EnterTransition =
+    fadeIn(tween(MotionDurations.MEDIUM, easing = MotionEasings.Standard)) +
+        slideInVertically(tween(MotionDurations.MEDIUM, easing = MotionEasings.Decelerate)) { it / 3 }
+
+internal fun undoCapsuleExit(): ExitTransition =
+    fadeOut(tween(MotionDurations.UNDO_BAR_EXIT, easing = MotionEasings.Accelerate)) +
+        slideOutVertically(tween(MotionDurations.UNDO_BAR_EXIT, easing = MotionEasings.Accelerate)) { it / 3 }
+
 /** 撤回胶囊玻璃：rgba(26,24,22,0.78) + blur(24)。 */
-private val UndoGlassSpec = GlassSpec(DarkroomColors.UndoGlass, 24.dp)
+private val UndoGlassSpec = GlassSpec(DarkroomColors.UndoGlass, Dimens.CapsuleBlur)
 /** .undo .thumb img：grayscale(0.6) brightness(0.7)。 */
 private val UNDO_TRASH_FILTER: ColorFilter = saturateBrightness(0.4f, 0.7f)
 private const val THUMB_PX = 160

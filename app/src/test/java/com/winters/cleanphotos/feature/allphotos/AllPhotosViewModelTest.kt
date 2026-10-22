@@ -25,7 +25,11 @@ import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.ResolveBatchFavoriteUseCase
+import com.winters.cleanphotos.domain.usecase.MarkTrashReminderShownUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTrashMovedAtUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveTrashReminderUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
+import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
 import org.junit.Assert.assertTrue
 import io.mockk.every
 import io.mockk.mockk
@@ -121,11 +125,18 @@ class AllPhotosViewModelTest {
             batchFavoritePhotosUseCase = BatchFavoritePhotosUseCase(ResolveBatchFavoriteUseCase(), fakeReviewRepository, mockSeenDataSource),
             batchMovePhotosToTrashUseCase = BatchMovePhotosToTrashUseCase(fakeReviewRepository, mockSeenDataSource),
             undoBatchActionUseCase = UndoBatchActionUseCase(fakeReviewRepository),
+            observeTrashReminderUseCase = ObserveTrashReminderUseCase(
+                ObserveTrashSummaryUseCase(fakePhotoRepository),
+                ObserveTrashMovedAtUseCase(fakePhotoRepository),
+                fakeUserPreferencesRepository,
+            ),
+            markTrashReminderShownUseCase = MarkTrashReminderShownUseCase(fakeUserPreferencesRepository),
             computeDispatcher = testDispatcher,
         )
     }
 
     private val fakeReviewRepository = FakeReviewRepository()
+    private val fakeUserPreferencesRepository = FakeUserPreferencesRepository()
 
     // ====== 多选 ======
 

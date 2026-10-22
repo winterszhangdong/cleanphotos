@@ -59,6 +59,10 @@ fun AllPhotosRoute(
         permissionLauncher.launch(missing)
     }
 
+    LaunchedEffect(viewModel) {
+        viewModel.reviewTrash.collect { onNavigateToTrash() }
+    }
+
     LifecycleResumeEffect(Unit) {
         viewModel.recheckPermission()
         languageViewModel.refresh()
@@ -95,6 +99,9 @@ fun AllPhotosRoute(
             languageViewModel.select(language)
         },
         onDismissLanguageSheet = { showLanguageSheet = false },
+        onReviewTrashReminder = viewModel::onReviewTrashReminder,
+        onDismissTrashReminder = viewModel::onDismissTrashReminder,
+        onTrashReminderBlocked = viewModel::onTrashReminderBlocked,
         selectionActions = remember(viewModel) {
             PhotoSelectionActions(
                 onLongPress = viewModel::onLongPressPhoto,

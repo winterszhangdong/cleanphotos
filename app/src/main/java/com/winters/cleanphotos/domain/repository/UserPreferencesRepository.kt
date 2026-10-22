@@ -12,4 +12,8 @@ interface UserPreferencesRepository {
     fun observeTotalFreedBytes(): Flow<Long>
     /** [bytes] 必须 > 0。 */
     suspend fun addFreedBytes(bytes: Long)
+
+    /** 上次垃圾桶提醒出现的时间（epoch ms）。从没提醒过是 null。 */
+    fun observeTrashReminderShownAt(): Flow<Long?>
+    suspend fun setTrashReminderShownAt(at: Long)
 }

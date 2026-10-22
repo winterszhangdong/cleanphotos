@@ -658,6 +658,7 @@ app_seen_entries
 has_migrated_favorites
 review_swipe_action_count
 total_freed_bytes
+trash_reminder_shown_at
 ```
 
 含义：
@@ -670,6 +671,7 @@ app_seen_entries：已看过的照片 ID 集合（Set<String>，每条为 photoI
 has_migrated_favorites：是否已完成系统 IS_FAVORITE 到 AppFavoriteStore 的一次性迁移
 review_swipe_action_count：累计成功的上滑 / 下滑处理次数（Int）。≥ 20 时清理页永久隐藏方向提示小点
 total_freed_bytes：累计已确认从垃圾桶永久删除的字节（Long）。只增不减。只计刷新后确认已从图库消失的照片（size 未知按 0）；进程重建后没有删除前快照的那一次不计入
+trash_reminder_shown_at：上次在照片页出现垃圾桶提醒的时间（Long，epoch ms）。没有这条键表示从没提醒过，不能写成 0
 ```
 
 默认值：
@@ -682,6 +684,7 @@ app_seen_entries = emptySet()
 has_migrated_favorites = false
 review_swipe_action_count = 0
 total_freed_bytes = 0
+trash_reminder_shown_at = 未写入（读取为 null）
 ```
 
 当用户第一次完成有效的向上或向下清理滑动后：
@@ -1008,6 +1011,23 @@ summarizedDays：本次会话已出过小结的天
 | ObserveAllSeenStatsUseCase | 决定 11：`AllSeenStats(favoriteCount, trashCount, trashBytes)` |
 | ObserveShowDirectionHintsUseCase / RecordSwipeActionUseCase | 决定 10：`review_swipe_action_count` < 20 时显示方向提示小点；成功上下滑后 +1，撤回不回退 |
 | ObserveTotalFreedBytesUseCase / AddFreedBytesUseCase | 垃圾桶空状态「累计已释放」：读 / 累加 `total_freed_bytes` |
+| ObserveTrashReminderUseCase | 垃圾桶是否该开始一次提醒：`TrashSummary` + 最早 `movedToTrashAt` + `trash_reminder_shown_at`，交给 `TrashReminderRules` |
+| MarkTrashReminderShownUseCase | 胶囊出现时写入 `trash_reminder_shown_at` |
+
+### TrashReminder
+
+```text
+TrashReminderReason：Size / Age。总大小和天数同时满足时用 Size
+TrashReminder：reason + totalBytes（size 为 null 已按 0 计入）
+TrashReminderRules：
+  SIZE_THRESHOLD_BYTES = 1024³
+  AGE_THRESHOLD_MS = 30 天
+  INTERVAL_MS = 7 天
+  totalBytes(sizes)：null 记 0
+  evaluate(count, totalBytes, earliestMovedAt, lastShownAt, now)：空垃圾桶返回 null；从没提醒过视为间隔已满足
+```
+
+`UserPreferencesRepository` 新增 `observeTrashReminderShownAt(): Flow<Long?>`、`setTrashReminderShownAt(at: Long)`。
 
 ### Repository 变更
 
