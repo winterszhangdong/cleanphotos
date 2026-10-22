@@ -72,7 +72,6 @@ import com.winters.cleanphotos.core.design.Haptics
 import androidx.compose.ui.platform.LocalView
 import com.winters.cleanphotos.core.design.EmptyStateArea
 import com.winters.cleanphotos.core.design.EmptyTitleAndBody
-import com.winters.cleanphotos.core.design.Eyebrow
 import com.winters.cleanphotos.core.design.GhostButton
 import com.winters.cleanphotos.core.design.GlassBackdropHost
 import com.winters.cleanphotos.core.design.HeaderCount
@@ -215,7 +214,6 @@ fun AllPhotosScreen(
             val menuOpen = openMenu != OpenMenu.None
             ScreenHeader(
                 leftAlpha = if (menuOpen) 0.5f else 1f,
-                eyebrow = { Eyebrow(stringResource(if (selecting) R.string.eyebrow_selected else if (unseenOnly) R.string.eyebrow_photos_unseen else R.string.tab_photos)) },
                 count = {
                     if (selecting) {
                         HeaderCount(selection.count)

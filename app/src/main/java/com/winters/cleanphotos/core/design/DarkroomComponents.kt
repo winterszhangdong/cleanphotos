@@ -73,12 +73,11 @@ fun Modifier.plainClickable(enabled: Boolean = true, role: Role = Role.Button, o
     )
 
 /**
- * .bar：状态栏下 84dp，内边距 0 16 12，底对齐。左边 eyebrow + 计数行，右边按钮组（间距 8）。
+ * .bar：状态栏下 56dp，内边距 0 16 8，底对齐。左边计数行，右边按钮组（间距 8）。
  * [leftAlpha] 用于菜单打开时左侧变 50%。
  */
 @Composable
 fun ScreenHeader(
-    eyebrow: @Composable RowScope.() -> Unit,
     count: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
     leftAlpha: Float = 1f,
@@ -92,23 +91,20 @@ fun ScreenHeader(
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.HeaderBottomPadding),
         verticalAlignment = Alignment.Bottom,
     ) {
-        // 84dp 固定高度（与 ScreenHeaderSpacer 对齐）：大字号时缩放封顶，计数行不被顶出状态栏（1.0 时不变）
+        // 固定高度（与 ScreenHeaderSpacer 对齐）：大字号时缩放封顶，计数行不被顶出状态栏（1.0 时不变）
         CappedFontScale(FontScaleCaps.HEADER) {
-            Column(Modifier.weight(1f).alpha(leftAlpha)) {
-                Row(Modifier.padding(bottom = Dimens.EyebrowGap), verticalAlignment = Alignment.CenterVertically, content = eyebrow)
-                Row(
-                    Modifier.heightIn(min = Dimens.CountHeight),
-                    horizontalArrangement = Arrangement.spacedBy(Dimens.CountGap),
-                    verticalAlignment = Alignment.Bottom,
-                    content = count,
-                )
-            }
+            Row(
+                Modifier.weight(1f).alpha(leftAlpha).heightIn(min = Dimens.CountHeight),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.CountGap),
+                verticalAlignment = Alignment.Bottom,
+                content = count,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(Dimens.HeaderActionGap), content = actions)
         }
     }
 }
 
-/** 页头占位：与 [ScreenHeader] 同高（状态栏 + 84dp），用于把头部画在遮罩之上。 */
+/** 页头占位：与 [ScreenHeader] 同高（状态栏 + 56dp），用于把头部画在遮罩之上。 */
 @Composable
 fun ScreenHeaderSpacer() {
     Spacer(Modifier.fillMaxWidth().statusBarsPadding().height(Dimens.HeaderHeight))
@@ -134,14 +130,13 @@ fun FavPip() {
 }
 
 /**
- * .count：大数字（里程表）+ 单位（中文「张」，英文不写）+ 可选 .sub（左距 8 = gap 4 + 4）。
+ * .count：大数字（里程表）+ 单位（[unit]，默认中文「张」、英文空）+ 可选 .sub（左距 8 = gap 4 + 4）。
  * 放得下时三者同一行按基线对齐；宽度不够（大数字、英文、大字号）时 .sub 换到数字下方单独一行，
  * 仍放不下才省略号截断。占满标题区剩余宽度，不会挤到右侧按钮。
  */
 @Composable
-fun RowScope.HeaderCount(count: Int, sub: String? = null) {
+fun RowScope.HeaderCount(count: Int, unit: String = stringResource(R.string.header_count_unit), sub: String? = null) {
     val locale = currentLocale()
-    val unit = stringResource(R.string.header_count_unit)
     val gapPx = with(LocalDensity.current) { Dimens.CountGap.roundToPx() }
     val subGapPx = with(LocalDensity.current) { Dimens.CountSubGap.roundToPx() }
     Layout(

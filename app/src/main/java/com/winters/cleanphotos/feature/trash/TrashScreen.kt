@@ -74,7 +74,6 @@ import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.EmptyPileArt
 import com.winters.cleanphotos.core.design.EmptyStateArea
 import com.winters.cleanphotos.core.design.EmptyTitleAndBody
-import com.winters.cleanphotos.core.design.Eyebrow
 import com.winters.cleanphotos.core.design.GhostButton
 import com.winters.cleanphotos.core.design.GlassBackdropHost
 import com.winters.cleanphotos.core.design.HeaderCount
@@ -186,7 +185,6 @@ fun TrashScreen(
                         )
                     } else {
                         ScreenHeader(
-                            eyebrow = { Eyebrow(stringResource(R.string.tab_trash)) },
                             count = { HeaderCount(uiState.photos.size) },
                             actions = {
                                 if (uiState.photos.isNotEmpty()) TrayTextButton(stringResource(R.string.trash_select), onClick = onEnterSelectionMode)

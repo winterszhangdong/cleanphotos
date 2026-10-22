@@ -31,7 +31,6 @@ import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.EmptyStateArea
 import com.winters.cleanphotos.core.design.EmptyTitleAndBody
-import com.winters.cleanphotos.core.design.Eyebrow
 import com.winters.cleanphotos.core.design.FavPip
 import com.winters.cleanphotos.core.design.FavoritePileArt
 import com.winters.cleanphotos.core.design.GhostButton
@@ -69,11 +68,10 @@ fun FavoritesScreen(
         Box(modifier.fillMaxSize().background(DarkroomColors.Room)) {
             Column(Modifier.fillMaxSize()) {
                 ScreenHeader(
-                    eyebrow = {
-                        Eyebrow(stringResource(R.string.tab_favorites))
+                    count = {
+                        HeaderCount(uiState.totalCount)
                         if (!empty) FavPip()
                     },
-                    count = { HeaderCount(uiState.totalCount) },
                 )
                 if (!empty) {
                     val develop = remember { tileDevelopFor(initialLoad = false) }

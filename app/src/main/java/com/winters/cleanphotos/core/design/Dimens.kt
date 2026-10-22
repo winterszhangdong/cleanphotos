@@ -66,14 +66,19 @@ object Dimens {
     val ScreenSide = 16.dp
 
     // —— P3 列表 / 页面骨架 ——
-    /** .bar：高 84，状态栏下方，内边距 0 16 12。 */
-    val HeaderHeight = 84.dp
-    val HeaderBottomPadding = 12.dp
+    /** .bar：高 56，状态栏下方，内边距 0 16 8（没有 eyebrow，task032 G1）。 */
+    val HeaderHeight = 56.dp
+    val HeaderBottomPadding = 8.dp
     val EyebrowGap = 4.dp
     val CountHeight = 32.dp
     val CountGap = 4.dp
     val CountSubGap = 8.dp
     val HeaderActionGap = 8.dp
+    /** 照片页范围按钮（task032 G3）：胶囊高 32、左右 14、间距 8；整行高 40（含下边 8）。 */
+    val ScopeChipHeight = 32.dp
+    val ScopeChipPadH = 14.dp
+    val ScopeChipGap = 8.dp
+    val ScopeRowHeight = 40.dp
     /** .year：高 32，左右 16，间距 12。 */
     val YearHeight = 32.dp
     val YearGap = 12.dp
