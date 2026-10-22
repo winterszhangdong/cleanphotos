@@ -70,6 +70,9 @@
     <string name="go_review">去清理</string>
     <string name="error_load_favorites">加载收藏照片失败</string>
     <string name="cd_back">返回</string>
+    <string name="cd_video">视频，%1$s</string>
+    <string name="cd_video_named">视频，%1$s，%2$s</string>
+    <string name="cd_video_only">视频</string>
     <string name="hint_up_favorite">上滑收藏</string>
     <string name="hint_up_unfavorite">上滑取消收藏</string>
     <string name="hint_down">下滑移走</string>

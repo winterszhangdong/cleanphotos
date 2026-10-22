@@ -99,6 +99,9 @@ Compose UI 测试
 AppTrashStateDataSource 编码与解析（encodeEntry / parseEntry）
 AppTrashStateDataSource CRUD（upsert / remove / removeEntries / removeMissingEntries）
 PhotoPager 的轮播过渡参数（pageScale、pageAlpha、zIndex）、切页位置连续性、任意图片比例验证和稳定请求键
+视频时长格式（DurationFormatter：m:ss / h:mm:ss）
+Android 8–9 DATA → relativePath（relativePathFromData / normalizeRelativePath）
+权限判定（图片可用、13+ 完整访问要图片+视频、请求列表、补请求视频权限、能否读视频）
 ```
 
 ### ViewModel 测试
@@ -3283,7 +3286,8 @@ P0
 预期结果：
 
 ```text
-请求 READ_MEDIA_IMAGES
+请求 READ_MEDIA_IMAGES 和 READ_MEDIA_VIDEO
+Android 14+ 再请求 READ_MEDIA_VISUAL_USER_SELECTED
 不请求 READ_EXTERNAL_STORAGE
 ```
 
@@ -3307,6 +3311,35 @@ P0
 
 ```text
 请求 READ_EXTERNAL_STORAGE
+```
+
+***
+
+### 用例：已有图片权限、缺少视频权限
+
+优先级：
+
+```text
+P0
+```
+
+前置条件：
+
+```text
+Android 13+
+已授予 READ_MEDIA_IMAGES
+未授予 READ_MEDIA_VIDEO
+冷启动后进入照片页
+```
+
+预期结果：
+
+```text
+进入照片页时请求一次 READ_MEDIA_VIDEO
+拒绝后照片仍可浏览、收藏、移入垃圾桶
+本次不按「图库里已不存在」清理收藏 / 看过 / 垃圾桶（查询不含视频）
+同一进程内再次进入照片页不再请求
+下次冷启动再请求一次；系统拒绝两次后不再弹窗
 ```
 
 ***

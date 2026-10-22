@@ -17,23 +17,31 @@ data class PhotoItem(
     val width: Int?,
     val height: Int?,
     val isFavorite: Boolean = false,
-    val isTrashed: Boolean = false
+    val isTrashed: Boolean = false,
+    val mediaType: MediaType = MediaType.Image,
+    val durationMs: Long? = null,
+    val relativePath: String? = null,
+    val bucketName: String? = null,
 )
 ```
 
 字段说明：
 
 ```text
-id：MediaStore 图片 ID
-uri：图片 Uri
-displayName：图片名称
-dateTaken：拍摄时间
+id：MediaStore Files 表 _ID。图片和视频共用这一列，两张表不会撞号；收藏 / 看过 / 垃圾桶记录继续按 id 存
+uri：图片用 Images.Media.EXTERNAL_CONTENT_URI + id；视频用 Video.Media.EXTERNAL_CONTENT_URI + id
+displayName：文件名
+dateTaken：有效拍摄时间（DATE_TAKEN，为空则 DATE_ADDED × 1000）
 dateGroup：日期分组文本
-size：文件大小（字节），来自 MediaStore.Images.Media.SIZE；≤0 时为 null。用于垃圾桶「可释放」、单张大小、小结卡「释放」、「全部看过了」的待释放
-width：图片宽度（已按 MediaStore ORIENTATION 校正：旋转 90° / 270° 时与 HEIGHT 对调，即显示时的宽）
-height：图片高度（同上，显示时的高）
+size：文件大小（字节），来自 SIZE；≤0 时为 null。用于垃圾桶「可释放」、单张大小、小结卡「释放」、「全部看过了」的待释放
+width：宽度（已按 ORIENTATION 校正：旋转 90° / 270° 时与 HEIGHT 对调，即显示时的宽）。视频只在该列存在时对调（Android 10+）
+height：高度（同上，显示时的高）
 isFavorite：是否已被系统相册标记为收藏。Android 11 / API 30 及以上应来自 MediaStore 的 IS_FAVORITE；低版本不支持系统收藏时不能用本地值伪装为系统收藏成功
 isTrashed：是否在 App 内垃圾桶中。由 AppTrashEntry 记录计算而来，不来自 MediaStore IS_TRASHED
+mediaType：Image 或 Video。视频和照片走同一套列表、清理、收藏、垃圾桶、看过
+durationMs：视频时长（毫秒，MediaStore DURATION）；图片为 null。界面格式为 m:ss，满 1 小时为 h:mm:ss
+relativePath：相对外部存储根目录的文件夹，与 RELATIVE_PATH 相同格式、以 / 结尾，例如 Pictures/Screenshots/。Android 10+ 直接读 RELATIVE_PATH；Android 8–9 由 DATA 相对外部存储根目录推出。推不出时为 null
+bucketName：所在文件夹名（BUCKET_DISPLAY_NAME）
 ```
 
 ***

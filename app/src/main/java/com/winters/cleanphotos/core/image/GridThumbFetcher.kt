@@ -29,7 +29,8 @@ data class GridThumb(val uri: Uri)
 /**
  * [GridThumb] 的取图器。
  * - Android 10+：ContentResolver.loadThumbnail，走系统缓存的缩略图，比读整张原图再缩小快得多。
- * - Android 8–9 或取缩略图失败：退回原来的做法，打开原图交给 Coil 按格子大小采样解码。
+ * - Android 8–9 或取缩略图失败：打开原文件交给 Coil 按格子大小采样解码。
+ *   mimeType 用 ContentResolver.getType；视频类型交给 VideoFrameDecoder 取首帧，不走图片解码。
  * 结果都标为 DISK，首屏显影的判断不变。
  */
 class GridThumbFetcher(
@@ -64,6 +65,7 @@ class GridThumbFetcher(
         val stream = checkNotNull(resolver.openInputStream(data.uri)) { "Unable to open ${data.uri}" }
         return SourceResult(
             source = ImageSource(stream.source().buffer(), context),
+            // 视频是 video/… 时由 VideoFrameDecoder 按这个 mime 取首帧
             mimeType = resolver.getType(data.uri),
             dataSource = DataSource.DISK,
         )
