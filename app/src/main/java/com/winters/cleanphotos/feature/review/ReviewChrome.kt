@@ -64,6 +64,7 @@ import com.winters.cleanphotos.core.design.OdometerText
 import com.winters.cleanphotos.core.design.UndoBar
 import com.winters.cleanphotos.core.design.UndoCapsuleContent
 import com.winters.cleanphotos.core.util.DayDisplay
+import com.winters.cleanphotos.core.util.DurationFormatter
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.domain.model.DayCellState
 import com.winters.cleanphotos.domain.model.PhotoActionType
@@ -252,7 +253,8 @@ internal fun ReviewMeta(photo: PhotoItem, showHints: Boolean, scope: ReviewScope
         val name = photo.displayName?.substringBeforeLast('.') ?: "—"
         val locale = currentLocale()
         val size = photo.size?.let { " · " + FileSizeFormatter.format(it, locale) }.orEmpty()
-        Text(name + size, style = DarkroomText.RvFile, maxLines = 1)
+        val duration = photo.durationMs?.let { " · " + DurationFormatter.format(it) }.orEmpty()
+        Text(name + size + duration, style = DarkroomText.RvFile, maxLines = 1)
         if (showHints) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 HintDot(DarkroomColors.Amber, stringResource(if (scope == ReviewScope.Favorites) R.string.hint_up_unfavorite else R.string.hint_up_favorite))

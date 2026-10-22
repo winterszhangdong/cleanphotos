@@ -44,6 +44,7 @@ import com.winters.cleanphotos.core.design.YearDivider
 import com.winters.cleanphotos.core.design.photoThumbKey
 import com.winters.cleanphotos.core.navigation.sharedPhoto
 import com.winters.cleanphotos.core.util.DayDisplay
+import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoDaySection
 
 /** 四列照片网格的列数。 */
@@ -209,6 +210,8 @@ fun LazyGridScope.photoDaySections(
                 PhotoTile(
                     model = model,
                     contentDescription = photo.displayName,
+                    isVideo = photo.mediaType == MediaType.Video,
+                    durationMs = photo.durationMs,
                     // 同一天第二行起上方 2dp 间隔（.grid4 gap 2px）；天与天之间没有额外间隔
                     modifier = reorderModifier(tileIndex, reorderAnchor())
                         .padding(top = if (row == 0) 0.dp else Dimens.GridGap)

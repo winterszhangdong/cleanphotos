@@ -64,6 +64,9 @@
     <string name="go_review">Start reviewing</string>
     <string name="error_load_favorites">Couldn\'t load favorites</string>
     <string name="cd_back">Back</string>
+    <string name="cd_video">Video, %1$s</string>
+    <string name="cd_video_named">Video, %1$s, %2$s</string>
+    <string name="cd_video_only">Video</string>
     <string name="hint_up_favorite">Up: favorite</string>
     <string name="hint_up_unfavorite">Up: unfavorite</string>
     <string name="hint_down">Down: remove</string>
