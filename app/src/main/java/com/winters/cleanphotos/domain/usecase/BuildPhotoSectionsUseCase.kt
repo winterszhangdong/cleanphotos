@@ -12,7 +12,7 @@ import javax.inject.Inject
  * 把已排序、已筛选的照片切成「年份分隔 + 天」列表。
  *
  * @param visible 要显示的照片（顺序即显示顺序）。
- * @param dayPool 统计每天总数 / 未看数的照片池（照片页传相册全部，筛选「仅未看过」时数字仍按整天算）。
+ * @param dayPool 统计每天总数 / 未看数的照片池（照片页传当前范围、未叠「只看没看过」的照片，开关开着时数字仍按范围内整天算）。
  * @param seenIds 看过的照片 id。
  */
 class BuildPhotoSectionsUseCase @Inject constructor() {

@@ -277,8 +277,11 @@ fun AllPhotosScreen(
 
             MenuScrim(visible = menuOpen, onDismiss = { menuOpen = false })
 
+            // 拨回来时叠在照片上，要有暗房底色
             Column(
-                Modifier.graphicsLayer { translationY = collapse.offsetPx },
+                Modifier
+                    .graphicsLayer { translationY = collapse.offsetPx }
+                    .background(DarkroomColors.Room),
             ) {
                 ScreenHeader(
                     leftAlpha = if (menuOpen) 0.5f else 1f,

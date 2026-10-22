@@ -128,7 +128,7 @@ class AllPhotosViewModel @Inject constructor(
                     sortOrder = sortOrder,
                     scope = scope,
                     unseenOnly = unseenOnly,
-                    sections = buildPhotoSectionsUseCase(visible, dayPool = allPhotos, seenIds = seenIds),
+                    sections = buildPhotoSectionsUseCase(visible, dayPool = scoped, seenIds = seenIds),
                     seenIds = seenIds,
                     allSeenStats = stats,
                     hangPhotos = sorted.take(HANG_PHOTO_COUNT),
