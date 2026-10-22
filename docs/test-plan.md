@@ -91,7 +91,7 @@ Compose UI 测试
 ```text
 日期分组逻辑
 照片排序逻辑（NewestFirst / OldestFirst）
-照片过滤逻辑（AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps）
+照片过滤逻辑（AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps / OnThisDay）
 照片过滤逻辑（AllPhotos / UnseenOnly）
 dHash（9×8 亮度 → 64 位、汉明距离）
 相似分组（10 秒与距离 10 的边界、链式、单张不成组、视频排除、取图失败跳过、默认保留）
@@ -509,13 +509,14 @@ P1
 2. 大文件：size = 10 * 1024 * 1024、恰少 1 字节、null；图片和视频各一
 3. 聊天软件：relativePath 含 weixin / whatsapp / telegram，或以 Pictures/QQ/ 开头（含大小写）；Pictures/QQ 无斜杠、Download/QQ/、仅 bucketName 为反例
 4. 对同一列表执行 FilterPhotosUseCase 的 Screenshots / LargeFiles / ChatApps，seenIds 含命中项
+5. 那年今天：固定「今天」传入纯函数。同月日且更早年份命中；今年不命中；不同日不命中；2 月 29 日只在 2 月 29 日命中；dateTaken 为 null 或 ≤0 不命中；视频同样命中。FilterPhotosUseCase 的 OnThisDay 只返回命中项，seenIds 含命中项时仍保留
 ```
 
 预期结果：
 
 ```text
 正例命中、反例不命中
-三个新模式只返回命中项，已看过的命中项仍保留
+四个新模式只返回命中项，已看过的命中项仍保留
 UnseenOnly 与 AllPhotos 行为不变
 ```
 
@@ -538,16 +539,18 @@ P1
 操作步骤：
 
 ```text
-1. 读取 AllPhotosUiState 的 screenshotCount / largeFileCount / chatAppCount
-2. 依次切换 Screenshots、LargeFiles、ChatApps、AllPhotos
+1. 读取 AllPhotosUiState 的 screenshotCount / largeFileCount / chatAppCount / onThisDayCount
+2. 依次切换 Screenshots、LargeFiles、ChatApps、OnThisDay、AllPhotos
+3. onThisDayCount 为 0 且 filterMode 不是 OnThisDay 时 showOnThisDayMenu 为 false；数量大于 0，或当前已是 OnThisDay，则为 true
 ```
 
 预期结果：
 
 ```text
-三项数量按全部照片计算，已看过的截图仍计入 screenshotCount
+四项数量按全部照片计算，已看过的截图和「那年今天」命中项仍计入
 当前筛选的可见列表只含命中项，且保留排序
 切回 AllPhotos 后可见数量恢复为全部照片
+「那年今天」在数量为 0 且未选中时不出现在菜单
 ```
 
 ***
@@ -3041,6 +3044,7 @@ Favorites 列表含这三张
 1. scope = AllPhotos，filterMode = Screenshots，从截图启动
 2. scope = AllPhotos，filterMode = LargeFiles，从该视频启动
 3. scope = Favorites，filterMode = Screenshots，从普通照片启动
+4. scope = AllPhotos，filterMode = OnThisDay，列表里只有往年同月日的照片（含一条视频），从其中一张启动
 ```
 
 预期结果：
@@ -3048,6 +3052,7 @@ Favorites 列表含这三张
 ```text
 AllPhotos 会话的 photos 只有该筛选的命中项，currentIndex 指向起点
 Favorites 会话跳过过滤，三张都在
+OnThisDay 会话的 photos 只有往年同月日的命中项
 ```
 
 ***

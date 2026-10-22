@@ -328,8 +328,9 @@ domain
 ```text
 PhotoItem（含 mediaType / durationMs / relativePath / bucketName）
 MediaType（枚举：Image / Video）
-PhotoFilterMode（枚举：AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps）
+PhotoFilterMode（枚举：AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps / OnThisDay）
 SmartFilterRules（截图 / 大文件 / 聊天软件存图判定）
+OnThisDayRules（那年今天：本地月日相同且年份更早；今天由调用方传入）
 SimilarGroup、SimilarRules、DHash（相似照片分组）
 PhotoDateGroup
 PhotoAction

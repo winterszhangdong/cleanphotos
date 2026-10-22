@@ -138,7 +138,8 @@ enum class PhotoFilterMode {
     UnseenOnly,
     Screenshots,
     LargeFiles,
-    ChatApps
+    ChatApps,
+    OnThisDay
 }
 ```
 
@@ -148,6 +149,7 @@ enum class PhotoFilterMode {
 AllPhotos：展示全部照片（默认）
 UnseenOnly：仅展示未看过的照片
 Screenshots / LargeFiles / ChatApps：与前两项单选互斥，规则见 SmartFilterRules
+OnThisDay：与上面全部单选互斥，规则见 OnThisDayRules
 ```
 
 判定在 `domain/model/SmartFilterRules.kt`（纯函数，大小写不敏感）：
@@ -156,6 +158,16 @@ Screenshots / LargeFiles / ChatApps：与前两项单选互斥，规则见 Smart
 截图：relativePath 或 bucketName 含 "screenshot"、"截屏"、"截图"；字段为 null 不命中
 大文件：size ≥ 10 * 1024 * 1024 字节，图片和视频同一阈值；size 为 null 不算
 聊天软件存图：relativePath 含 "weixin"、"whatsapp"、"telegram"，或以 "Pictures/QQ/" 开头
+```
+
+「那年今天」在 `domain/model/OnThisDayRules.kt`（纯函数，今天和时区由调用方传入；生产路径用 `LocalDate.now()` 和 `ZoneId.systemDefault()`）：
+
+```text
+dateTaken（毫秒）≤ 0 或没有：不命中
+按系统时区换成当地日期：月、日都等于今天，且年份早于今年 → 命中
+2 月 29 日的照片只在今天也是 2 月 29 日时命中
+图片和视频都算
+今天只在照片列表或看过状态变化时重算，跨过午夜不会自动刷新
 ```
 
 ***
@@ -415,7 +427,8 @@ data class AllPhotosUiState(
     val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos,
     val screenshotCount: Int = 0,
     val largeFileCount: Int = 0,
-    val chatAppCount: Int = 0
+    val chatAppCount: Int = 0,
+    val onThisDayCount: Int = 0
 )
 ```
 
@@ -430,8 +443,9 @@ isLoading：是否加载中
 hasPermission：是否有相册权限
 errorMessage：错误信息
 sortOrder：当前排序方式。菜单文案是「最新优先」和「最早优先」
-filterMode：当前筛选模式。菜单文案是「全部照片」「仅未看过」「截图」「大文件」「聊天软件存图」
-screenshotCount / largeFileCount / chatAppCount：照片页全部照片里命中对应规则的张数，不受「看过」影响
+filterMode：当前筛选模式。菜单文案是「全部照片」「仅未看过」「截图」「大文件」「聊天软件存图」「那年今天」
+screenshotCount / largeFileCount / chatAppCount / onThisDayCount：照片页全部照片里命中对应规则的张数，不受「看过」影响
+showOnThisDayMenu：onThisDayCount > 0，或当前筛选已经是 OnThisDay；否则菜单不显示「那年今天」
 ```
 
 ***
@@ -716,6 +730,7 @@ class FilterPhotosUseCase {
 AllPhotos：返回全部照片
 UnseenOnly：读取 AppSeenStateDataSource，仅返回未看过的照片（id 不在 seenIds 中的照片）
 Screenshots / LargeFiles / ChatApps：按 SmartFilterRules 过滤，不读取「看过」状态
+OnThisDay：按 OnThisDayRules 过滤，今天取 LocalDate.now()，不读取「看过」状态
 ```
 
 ***
@@ -813,7 +828,7 @@ class StartReviewSessionUseCase(
 
 ```text
 接受 startPhotoId、sortOrder、filterMode、scope 四个参数
-执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤（含截图 / 大文件 / 聊天软件存图），Favorites 跳过过滤 → 查找起始照片
+执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤（含截图 / 大文件 / 聊天软件存图 / 那年今天），Favorites 跳过过滤 → 查找起始照片
 找不到 startPhotoId 直接抛错，不回退到 0
 scope 决定候选队列：AllPhotos 排除垃圾桶和已收藏，Favorites 只取已收藏且不在垃圾桶的
 ```

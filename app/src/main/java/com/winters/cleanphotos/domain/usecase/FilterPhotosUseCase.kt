@@ -1,10 +1,12 @@
 package com.winters.cleanphotos.domain.usecase
 
+import com.winters.cleanphotos.domain.model.OnThisDayRules
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.repository.SeenStateRepository
 import kotlinx.coroutines.flow.first
+import java.time.LocalDate
 import javax.inject.Inject
 
 /**
@@ -25,5 +27,10 @@ class FilterPhotosUseCase @Inject constructor(
             PhotoFilterMode.LargeFiles,
             PhotoFilterMode.ChatApps,
             -> photos.filter { SmartFilterRules.matches(it, filterMode) }
+            PhotoFilterMode.OnThisDay -> {
+                // shortcut: 今天只在照片列表 / 看过状态变化时重算，跨过午夜不会自动刷新；要精确就加一个按日期变化的 Flow
+                val today = LocalDate.now()
+                photos.filter { OnThisDayRules.isOnThisDay(it, today) }
+            }
         }
 }

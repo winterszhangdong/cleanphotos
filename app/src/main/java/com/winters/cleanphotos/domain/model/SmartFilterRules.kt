@@ -30,6 +30,7 @@ object SmartFilterRules {
         PhotoFilterMode.Screenshots -> isScreenshot(photo)
         PhotoFilterMode.LargeFiles -> isLargeFile(photo)
         PhotoFilterMode.ChatApps -> isChatApp(photo)
+        PhotoFilterMode.OnThisDay -> error("那年今天不走 SmartFilterRules")
         PhotoFilterMode.AllPhotos, PhotoFilterMode.UnseenOnly ->
             error("$mode 不是智能筛选")
     }

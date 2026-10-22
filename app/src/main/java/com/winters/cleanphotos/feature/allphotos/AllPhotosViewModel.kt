@@ -8,6 +8,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.permission.PermissionChecker
+import com.winters.cleanphotos.domain.model.OnThisDayRules
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.SmartFilterRules
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import javax.inject.Inject
 
 /**
@@ -94,13 +96,17 @@ class AllPhotosViewModel @Inject constructor(
                 val sorted = sortPhotosUseCase(allPhotos, sortOrder)
                 val filtered = filterPhotosUseCase(sorted, filterMode, seenIds)
                 // 菜单数量按照片页全集算，不随「仅未看过」或当前筛选缩小
+                // shortcut: 今天只在照片列表 / 看过状态变化时重算，跨过午夜不会自动刷新；要精确就加一个按日期变化的 Flow
+                val today = LocalDate.now()
                 var screenshotCount = 0
                 var largeFileCount = 0
                 var chatAppCount = 0
+                var onThisDayCount = 0
                 for (photo in allPhotos) {
                     if (SmartFilterRules.isScreenshot(photo)) screenshotCount++
                     if (SmartFilterRules.isLargeFile(photo)) largeFileCount++
                     if (SmartFilterRules.isChatApp(photo)) chatAppCount++
+                    if (OnThisDayRules.isOnThisDay(photo, today)) onThisDayCount++
                 }
                 val current = _uiState.value
                 current.copy(
@@ -109,6 +115,7 @@ class AllPhotosViewModel @Inject constructor(
                     screenshotCount = screenshotCount,
                     largeFileCount = largeFileCount,
                     chatAppCount = chatAppCount,
+                    onThisDayCount = onThisDayCount,
                     visibleCount = filtered.size,
                     sortOrder = sortOrder,
                     filterMode = filterMode,
