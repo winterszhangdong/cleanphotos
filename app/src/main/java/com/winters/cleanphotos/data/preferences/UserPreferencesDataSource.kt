@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import com.winters.cleanphotos.core.datastore.DataStoreKeys
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -41,5 +42,17 @@ class UserPreferencesDataSource @Inject constructor(
     /** 在调用方的 edit 里 +1（同一个 DataStore），让一次滑动的所有写入合成一次。 */
     internal fun incrementSwipeActionCountIn(prefs: MutablePreferences) {
         prefs[swipeActionCountKey] = (prefs[swipeActionCountKey] ?: 0) + 1
+    }
+
+    private val totalFreedBytesKey = longPreferencesKey(DataStoreKeys.TOTAL_FREED_BYTES)
+
+    fun observeTotalFreedBytes(): Flow<Long> = dataStore.data.map { it[totalFreedBytesKey] ?: 0L }
+
+    /** 只增不减。溢出直接抛，避免绕回变成减少。 */
+    suspend fun addFreedBytes(bytes: Long) {
+        require(bytes > 0L) { "bytes 必须 > 0：$bytes" }
+        dataStore.edit { prefs ->
+            prefs[totalFreedBytesKey] = Math.addExact(prefs[totalFreedBytesKey] ?: 0L, bytes)
+        }
     }
 }

@@ -26,4 +26,13 @@ class FakeUserPreferencesRepository(
     override suspend fun incrementSwipeActionCount() {
         swipeActionCountFlow.value += 1
     }
+
+    val totalFreedBytesFlow = MutableStateFlow(0L)
+
+    override fun observeTotalFreedBytes(): Flow<Long> = totalFreedBytesFlow
+
+    override suspend fun addFreedBytes(bytes: Long) {
+        require(bytes > 0L) { "bytes 必须 > 0：$bytes" }
+        totalFreedBytesFlow.value += bytes
+    }
 }

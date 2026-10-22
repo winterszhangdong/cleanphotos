@@ -24,4 +24,11 @@ class UserPreferencesRepositoryImpl @Inject constructor(
     override suspend fun incrementSwipeActionCount() {
         userPreferencesDataSource.incrementSwipeActionCount()
     }
+
+    override fun observeTotalFreedBytes(): Flow<Long> = userPreferencesDataSource.observeTotalFreedBytes()
+
+    override suspend fun addFreedBytes(bytes: Long) {
+        require(bytes > 0L) { "bytes 必须 > 0：$bytes" }
+        userPreferencesDataSource.addFreedBytes(bytes)
+    }
 }

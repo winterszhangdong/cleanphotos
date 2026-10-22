@@ -132,6 +132,7 @@
     <string name="trash_empty_title">Trash is empty</string>
     <string name="trash_just_freed">Just freed %1$s</string>
     <string name="trash_empty_body">While reviewing, swipe a photo down and it waits here. It\'s recoverable until you empty the trash.</string>
+    <string name="trash_total_freed">Freed %1$s in total</string>
     <string name="free_label">Empty to free up</string>
     <string name="free_sub">Only marked in the app until you empty it</string>
     <string name="empty_trash">Empty</string>
