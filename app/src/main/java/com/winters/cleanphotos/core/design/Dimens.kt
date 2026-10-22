@@ -146,4 +146,6 @@ object Dimens {
     val EmptyRise = 12.6.dp
     /** 溶解模糊 5dp（31+）。 */
     val DissolveBlur = 5.dp
+    /** 相似照片组里一行缩略图的边长。 */
+    val SimilarThumb = 72.dp
 }

@@ -92,6 +92,8 @@ Compose UI 测试
 日期分组逻辑
 照片排序逻辑（NewestFirst / OldestFirst）
 照片过滤逻辑（AllPhotos / UnseenOnly）
+dHash（9×8 亮度 → 64 位、汉明距离）
+相似分组（10 秒与距离 10 的边界、链式、单张不成组、视频排除、取图失败跳过、默认保留）
 清理队列索引计算
 撤回插入位置
 教学状态判断
@@ -111,6 +113,7 @@ PhotoPager 的轮播过渡参数（pageScale、pageAlpha、zIndex）、切页位
 AllPhotosViewModel
 ReviewViewModel
 TrashViewModel
+SimilarViewModel（移走其余、撤回、撤回过期、失败不出胶囊）
 ```
 
 ### UseCase 测试

@@ -24,6 +24,7 @@ import com.winters.cleanphotos.feature.language.LanguageViewModel
 fun AllPhotosRoute(
     onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String) -> Unit,
     onNavigateToTrash: () -> Unit,
+    onNavigateToSimilar: () -> Unit,
     viewModel: AllPhotosViewModel = hiltViewModel(),
     languageViewModel: LanguageViewModel = hiltViewModel(),
 ) {
@@ -69,6 +70,7 @@ fun AllPhotosRoute(
             onNavigateToReview(photoId, uiState.sortOrder.name, uiState.filterMode.name)
         },
         onTrashClick = onNavigateToTrash,
+        onOpenSimilar = onNavigateToSimilar,
         onSortOrderChanged = viewModel::onSortOrderChanged,
         onFilterModeChanged = viewModel::onFilterModeChanged,
         selection = selection,

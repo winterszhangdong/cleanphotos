@@ -27,6 +27,10 @@
     <string name="menu_filter_header">Show</string>
     <string name="filter_all">All photos</string>
     <string name="filter_unseen">Unseen only</string>
+    <string name="similar_photos">Similar photos</string>
+    <string name="similar_menu_go">›</string>
+    <string name="similar_comparing">Comparing %1$d / %2$d</string>
+    <string name="similar_empty">No similar photos</string>
     <string name="cd_more">More</string>
     <string name="menu_more_header">More</string>
     <string name="menu_language">Language</string>
@@ -184,6 +188,14 @@
     <plurals name="dialog_delete_title">
         <item quantity="one">Permanently delete %1$d photo?</item>
         <item quantity="other">Permanently delete %1$d photos?</item>
+    </plurals>
+    <plurals name="similar_group_count">
+        <item quantity="one">%1$d group</item>
+        <item quantity="other">%1$d groups</item>
+    </plurals>
+    <plurals name="similar_move_rest">
+        <item quantity="one">Move the other photo</item>
+        <item quantity="other">Move the other %1$d</item>
     </plurals>
     <!-- 语言名用各自的语言写，任何界面语言下都一样 -->
     <string name="language_zh" translatable="false">简体中文</string>
