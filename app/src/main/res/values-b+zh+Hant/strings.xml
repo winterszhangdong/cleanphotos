@@ -27,6 +27,16 @@
     <string name="menu_filter_header">显示</string>
     <string name="filter_all">全部照片</string>
     <string name="filter_unseen">仅未看过</string>
+    <string name="filter_screenshots">截图</string>
+    <string name="filter_large_files">大文件</string>
+    <string name="filter_chat_apps">聊天软件存图</string>
+    <string name="filter_empty_screenshots">没有截图</string>
+    <string name="filter_empty_large_files">没有大文件</string>
+    <string name="filter_empty_chat_apps">没有聊天软件存图</string>
+    <string name="similar_photos">相似照片</string>
+    <string name="similar_menu_go">›</string>
+    <string name="similar_comparing">正在比对 %1$d / %2$d</string>
+    <string name="similar_empty">没有找到相似照片</string>
     <string name="cd_more">更多</string>
     <string name="menu_more_header">更多</string>
     <string name="menu_language">语言</string>
@@ -64,6 +74,9 @@
     <string name="go_review">去清理</string>
     <string name="error_load_favorites">加载收藏照片失败</string>
     <string name="cd_back">返回</string>
+    <string name="cd_video">视频，%1$s</string>
+    <string name="cd_video_named">视频，%1$s，%2$s</string>
+    <string name="cd_video_only">视频</string>
     <string name="hint_up_favorite">上滑收藏</string>
     <string name="hint_up_unfavorite">上滑取消收藏</string>
     <string name="hint_down">下滑移走</string>
@@ -172,5 +185,11 @@
     </plurals>
     <plurals name="dialog_delete_title">
         <item quantity="other">永久删除 %1$d 张照片？</item>
+    </plurals>
+    <plurals name="similar_group_count">
+        <item quantity="other">%1$d 组</item>
+    </plurals>
+    <plurals name="similar_move_rest">
+        <item quantity="other">移走其余 %1$d 张</item>
     </plurals>
 </resources>

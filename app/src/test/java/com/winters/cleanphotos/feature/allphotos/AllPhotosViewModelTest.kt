@@ -10,6 +10,9 @@ import androidx.core.content.ContextCompat
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
+import com.winters.cleanphotos.domain.model.MediaType
+import com.winters.cleanphotos.domain.model.PhotoFilterMode
+import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllSeenStatsUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveSeenIdsUseCase
@@ -332,5 +335,48 @@ class AllPhotosViewModelTest {
         // 验证：刷新后 hasPermission 为 true
         val state = viewModel.uiState.value
         assertEquals("hasPermission 应为 true", true, state.hasPermission)
+    }
+
+    @Test
+    fun `智能筛选数量按全部照片计算_筛选结果不含未看过滤`() = runTest(testDispatcher) {
+        val min = SmartFilterRules.LARGE_FILE_MIN_BYTES
+        val photos = listOf(
+            TestPhotoData.createTestPhoto(1).copy(relativePath = "Pictures/Screenshots/", size = 100),
+            TestPhotoData.createTestPhoto(2).copy(bucketName = "截图", size = min),
+            TestPhotoData.createTestPhoto(3).copy(relativePath = "DCIM/Camera/", size = min, mediaType = MediaType.Video),
+            TestPhotoData.createTestPhoto(4).copy(relativePath = "Pictures/QQ/"),
+            TestPhotoData.createTestPhoto(5).copy(relativePath = "DCIM/Camera/", bucketName = "Camera", size = min - 1),
+        )
+        fakePhotoRepository.setPhotos(photos)
+        mockSeenDataSource.seenIds.value = setOf(1L)
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        val counted = vm.uiState.value
+        assertEquals(5, counted.totalCount)
+        assertEquals(4, counted.unseenCount)
+        assertEquals(2, counted.screenshotCount)
+        assertEquals(2, counted.largeFileCount)
+        assertEquals(1, counted.chatAppCount)
+
+        vm.onFilterModeChanged(PhotoFilterMode.Screenshots)
+        advanceUntilIdle()
+        val shots = vm.uiState.value
+        assertEquals(PhotoFilterMode.Screenshots, shots.filterMode)
+        assertEquals(listOf(2L, 1L), shots.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(2, shots.visibleCount)
+        assertEquals(2, shots.screenshotCount)
+
+        vm.onFilterModeChanged(PhotoFilterMode.LargeFiles)
+        advanceUntilIdle()
+        assertEquals(listOf(3L, 2L), vm.uiState.value.sections.flatMap { it.photos }.map { it.id })
+
+        vm.onFilterModeChanged(PhotoFilterMode.ChatApps)
+        advanceUntilIdle()
+        assertEquals(listOf(4L), vm.uiState.value.sections.flatMap { it.photos }.map { it.id })
+
+        vm.onFilterModeChanged(PhotoFilterMode.AllPhotos)
+        advanceUntilIdle()
+        assertEquals(5, vm.uiState.value.visibleCount)
     }
 }

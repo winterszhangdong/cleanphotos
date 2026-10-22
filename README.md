@@ -41,7 +41,7 @@ Requires Android 8.0 or later. Download the latest APK from [GitHub Releases](ht
 
 ## Permissions and privacy
 
-The app only asks to read photos (`READ_MEDIA_IMAGES`, plus `READ_MEDIA_VISUAL_USER_SELECTED` for partial access on Android 14+, and `READ_EXTERNAL_STORAGE` on Android 12L and below). On Android 8–10 it also asks for `WRITE_EXTERNAL_STORAGE` when you first empty the trash, because those versions need it to delete photos; Android 11+ uses the system delete confirmation instead. The manifest declares no `INTERNET` permission and the app contains no analytics. Favorites, trash and seen state are stored on the device in DataStore; photo files stay in the system gallery until you empty the trash. See [PRIVACY.md](PRIVACY.md).
+The app only asks to read photos and videos (`READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` on Android 13+, plus `READ_MEDIA_VISUAL_USER_SELECTED` for partial access on Android 14+, and `READ_EXTERNAL_STORAGE` on Android 12L and below). On Android 8–10 it also asks for `WRITE_EXTERNAL_STORAGE` when you first empty the trash, because those versions need it to delete photos; Android 11+ uses the system delete confirmation instead. The manifest declares no `INTERNET` permission and the app contains no analytics. Favorites, trash and seen state are stored on the device in DataStore; photo files stay in the system gallery until you empty the trash. See [PRIVACY.md](PRIVACY.md).
 
 ## Build from source
 

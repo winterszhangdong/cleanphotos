@@ -2,9 +2,11 @@ package com.winters.cleanphotos.data.di
 
 import com.winters.cleanphotos.data.repository.PhotoRepositoryImpl
 import com.winters.cleanphotos.data.repository.ReviewRepositoryImpl
+import com.winters.cleanphotos.data.repository.SimilarPhotoRepositoryImpl
 import com.winters.cleanphotos.data.repository.UserPreferencesRepositoryImpl
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.repository.ReviewRepository
+import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
 import com.winters.cleanphotos.domain.repository.UserPreferencesRepository
 import dagger.Binds
 import dagger.Module
@@ -45,4 +47,10 @@ abstract class RepositoryModule {
     abstract fun bindLanguageRepository(
         impl: com.winters.cleanphotos.data.repository.LanguageRepositoryImpl
     ): com.winters.cleanphotos.domain.repository.LanguageRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSimilarPhotoRepository(
+        impl: SimilarPhotoRepositoryImpl
+    ): SimilarPhotoRepository
 }

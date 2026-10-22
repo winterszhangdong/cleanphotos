@@ -92,6 +92,7 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
 
     implementation(libs.coil.compose)
+    implementation(libs.coil.video)
     implementation(libs.haze)
     implementation(libs.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)

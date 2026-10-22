@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -110,6 +111,7 @@ fun AllPhotosScreen(
     onRequestPermission: () -> Unit,
     onPhotoClick: (Long) -> Unit,
     onTrashClick: () -> Unit,
+    onOpenSimilar: () -> Unit = {},
     onSortOrderChanged: (PhotoSortOrder) -> Unit,
     onFilterModeChanged: (PhotoFilterMode) -> Unit,
     modifier: Modifier = Modifier,
@@ -139,7 +141,9 @@ fun AllPhotosScreen(
     LaunchedEffect(selecting) { if (selecting) openMenu = OpenMenu.None }
     val loading = uiState.isLoading && uiState.sections.isEmpty()
     val allSeen = !loading && uiState.filterMode == PhotoFilterMode.UnseenOnly && uiState.visibleCount == 0 && uiState.totalCount > 0
+    val smartFilterEmpty = !loading && uiState.errorMessage == null && uiState.filterMode.isSmartFilter && uiState.visibleCount == 0 && uiState.totalCount > 0
     val unseenOnly = uiState.filterMode == PhotoFilterMode.UnseenOnly
+    val filterActive = uiState.filterMode != PhotoFilterMode.AllPhotos
     // 切换排序后图标转 180°（点击后 50ms 起，落定弹簧），并用一句提示说明当前顺序
     val sortRotation = remember { Animatable(sortAngle(uiState.sortOrder)) }
     val sortToast = remember { SortToastState() }
@@ -169,6 +173,7 @@ fun AllPhotosScreen(
                         loading -> LoadingSkeleton()
                         uiState.errorMessage != null && uiState.sections.isEmpty() -> MessageState(stringResource(R.string.photos_error_title), uiState.errorMessage.asString())
                         allSeen -> Unit
+                        smartFilterEmpty -> Unit
                         uiState.sections.isEmpty() -> MessageState(stringResource(R.string.photos_empty_title), stringResource(R.string.photos_empty_body))
                         else -> PhotoList(uiState, onPhotoClick, selection, selectionActions)
                     }
@@ -181,7 +186,13 @@ fun AllPhotosScreen(
                     onShowAll = { onFilterModeChanged(PhotoFilterMode.AllPhotos) },
                 )
             }
-            if (!allSeen) ListFade()
+            if (smartFilterEmpty) {
+                SmartFilterEmpty(
+                    title = stringResource(uiState.filterMode.emptyTitleRes()),
+                    onShowAll = { onFilterModeChanged(PhotoFilterMode.AllPhotos) },
+                )
+            }
+            if (!allSeen && !smartFilterEmpty) ListFade()
             // 导航玻璃只取样这一条实色带。Haze 每帧 record 整棵子树，包在网格上会让滚动重画所有可见格子。
             Box(
                 Modifier
@@ -209,7 +220,7 @@ fun AllPhotosScreen(
                             style = DarkroomText.CountSub,
                             modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
                         )
-                    } else if (unseenOnly) {
+                    } else if (filterActive) {
                         HeaderCount(uiState.visibleCount, sub = stringResource(R.string.header_sub_total, NumberFormatter.formatCount(uiState.totalCount, locale)))
                     } else {
                         HeaderCount(uiState.totalCount, sub = stringResource(R.string.header_sub_unseen, NumberFormatter.formatCount(uiState.unseenCount, locale)))
@@ -245,7 +256,7 @@ fun AllPhotosScreen(
                     ToolIconButton(
                         onClick = { openMenu = if (openMenu == OpenMenu.Filter) OpenMenu.None else OpenMenu.Filter },
                         active = openMenu == OpenMenu.Filter,
-                        showPip = unseenOnly,
+                        showPip = filterActive,
                         enabled = enabled,
                         modifier = Modifier.alpha(
                             when {
@@ -299,11 +310,25 @@ fun AllPhotosScreen(
                 visible = openMenu == OpenMenu.Filter,
                 header = stringResource(R.string.menu_filter_header),
                 options = listOf(
-                    MenuOption(stringResource(R.string.filter_all), NumberFormatter.formatCount(uiState.totalCount, locale), !unseenOnly) {
+                    MenuOption(stringResource(R.string.filter_all), NumberFormatter.formatCount(uiState.totalCount, locale), uiState.filterMode == PhotoFilterMode.AllPhotos) {
                         onFilterModeChanged(PhotoFilterMode.AllPhotos); openMenu = OpenMenu.None
                     },
                     MenuOption(stringResource(R.string.filter_unseen), NumberFormatter.formatCount(uiState.unseenCount, locale), unseenOnly) {
                         onFilterModeChanged(PhotoFilterMode.UnseenOnly); openMenu = OpenMenu.None
+                    },
+                    MenuOption(stringResource(R.string.filter_screenshots), NumberFormatter.formatCount(uiState.screenshotCount, locale), uiState.filterMode == PhotoFilterMode.Screenshots) {
+                        onFilterModeChanged(PhotoFilterMode.Screenshots); openMenu = OpenMenu.None
+                    },
+                    MenuOption(stringResource(R.string.filter_large_files), NumberFormatter.formatCount(uiState.largeFileCount, locale), uiState.filterMode == PhotoFilterMode.LargeFiles) {
+                        onFilterModeChanged(PhotoFilterMode.LargeFiles); openMenu = OpenMenu.None
+                    },
+                    MenuOption(stringResource(R.string.filter_chat_apps), NumberFormatter.formatCount(uiState.chatAppCount, locale), uiState.filterMode == PhotoFilterMode.ChatApps) {
+                        onFilterModeChanged(PhotoFilterMode.ChatApps); openMenu = OpenMenu.None
+                    },
+                    // 不是筛选：不改 filterMode，关掉菜单后离开本页
+                    MenuOption(stringResource(R.string.similar_photos), stringResource(R.string.similar_menu_go), false) {
+                        openMenu = OpenMenu.None
+                        onOpenSimilar()
                     },
                 ),
             )
@@ -404,6 +429,29 @@ private fun LoadingSkeleton() {
             }
         }
     }
+}
+
+/** 截图 / 大文件 / 聊天软件存图筛到 0 张：标题 + 切回全部。不用「全部看过了」那一套。 */
+@Composable
+private fun SmartFilterEmpty(title: String, onShowAll: () -> Unit) {
+    EmptyStateArea {
+        Text(title, style = DarkroomText.EmptyH4, textAlign = TextAlign.Center)
+        Text(
+            stringResource(R.string.show_all_photos),
+            style = DarkroomText.TextButton,
+            modifier = Modifier.padding(top = 24.dp).plainClickable(onClick = onShowAll),
+        )
+    }
+}
+
+private val PhotoFilterMode.isSmartFilter: Boolean
+    get() = this == PhotoFilterMode.Screenshots || this == PhotoFilterMode.LargeFiles || this == PhotoFilterMode.ChatApps
+
+private fun PhotoFilterMode.emptyTitleRes(): Int = when (this) {
+    PhotoFilterMode.Screenshots -> R.string.filter_empty_screenshots
+    PhotoFilterMode.LargeFiles -> R.string.filter_empty_large_files
+    PhotoFilterMode.ChatApps -> R.string.filter_empty_chat_apps
+    PhotoFilterMode.AllPhotos, PhotoFilterMode.UnseenOnly -> error("$this 没有筛选空状态")
 }
 
 @Composable

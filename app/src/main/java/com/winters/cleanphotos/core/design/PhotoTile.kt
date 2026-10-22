@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,12 +24,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import coil.compose.AsyncImage
+import com.winters.cleanphotos.R
+import com.winters.cleanphotos.core.util.DurationFormatter
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 /**
  * 方形缩略图（.tile）：#1c1a18 占位、居中裁切；[unseen] 时左上 6dp 画未看光点。
+ * 视频在右下角用 [DarkroomText.TileSize] 标时长（已有文字阴影，亮图上也能读）。不画播放图标。
  * 首次从磁盘解码才按 [developProfile] 显影（决定 7），命中内存缓存直接显示。显影不拦截点击。
  */
 @Composable
@@ -36,6 +43,8 @@ fun PhotoTile(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     unseen: Boolean = false,
+    isVideo: Boolean = false,
+    durationMs: Long? = null,
     developProfile: DevelopProfile? = DevelopProfiles.GridFirstScreen,
     developDelayMs: Int = 0,
     colorFilter: ColorFilter? = null,
@@ -50,6 +59,15 @@ fun PhotoTile(
     val develop = developProfile?.let { rememberDevelopState(it, developed = true) }
     // 只在真正显影时挂 graphicsLayer：静止态不留离屏合成层，滚动更顺
     var developing by remember { mutableStateOf(false) }
+    val durationLabel = durationMs?.let { DurationFormatter.format(it) }
+    val spoken = when {
+        !isVideo -> contentDescription
+        durationLabel != null && !contentDescription.isNullOrBlank() ->
+            stringResource(R.string.cd_video_named, contentDescription, durationLabel)
+        durationLabel != null -> stringResource(R.string.cd_video, durationLabel)
+        !contentDescription.isNullOrBlank() -> stringResource(R.string.cd_video, contentDescription)
+        else -> stringResource(R.string.cd_video_only)
+    }
     Box(
         modifier
             .aspectRatio(1f)
@@ -59,7 +77,7 @@ fun PhotoTile(
     ) {
         AsyncImage(
             model = model,
-            contentDescription = contentDescription,
+            contentDescription = spoken,
             contentScale = ContentScale.Crop,
             colorFilter = colorFilter,
             onSuccess = { success ->
@@ -78,6 +96,17 @@ fun PhotoTile(
         )
         if (unseen) {
             UnseenDot(Modifier.align(Alignment.TopStart).offset(Dimens.UnseenInset, Dimens.UnseenInset))
+        }
+        if (durationLabel != null) {
+            Text(
+                durationLabel,
+                style = DarkroomText.TileSize,
+                // 时长已写进格子的 contentDescription，避免读屏再念一遍角标
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .clearAndSetSemantics { }
+                    .padding(end = Dimens.TileLabelInset, bottom = Dimens.TileLabelInset),
+            )
         }
         overlay()
     }

@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
+import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
@@ -70,6 +71,7 @@ class AllPhotosViewModel @Inject constructor(
     private val _filterMode = MutableStateFlow(PhotoFilterMode.AllPhotos)
 
     private val initialPermission = PermissionChecker.hasPhotoPermission(application)
+    private val enteredWithPhotoPermission = initialPermission
     private val _uiState = MutableStateFlow(
         AllPhotosUiState(hasPermission = initialPermission, isLoading = initialPermission),
     )
@@ -91,10 +93,22 @@ class AllPhotosViewModel @Inject constructor(
             ) { allPhotos, sortOrder, filterMode, seenIds, stats ->
                 val sorted = sortPhotosUseCase(allPhotos, sortOrder)
                 val filtered = filterPhotosUseCase(sorted, filterMode, seenIds)
+                // 菜单数量按照片页全集算，不随「仅未看过」或当前筛选缩小
+                var screenshotCount = 0
+                var largeFileCount = 0
+                var chatAppCount = 0
+                for (photo in allPhotos) {
+                    if (SmartFilterRules.isScreenshot(photo)) screenshotCount++
+                    if (SmartFilterRules.isLargeFile(photo)) largeFileCount++
+                    if (SmartFilterRules.isChatApp(photo)) chatAppCount++
+                }
                 val current = _uiState.value
                 current.copy(
                     totalCount = allPhotos.size,
                     unseenCount = allPhotos.count { it.id !in seenIds },
+                    screenshotCount = screenshotCount,
+                    largeFileCount = largeFileCount,
+                    chatAppCount = chatAppCount,
                     visibleCount = filtered.size,
                     sortOrder = sortOrder,
                     filterMode = filterMode,
@@ -128,6 +142,20 @@ class AllPhotosViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(hasPermission = true)
             refreshPhotos()
         }
+    }
+
+    /**
+     * 冷启动进入本页时已经有照片权限，才补一次视频权限。
+     * 同一次进程里后来才授权照片的，不接着再弹（首次弹窗已经带了视频权限）。
+     */
+    fun consumeMissingVideoPermissionRequest(): Array<String>? {
+        if (!enteredWithPhotoPermission) return null
+        return PermissionChecker.consumeMissingVideoPermissionRequest(getApplication())
+    }
+
+    /** 补授权视频后重新读图库，否则这次进程里视频不会出现。 */
+    fun onVideoPermissionGranted() {
+        if (_uiState.value.hasPermission) refreshPhotos()
     }
 
     /** 从系统设置回来时重新检查（拒绝且不再询问 → 去系统设置开启）。 */

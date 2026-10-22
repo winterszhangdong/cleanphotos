@@ -9,6 +9,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- 安卓：支持视频。视频和照片一起按日期显示，可以收藏、移入垃圾桶、撤回和清空；只显示首帧，网格右下角和清理页底部显示时长。Android 13+ 会多申请视频权限（与照片同一个系统弹窗），已授权照片的用户启动时补请求一次。
+- 安卓：首页筛选新增「截图」「大文件」（≥ 10 MB）「聊天软件存图」（微信 / WhatsApp / Telegram / QQ），右侧显示数量，进清理页后只在筛选结果里翻页。
+- 安卓：新增「相似照片」页（筛选菜单最后一项）：拍摄时间相差 10 秒以内、画面相近的照片成组，默认保留像素最高的一张，点缩略图可改，「移走其余 N 张」一键移入垃圾桶并可撤回。
 - iOS：读屏（VoiceOver）可用性：清理页照片整页朗读拍摄时间，提供「收藏 / 取消收藏」「移入垃圾桶」自定义操作，上下轻扫翻页。
 - iOS：只授权了部分照片时，照片页 ⋯ 菜单里多一项「选择更多照片」；系统不再在启动时自动弹出选择提示。
 - iOS：新增隐私清单（PrivacyInfo.xcprivacy）：不追踪、不收集数据，声明用到的本地设置存储与系统时钟接口。
@@ -54,6 +57,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- Android: video support. Videos sit alongside photos by date and can be favorited, moved to trash, undone and emptied; only the first frame is shown, with the duration in the grid corner and in the review footer. Android 13+ also asks for video access (same system prompt as photos); users who already granted photo access are asked once on launch.
+- Android: new home filters "Screenshots", "Large files" (≥ 10 MB) and "Chat app images" (WeChat / WhatsApp / Telegram / QQ), each with a count; review then pages only through the filtered photos.
+- Android: new "Similar photos" page (last item in the filter menu): photos taken within 10 seconds of each other that look alike are grouped, the highest-resolution one is kept by default (tap a thumbnail to change it), and "Remove the other N" moves the rest to the trash with undo.
 - iOS: VoiceOver support in review: the photo page reads its capture time as one element, offers Favorite/Unfavorite and Move to Trash custom actions, and swiping up or down pages between photos.
 - iOS: with limited photo access, the Photos ⋯ menu has a new "Select more photos" entry; the system no longer pops up its own selection prompt on launch.
 - iOS: added a privacy manifest (PrivacyInfo.xcprivacy): no tracking, no data collection, and declarations for the local settings storage and system clock APIs used.

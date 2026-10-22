@@ -2,6 +2,7 @@ package com.winters.cleanphotos.domain.usecase
 
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.repository.SeenStateRepository
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -20,5 +21,9 @@ class FilterPhotosUseCase @Inject constructor(
         when (filterMode) {
             PhotoFilterMode.AllPhotos -> photos
             PhotoFilterMode.UnseenOnly -> photos.filter { it.id !in seenIds }
+            PhotoFilterMode.Screenshots,
+            PhotoFilterMode.LargeFiles,
+            PhotoFilterMode.ChatApps,
+            -> photos.filter { SmartFilterRules.matches(it, filterMode) }
         }
 }

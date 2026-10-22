@@ -6,7 +6,9 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +26,7 @@ import com.winters.cleanphotos.feature.language.LanguageViewModel
 fun AllPhotosRoute(
     onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String) -> Unit,
     onNavigateToTrash: () -> Unit,
+    onNavigateToSimilar: () -> Unit,
     viewModel: AllPhotosViewModel = hiltViewModel(),
     languageViewModel: LanguageViewModel = hiltViewModel(),
 ) {
@@ -37,7 +40,7 @@ fun AllPhotosRoute(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) {
+    ) { result ->
         val granted = PermissionChecker.hasPhotoPermission(context)
         if (!granted) {
             val activity = context as? Activity
@@ -45,6 +48,15 @@ fun AllPhotosRoute(
                 !ActivityCompat.shouldShowRequestPermissionRationale(activity, PermissionChecker.getRequiredPermission())
         }
         viewModel.onPermissionResult(granted)
+        // 拒绝视频不影响照片；同意后要重新查询，视频才会进列表
+        if (result[Manifest.permission.READ_MEDIA_VIDEO] == true) {
+            viewModel.onVideoPermissionGranted()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val missing = viewModel.consumeMissingVideoPermissionRequest() ?: return@LaunchedEffect
+        permissionLauncher.launch(missing)
     }
 
     LifecycleResumeEffect(Unit) {
@@ -69,6 +81,7 @@ fun AllPhotosRoute(
             onNavigateToReview(photoId, uiState.sortOrder.name, uiState.filterMode.name)
         },
         onTrashClick = onNavigateToTrash,
+        onOpenSimilar = onNavigateToSimilar,
         onSortOrderChanged = viewModel::onSortOrderChanged,
         onFilterModeChanged = viewModel::onFilterModeChanged,
         selection = selection,

@@ -17,23 +17,31 @@ data class PhotoItem(
     val width: Int?,
     val height: Int?,
     val isFavorite: Boolean = false,
-    val isTrashed: Boolean = false
+    val isTrashed: Boolean = false,
+    val mediaType: MediaType = MediaType.Image,
+    val durationMs: Long? = null,
+    val relativePath: String? = null,
+    val bucketName: String? = null,
 )
 ```
 
 字段说明：
 
 ```text
-id：MediaStore 图片 ID
-uri：图片 Uri
-displayName：图片名称
-dateTaken：拍摄时间
+id：MediaStore Files 表 _ID。图片和视频共用这一列，两张表不会撞号；收藏 / 看过 / 垃圾桶记录继续按 id 存
+uri：图片用 Images.Media.EXTERNAL_CONTENT_URI + id；视频用 Video.Media.EXTERNAL_CONTENT_URI + id
+displayName：文件名
+dateTaken：有效拍摄时间（DATE_TAKEN，为空则 DATE_ADDED × 1000）
 dateGroup：日期分组文本
-size：文件大小（字节），来自 MediaStore.Images.Media.SIZE；≤0 时为 null。用于垃圾桶「可释放」、单张大小、小结卡「释放」、「全部看过了」的待释放
-width：图片宽度（已按 MediaStore ORIENTATION 校正：旋转 90° / 270° 时与 HEIGHT 对调，即显示时的宽）
-height：图片高度（同上，显示时的高）
+size：文件大小（字节），来自 SIZE；≤0 时为 null。用于垃圾桶「可释放」、单张大小、小结卡「释放」、「全部看过了」的待释放
+width：宽度（已按 ORIENTATION 校正：旋转 90° / 270° 时与 HEIGHT 对调，即显示时的宽）。视频只在该列存在时对调（Android 10+）
+height：高度（同上，显示时的高）
 isFavorite：是否已被系统相册标记为收藏。Android 11 / API 30 及以上应来自 MediaStore 的 IS_FAVORITE；低版本不支持系统收藏时不能用本地值伪装为系统收藏成功
 isTrashed：是否在 App 内垃圾桶中。由 AppTrashEntry 记录计算而来，不来自 MediaStore IS_TRASHED
+mediaType：Image 或 Video。视频和照片走同一套列表、清理、收藏、垃圾桶、看过
+durationMs：视频时长（毫秒，MediaStore DURATION）；图片为 null。界面格式为 m:ss，满 1 小时为 h:mm:ss
+relativePath：相对外部存储根目录的文件夹，与 RELATIVE_PATH 相同格式、以 / 结尾，例如 Pictures/Screenshots/。Android 10+ 直接读 RELATIVE_PATH；Android 8–9 由 DATA 相对外部存储根目录推出。推不出时为 null
+bucketName：所在文件夹名（BUCKET_DISPLAY_NAME）
 ```
 
 ***
@@ -127,7 +135,10 @@ OldestFirst：最早的照片排在前面。菜单文案是「最早优先」
 ```kotlin
 enum class PhotoFilterMode {
     AllPhotos,
-    UnseenOnly
+    UnseenOnly,
+    Screenshots,
+    LargeFiles,
+    ChatApps
 }
 ```
 
@@ -136,6 +147,15 @@ enum class PhotoFilterMode {
 ```text
 AllPhotos：展示全部照片（默认）
 UnseenOnly：仅展示未看过的照片
+Screenshots / LargeFiles / ChatApps：与前两项单选互斥，规则见 SmartFilterRules
+```
+
+判定在 `domain/model/SmartFilterRules.kt`（纯函数，大小写不敏感）：
+
+```text
+截图：relativePath 或 bucketName 含 "screenshot"、"截屏"、"截图"；字段为 null 不命中
+大文件：size ≥ 10 * 1024 * 1024 字节，图片和视频同一阈值；size 为 null 不算
+聊天软件存图：relativePath 含 "weixin"、"whatsapp"、"telegram"，或以 "Pictures/QQ/" 开头
 ```
 
 ***
@@ -392,7 +412,10 @@ data class AllPhotosUiState(
     val hasPermission: Boolean = false,
     val errorMessage: String? = null,
     val sortOrder: PhotoSortOrder = PhotoSortOrder.NewestFirst,
-    val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos
+    val filterMode: PhotoFilterMode = PhotoFilterMode.AllPhotos,
+    val screenshotCount: Int = 0,
+    val largeFileCount: Int = 0,
+    val chatAppCount: Int = 0
 )
 ```
 
@@ -407,7 +430,8 @@ isLoading：是否加载中
 hasPermission：是否有相册权限
 errorMessage：错误信息
 sortOrder：当前排序方式。菜单文案是「最新优先」和「最早优先」
-filterMode：当前筛选模式。菜单文案是「全部照片」和「仅未看过」
+filterMode：当前筛选模式。菜单文案是「全部照片」「仅未看过」「截图」「大文件」「聊天软件存图」
+screenshotCount / largeFileCount / chatAppCount：照片页全部照片里命中对应规则的张数，不受「看过」影响
 ```
 
 ***
@@ -691,6 +715,7 @@ class FilterPhotosUseCase {
 ```text
 AllPhotos：返回全部照片
 UnseenOnly：读取 AppSeenStateDataSource，仅返回未看过的照片（id 不在 seenIds 中的照片）
+Screenshots / LargeFiles / ChatApps：按 SmartFilterRules 过滤，不读取「看过」状态
 ```
 
 ***
@@ -788,7 +813,7 @@ class StartReviewSessionUseCase(
 
 ```text
 接受 startPhotoId、sortOrder、filterMode、scope 四个参数
-执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → 过滤 → 查找起始照片
+执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤（含截图 / 大文件 / 聊天软件存图），Favorites 跳过过滤 → 查找起始照片
 找不到 startPhotoId 直接抛错，不回退到 0
 scope 决定候选队列：AllPhotos 排除垃圾桶和已收藏，Favorites 只取已收藏且不在垃圾桶的
 ```
@@ -965,6 +990,55 @@ summarizedDays：本次会话已出过小结的天
 
 - 新增 `SeenStateRepository.observeSeenIds()`（实现包 `AppSeenStateDataSource`）。
 - `UserPreferencesRepository` 新增 `observeSwipeActionCount()`、`incrementSwipeActionCount()`。
+
+## 相似照片
+
+只读「全部照片」里的图片，不改 `PhotoItem`，也不改 MediaStore 主查询。
+
+### SimilarRules / DHash
+
+```text
+MAX_GAP_MS = 10_000
+MAX_HAMMING = 10
+HASH_PARALLELISM = 2
+DHash.fromLuminance：9×8 亮度（72 个）按行比较相邻像素，得到 64 位 Long
+DHash.hamming：两个 Long 的不同位数
+```
+
+### SimilarGroup
+
+```kotlin
+data class SimilarGroup(
+    val photos: List<PhotoItem>, // 拍摄时间升序，至少 2 张
+    val keepId: Long,
+)
+```
+
+`key` 由组内 id 串成，和当前留下哪张无关。扫描结果 `SimilarScan`：`Comparing(done, total)` 或 `Ready(groups)`。
+
+默认保留 `chooseSimilarKeep`：像素数（宽 × 高，缺失算 0）最大，其次 `size` 更大，再其次 `dateTaken` 更早，最后 id 更小。
+
+### SimilarPhotoRepository
+
+```kotlin
+interface SimilarPhotoRepository {
+    fun hashPhotos(photos: List<PhotoItem>): Flow<SimilarHashProgress>
+}
+```
+
+实现是 `SimilarPhotoRepositoryImpl`，在 IO 上计算，并发不超过 `HASH_PARALLELISM`。单张失败不写入结果。`PhotoHashDataSource` 把算成的哈希放在进程内 `Map<id, hash>`，进程重启后重算。
+
+### UseCase
+
+| UseCase | 作用 |
+| --- | --- |
+| GroupSimilarPhotosUseCase | 纯函数：时间窗 + 汉明距离链式分组，并给出 `hashCandidates`（只有 10 秒内有邻居的图片） |
+| ObserveSimilarGroupsUseCase | 观察全部照片，只给候选算哈希，算完一次性发出分组 |
+| chooseSimilarKeep | 一组里默认留下哪张 |
+
+移走和撤回复用 `BatchMovePhotosToTrashUseCase`、`UndoBatchActionUseCase`。
+
+***
 
 ### 文件大小文案
 

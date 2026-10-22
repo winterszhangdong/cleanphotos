@@ -91,7 +91,10 @@ Compose UI 测试
 ```text
 日期分组逻辑
 照片排序逻辑（NewestFirst / OldestFirst）
+照片过滤逻辑（AllPhotos / UnseenOnly / Screenshots / LargeFiles / ChatApps）
 照片过滤逻辑（AllPhotos / UnseenOnly）
+dHash（9×8 亮度 → 64 位、汉明距离）
+相似分组（10 秒与距离 10 的边界、链式、单张不成组、视频排除、取图失败跳过、默认保留）
 清理队列索引计算
 撤回插入位置
 教学状态判断
@@ -99,6 +102,9 @@ Compose UI 测试
 AppTrashStateDataSource 编码与解析（encodeEntry / parseEntry）
 AppTrashStateDataSource CRUD（upsert / remove / removeEntries / removeMissingEntries）
 PhotoPager 的轮播过渡参数（pageScale、pageAlpha、zIndex）、切页位置连续性、任意图片比例验证和稳定请求键
+视频时长格式（DurationFormatter：m:ss / h:mm:ss）
+Android 8–9 DATA → relativePath（relativePathFromData / normalizeRelativePath）
+权限判定（图片可用、13+ 完整访问要图片+视频、请求列表、补请求视频权限、能否读视频）
 ```
 
 ### ViewModel 测试
@@ -111,6 +117,7 @@ PhotoPager 的轮播过渡参数（pageScale、pageAlpha、zIndex）、切页位
 AllPhotosViewModel
 ReviewViewModel
 TrashViewModel
+SimilarViewModel（移走其余、撤回、撤回过期、失败不出胶囊）
 ```
 
 ### UseCase 测试
@@ -477,6 +484,70 @@ P1
 仅返回 photo_1 和 photo_3
 photo_2 被过滤掉
 返回结果仅包含未看过的照片
+```
+
+***
+
+### 用例：智能筛选规则与 FilterPhotosUseCase
+
+优先级：
+
+```text
+P1
+```
+
+前置条件：
+
+```text
+自行构造 PhotoItem（mediaType / relativePath / bucketName / size）
+```
+
+操作步骤：
+
+```text
+1. 截图：relativePath 或 bucketName 含 screenshot / 截屏 / 截图（含大写），以及 null、不含关键字的反例
+2. 大文件：size = 10 * 1024 * 1024、恰少 1 字节、null；图片和视频各一
+3. 聊天软件：relativePath 含 weixin / whatsapp / telegram，或以 Pictures/QQ/ 开头（含大小写）；Pictures/QQ 无斜杠、Download/QQ/、仅 bucketName 为反例
+4. 对同一列表执行 FilterPhotosUseCase 的 Screenshots / LargeFiles / ChatApps，seenIds 含命中项
+```
+
+预期结果：
+
+```text
+正例命中、反例不命中
+三个新模式只返回命中项，已看过的命中项仍保留
+UnseenOnly 与 AllPhotos 行为不变
+```
+
+***
+
+### 用例：首页筛选数量与结果
+
+优先级：
+
+```text
+P1
+```
+
+前置条件：
+
+```text
+照片页同时有截图、大文件、聊天软件存图和普通照片，其中一张截图已看过
+```
+
+操作步骤：
+
+```text
+1. 读取 AllPhotosUiState 的 screenshotCount / largeFileCount / chatAppCount
+2. 依次切换 Screenshots、LargeFiles、ChatApps、AllPhotos
+```
+
+预期结果：
+
+```text
+三项数量按全部照片计算，已看过的截图仍计入 screenshotCount
+当前筛选的可见列表只含命中项，且保留排序
+切回 AllPhotos 后可见数量恢复为全部照片
 ```
 
 ***
@@ -2949,6 +3020,38 @@ totalCount = 2
 
 ***
 
+### 用例：智能筛选下会话只含筛选结果
+
+优先级：
+
+```text
+P1
+```
+
+前置条件：
+
+```text
+AllPhotos 列表含一张截图、一张普通照片、一张达到 10 MB 的视频
+Favorites 列表含这三张
+```
+
+操作步骤：
+
+```text
+1. scope = AllPhotos，filterMode = Screenshots，从截图启动
+2. scope = AllPhotos，filterMode = LargeFiles，从该视频启动
+3. scope = Favorites，filterMode = Screenshots，从普通照片启动
+```
+
+预期结果：
+
+```text
+AllPhotos 会话的 photos 只有该筛选的命中项，currentIndex 指向起点
+Favorites 会话跳过过滤，三张都在
+```
+
+***
+
 ### 用例：startPhotoId 不在过滤后列表中时抛错
 
 优先级：
@@ -3187,7 +3290,8 @@ P0
 预期结果：
 
 ```text
-请求 READ_MEDIA_IMAGES
+请求 READ_MEDIA_IMAGES 和 READ_MEDIA_VIDEO
+Android 14+ 再请求 READ_MEDIA_VISUAL_USER_SELECTED
 不请求 READ_EXTERNAL_STORAGE
 ```
 
@@ -3211,6 +3315,35 @@ P0
 
 ```text
 请求 READ_EXTERNAL_STORAGE
+```
+
+***
+
+### 用例：已有图片权限、缺少视频权限
+
+优先级：
+
+```text
+P0
+```
+
+前置条件：
+
+```text
+Android 13+
+已授予 READ_MEDIA_IMAGES
+未授予 READ_MEDIA_VIDEO
+冷启动后进入照片页
+```
+
+预期结果：
+
+```text
+进入照片页时请求一次 READ_MEDIA_VIDEO
+拒绝后照片仍可浏览、收藏、移入垃圾桶
+本次不按「图库里已不存在」清理收藏 / 看过 / 垃圾桶（查询不含视频）
+同一进程内再次进入照片页不再请求
+下次冷启动再请求一次；系统拒绝两次后不再弹窗
 ```
 
 ***
