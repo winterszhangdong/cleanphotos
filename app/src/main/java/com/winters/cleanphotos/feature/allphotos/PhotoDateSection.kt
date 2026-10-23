@@ -95,8 +95,11 @@ fun rememberGridFirstScreen(state: LazyGridState, sessionKey: String): () -> Boo
 /**
  * 重排：每一格用 animateItem 从旧位置平滑滑到新位置（落定弹簧），相对首个可见项按 14ms 步长错开。
  * [reorderAnchor] 是排序切换那一刻首个可见项的下标。
+ * [place] 为 false 时不挂 animateItem。范围和「只看没看过」会换掉一整批格子，位移会让
+ * 远处的照片和日期从屏幕下沿飞入；切走时这一层不跟滚动，要等弹簧走完才离开。
  */
-fun LazyGridItemScope.reorderModifier(index: Int, reorderAnchor: Int): Modifier {
+fun LazyGridItemScope.reorderModifier(index: Int, reorderAnchor: Int, place: Boolean = true): Modifier {
+    if (!place) return Modifier
     val delay = (index - reorderAnchor).coerceAtLeast(0) * MotionDurations.REORDER_STAGGER
     return Modifier.animateItem(
         fadeInSpec = tween(MotionDurations.SHORT, easing = MotionEasings.Standard),
@@ -106,7 +109,8 @@ fun LazyGridItemScope.reorderModifier(index: Int, reorderAnchor: Int): Modifier 
 }
 
 /**
- * 排序 / 筛选切换那一刻的首个可见项下标（不观察滚动，避免每次滚动都重组列表）。
+ * 排序切换那一刻的首个可见项下标（不观察滚动，避免每次滚动都重组列表）。
+ * 收藏页只有排序会改顺序，所以一直做位移。
  */
 @Composable
 fun rememberReorderAnchor(state: LazyGridState, ordering: Any): () -> Int {
@@ -117,6 +121,43 @@ fun rememberReorderAnchor(state: LazyGridState, ordering: Any): () -> Int {
         holder[0] = Snapshot.withoutReadObservation { state.firstVisibleItemIndex }
     }
     return remember { { holder[0] } }
+}
+
+/** 照片页网格：只有排序才位移；范围或「只看没看过」变化时关掉。 */
+class PhotoReorder(val anchor: () -> Int, val place: () -> Boolean)
+
+@Composable
+fun rememberPhotoReorder(state: LazyGridState, sortOrder: Any, membership: Any): PhotoReorder {
+    val motion = remember { ReorderMotion(sortOrder, membership) }
+    val index = if (motion.membership != membership || motion.sort != sortOrder) {
+        Snapshot.withoutReadObservation { state.firstVisibleItemIndex }
+    } else {
+        motion.anchor
+    }
+    motion.advance(sortOrder, membership, index)
+    return remember(motion) { PhotoReorder({ motion.anchor }, { motion.place }) }
+}
+
+internal data class ReorderMotion(
+    var sort: Any,
+    var membership: Any,
+    var anchor: Int = 0,
+    var place: Boolean = false,
+)
+
+internal fun ReorderMotion.advance(sort: Any, membership: Any, firstVisibleItemIndex: Int) {
+    when {
+        this.membership != membership -> {
+            this.membership = membership
+            this.sort = sort
+            place = false
+        }
+        this.sort != sort -> {
+            this.sort = sort
+            anchor = firstVisibleItemIndex
+            place = true
+        }
+    }
 }
 
 /**
@@ -134,7 +175,7 @@ class GridSelection(
 
 /**
  * 年份分隔 + 天标题 + 四列缩略图（LazyVerticalGrid，每张缩略图一个 item，key = photoId，
- * 这样切换排序时每一格都能 animateItem 重排）。
+ * 这样切换排序时每一格都能 animateItem 重排）。范围和「只看没看过」不位移。
  * 只有天标题右侧（数字 + 箭头）进入这一天的第一张；缩略图点击进入那一张。
  */
 fun LazyGridScope.photoDaySections(
@@ -144,6 +185,7 @@ fun LazyGridScope.photoDaySections(
     /** 网格是否还在首屏（还没滚动过）：首屏格子用 [develop] 错开显影，之后进入的格子不显影（直接出图）。 */
     firstScreen: () -> Boolean,
     reorderAnchor: () -> Int,
+    reorderPlace: () -> Boolean = { true },
     onPhotoClick: (Long) -> Unit,
     selection: GridSelection? = null,
     showChevron: Boolean = true,
@@ -156,7 +198,7 @@ fun LazyGridScope.photoDaySections(
             val i = itemIndex++
             item(key = "year-$year-${section.dayKey}", span = { GridItemSpan(maxLineSpan) }, contentType = "year") {
                 // 第二个及以后的年份分隔上方多 8dp
-                YearDivider(year, reorderModifier(i, reorderAnchor()).padding(top = if (index == 0) 0.dp else 8.dp))
+                YearDivider(year, reorderModifier(i, reorderAnchor(), reorderPlace()).padding(top = if (index == 0) 0.dp else 8.dp))
             }
         }
         val headerIndex = itemIndex++
@@ -170,7 +212,7 @@ fun LazyGridScope.photoDaySections(
                     meta = label.monthLabel,
                     right = { MonoWithBold(stringResource(if (allPicked) R.string.deselect_all else R.string.select_all), "") },
                     onEnter = { selection.onToggleDay(section.dayKey) },
-                    modifier = reorderModifier(headerIndex, reorderAnchor()),
+                    modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
                     showChevron = false,
                 )
             } else {
@@ -179,7 +221,7 @@ fun LazyGridScope.photoDaySections(
                     meta = label.monthLabel,
                     right = { right(section) },
                     onEnter = section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
-                    modifier = reorderModifier(headerIndex, reorderAnchor()),
+                    modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
                     showChevron = showChevron,
                 )
             }
@@ -214,7 +256,7 @@ fun LazyGridScope.photoDaySections(
                     isVideo = photo.mediaType == MediaType.Video,
                     durationMs = photo.durationMs,
                     // 同一天第二行起上方 2dp 间隔（.grid4 gap 2px）；天与天之间没有额外间隔
-                    modifier = reorderModifier(tileIndex, reorderAnchor())
+                    modifier = reorderModifier(tileIndex, reorderAnchor(), reorderPlace())
                         .padding(top = if (row == 0) 0.dp else Dimens.GridGap)
                         .then(
                             if (selection == null) Modifier

@@ -443,7 +443,7 @@ private fun PhotoList(
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
-    val anchor = rememberReorderAnchor(gridState, Triple(uiState.sortOrder, uiState.scope, uiState.unseenOnly))
+    val reorder = rememberPhotoReorder(gridState, uiState.sortOrder, uiState.scope to uiState.unseenOnly)
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
     LazyVerticalGrid(
@@ -476,7 +476,8 @@ private fun PhotoList(
             },
             develop = develop,
             firstScreen = firstScreen,
-            reorderAnchor = anchor,
+            reorderAnchor = reorder.anchor,
+            reorderPlace = reorder.place,
             onPhotoClick = openPhoto,
             selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay, actions.onToggle, actions.onLongPress),
             showChevron = false,
