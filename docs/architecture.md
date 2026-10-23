@@ -268,12 +268,16 @@ PhotoHashDataSource
 AppTrashStateDataSource
 AppFavoriteStateDataSource
 AppSeenStateDataSource
+AppSimilarResolvedDataSource
+PhotoSharpnessDataSource
 ```
 
 职责：
 
 * 查询系统照片和视频：图片表、视频表分别查询后按拍摄时间合并，没有视频权限时只查图片；填充 mediaType / durationMs / relativePath / bucketName（含 IS_FAVORITE，仅用于首次迁移系统收藏）。
 * `PhotoHashDataSource`：取小图算 64 位 dHash，结果只缓存在进程内存，供相似照片分组。
+* `PhotoSharpnessDataSource`：只给已经成组的照片取约 512px 长边，算拉普拉斯方差，同样只缓存在进程内存。
+* `AppSimilarResolvedDataSource`：DataStore 字符串集合，一条记录是一组已处理照片的 id。格式非法直接抛错。
 * 永久删除照片（移入 / 移出垃圾桶是 App 内语义，只写 DataStore）。
 * `AppTrashStateDataSource`：使用 DataStore 管理 App 内垃圾桶的软删除记录（upsertEntry / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
 * `AppFavoriteStateDataSource`：使用 DataStore 管理 App 内收藏记录（upsertEntry / upsertEntries / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
@@ -331,7 +335,7 @@ MediaType（枚举：Image / Video）
 PhotoFilterMode（枚举：AllPhotos / Screenshots / LargeFiles / ChatApps / OnThisDay）。「只看没看过」是布尔 unseenOnly，不是枚举项
 SmartFilterRules（截图 / 大文件 / 聊天软件存图判定）
 OnThisDayRules（那年今天：本地月日相同且年份更早；今天由调用方传入）
-SimilarGroup、SimilarRules、DHash（相似照片分组）
+SimilarGroup（recommendedId + sharpness）、SimilarMark、SimilarRules、DHash、Sharpness（相似照片分组和清晰度）
 PhotoDateGroup
 PhotoAction
 PhotoActionType（枚举：Favorite / Unfavorite / MoveToTrash）
@@ -350,7 +354,8 @@ TrashScreenMode（枚举：Grid / Selection / Preview）
 ```text
 PhotoRepository（observeAllPhotos 排除 App 垃圾桶和 App 收藏中的照片；observeFavoritedPhotos 返回 App 收藏中且不在垃圾桶的照片；observeTrashedPhotos 返回 App 内垃圾桶照片；refreshPhotos 含一次性迁移和失效条目清理；只有部分照片访问权时两者都跳过，否则会把未选中照片的状态当成失效删掉）
 ReviewRepository（favoritePhoto / removeFavorite / moveToTrash / restoreFromTrash 直接写 DataStore 后返回 Success，不触发系统授权；照片页多选另有 favoritePhotos / removeFavorites / movePhotosToTrash 批量接口，每个 Store 一次写入；deletePhotosPermanently 仍通过 MediaStore）
-SimilarPhotoRepository（hashPhotos：给指定照片算 dHash，返回进度流；单张失败跳过）
+SimilarPhotoRepository（hashPhotos / measureSharpness：进度流；单张失败跳过）
+SimilarResolvedRepository（observeResolved / addResolved / removeResolved）
 UserPreferencesRepository（教学、滑动次数、累计释放。不再读写 trash_reminder_shown_at）
 ```
 
@@ -390,8 +395,9 @@ AddFreedBytesUseCase（累加已确认删除的字节，bytes 必须 > 0）
 包含：
 
 ```text
-AllPhotosRoute（照片页导航项里同时持有 SimilarViewModel；第一次切到相似才 start，且只启动一次）
+AllPhotosRoute（照片页导航项里同时持有 SimilarViewModel；第一次切到相似才 start，且只启动一次。对比页用同一个返回栈条目上的 ViewModel）
 AllPhotosScreen（顶栏 + 范围行 quick return；相似列表嵌在这一页）
+SimilarCompareRoute（全屏对比；手势在 feature/similar，复用清理页的判定函数，不改清理页）
 AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化）
 AllPhotosUiState
 PhotoDateSection
@@ -470,12 +476,14 @@ TrashScreenMode
 all_photos
 favorites
 review/{photoId}/{sortOrder}/{filterMode}/{scope}?unseenOnly={unseenOnly}
+similar/{groupKey}/{photoId}
 trash
 ```
 
 说明：
 
-* `all_photos` 是首页。相似没有独立路由，分组列表画在这一页里。
+* `all_photos` 是首页。相似分组列表画在这一页里，没有自己的顶栏。
+* `similar/{groupKey}/{photoId}` 是相似对比页。groupKey 含逗号，跳转前 `Uri.encode`。ViewModel 取自 `all_photos` 的返回栈条目，标记和撤回与列表是同一份。返回不提交。
 * `favorites` 是收藏页。
 * `review/{photoId}/{sortOrder}/{filterMode}/{scope}?unseenOnly={unseenOnly}` 是清理页。查询参数默认 false，收藏页仍用四个路径参数调用，生成的地址带 `?unseenOnly=false`。scope 决定手势语义（AllPhotos 上滑收藏，Favorites 上滑取消收藏）。AllPhotos 会话再按 filterMode 和 unseenOnly 过滤。
 * `trash` 是垃圾桶页。

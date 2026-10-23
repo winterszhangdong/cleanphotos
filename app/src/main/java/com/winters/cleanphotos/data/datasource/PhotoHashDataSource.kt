@@ -2,11 +2,8 @@ package com.winters.cleanphotos.data.datasource
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
-import android.os.Build
 import android.util.Log
-import android.util.Size
 import com.winters.cleanphotos.domain.model.DHash
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarRules
@@ -47,29 +44,7 @@ class PhotoHashDataSource @Inject constructor(
         return hash
     }
 
-    private fun loadSmall(uri: Uri): Bitmap? {
-        val raw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            context.contentResolver.loadThumbnail(uri, Size(DECODE_EDGE, DECODE_EDGE), null)
-        } else {
-            decodeSampled(uri)
-        } ?: return null
-        if (raw.config != Bitmap.Config.HARDWARE) return raw
-        val copy = raw.copy(Bitmap.Config.ARGB_8888, false)
-        raw.recycle()
-        return copy
-    }
-
-    private fun decodeSampled(uri: Uri): Bitmap? {
-        val resolver = context.contentResolver
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        val opts = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight)
-            inPreferredConfig = Bitmap.Config.RGB_565
-        }
-        return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-    }
+    private fun loadSmall(uri: Uri): Bitmap? = loadPhotoBitmap(context, uri, DECODE_EDGE)
 
     private fun hashBitmap(bitmap: Bitmap): Long {
         val scaled = if (bitmap.width == SimilarRules.DHASH_WIDTH && bitmap.height == SimilarRules.DHASH_HEIGHT) {
@@ -92,18 +67,6 @@ class PhotoHashDataSource @Inject constructor(
         } finally {
             if (scaled !== bitmap) scaled.recycle()
         }
-    }
-
-    private fun sampleSize(width: Int, height: Int): Int {
-        var sample = 1
-        var w = width
-        var h = height
-        while (w / 2 >= DECODE_EDGE && h / 2 >= DECODE_EDGE) {
-            w /= 2
-            h /= 2
-            sample *= 2
-        }
-        return sample
     }
 
     private companion object {

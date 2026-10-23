@@ -46,6 +46,7 @@ import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.feature.allphotos.AllPhotosRoute
 import com.winters.cleanphotos.feature.favorites.FavoritesRoute
 import com.winters.cleanphotos.feature.review.ReviewRoute
+import com.winters.cleanphotos.feature.similar.SimilarCompareRoute
 import com.winters.cleanphotos.feature.trash.TrashRoute
 
 /**
@@ -121,6 +122,11 @@ fun NavGraph(
                                     }
                                 },
                                 onNavigateToTrash = { selectTab(BottomTab.Trash) },
+                                onNavigateToSimilar = { groupKey, photoId ->
+                                    e.ifCurrent {
+                                        navController.navigate(NavRoutes.similarCompareRoute(groupKey, photoId))
+                                    }
+                                },
                             )
                         }
                     }
@@ -161,6 +167,25 @@ fun NavGraph(
                                 scope = requireNotNull(args.getString("scope")),
                                 unseenOnly = args.getBoolean("unseenOnly"),
                                 onNavigateBack = { e.ifCurrent { navController.popBackStack() } },
+                            )
+                        }
+                    }
+
+                    composable(
+                        route = NavRoutes.SIMILAR_COMPARE,
+                        arguments = listOf(
+                            navArgument("groupKey") { type = NavType.StringType },
+                            navArgument("photoId") { type = NavType.LongType },
+                        ),
+                    ) { e ->
+                        val args = requireNotNull(e.arguments)
+                        val parent = remember(e) { navController.getBackStackEntry(NavRoutes.ALL_PHOTOS) }
+                        DockEntry(e, this) { _ ->
+                            SimilarCompareRoute(
+                                groupKey = requireNotNull(args.getString("groupKey")),
+                                photoId = args.getLong("photoId"),
+                                onBack = { e.ifCurrent { navController.popBackStack() } },
+                                parentEntry = parent,
                             )
                         }
                     }

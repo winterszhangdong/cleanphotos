@@ -1047,35 +1047,57 @@ DHash.hamming：两个 Long 的不同位数
 ### SimilarGroup
 
 ```kotlin
+enum class SimilarMark { Keep, Remove, Favorite }
+
 data class SimilarGroup(
     val photos: List<PhotoItem>, // 拍摄时间升序，至少 2 张
-    val keepId: Long,
+    val recommendedId: Long,     // 推荐，不是唯一能留下的
+    val sharpness: Map<Long, Double> = emptyMap(), // 拉普拉斯方差；失败的 id 不在里面
 )
 ```
 
-`key` 由组内 id 串成，和当前留下哪张无关。扫描结果 `SimilarScan`：`Comparing(done, total)` 或 `Ready(groups)`。
+`key` 由组内 id 串成，和标记无关。扫描结果 `SimilarScan`：`Comparing(done, total)` 或 `Ready(groups)`。
 
-默认保留 `chooseSimilarKeep`：像素数（宽 × 高，缺失算 0）最大，其次 `size` 更大，再其次 `dateTaken` 更早，最后 id 更小。
+`Sharpness.laplacianVariance` 是纯函数：4 邻域拉普拉斯，方差 = 平方均值 − 均值平方。纯色为 0。清晰度只对已经成组的照片计算。
+
+推荐 `chooseSimilarRecommended`：清晰度高的优先，没有清晰度的最后。其后与旧规则相同：像素数（宽 × 高，缺失算 0）最大，其次 `size` 更大，再其次 `dateTaken` 更早，最后 id 更小。
+
+页面上的标记是 `Map<groupKey, Map<photoId, SimilarMark>>`，只活在 `SimilarViewModel`。默认推荐为留下，其余为移走。收藏也算用户留下的一种，但收藏后照片离开全部照片。
+
+### 已处理记录
+
+`AppSimilarResolvedDataSource`，DataStore `stringSetPreferencesKey("app_similar_resolved")`。每条是 id 升序后用逗号连接。少于两张、不是严格升序、或有非数字，直接抛错，不静默丢掉。
+
+```kotlin
+interface SimilarResolvedRepository {
+    fun observeResolved(): Flow<List<Set<Long>>>
+    suspend fun addResolved(ids: Set<Long>)
+    suspend fun removeResolved(ids: Set<Long>)
+}
+```
+
+一组的 id 集合是某条记录的子集时，这组不出现在列表里。订阅记录变化不重新计算哈希和清晰度。
 
 ### SimilarPhotoRepository
 
 ```kotlin
 interface SimilarPhotoRepository {
     fun hashPhotos(photos: List<PhotoItem>): Flow<SimilarHashProgress>
+    fun measureSharpness(photos: List<PhotoItem>): Flow<SimilarSharpnessProgress>
 }
 ```
 
-实现是 `SimilarPhotoRepositoryImpl`，在 IO 上计算，并发不超过 `HASH_PARALLELISM`。单张失败不写入结果。`PhotoHashDataSource` 把算成的哈希放在进程内 `Map<id, hash>`，进程重启后重算。
+实现是 `SimilarPhotoRepositoryImpl`，在 IO 上计算，并发不超过 `HASH_PARALLELISM`。单张失败不写入结果。`PhotoHashDataSource` 和 `PhotoSharpnessDataSource` 把结果放在进程内 Map，进程重启后重算。
 
 ### UseCase
 
 | UseCase | 作用 |
 | --- | --- |
 | GroupSimilarPhotosUseCase | 纯函数：时间窗 + 汉明距离链式分组，并给出 `hashCandidates`（只有 10 秒内有邻居的图片） |
-| ObserveSimilarGroupsUseCase | 观察全部照片，只给候选算哈希，算完一次性发出分组 |
-| chooseSimilarKeep | 一组里默认留下哪张 |
+| ObserveSimilarGroupsUseCase | 观察全部照片。先哈希再只给组内算清晰度，然后按已处理记录过滤。记录变化不重新哈希 |
+| chooseSimilarRecommended | 一组里默认推荐哪张 |
 
-移走和撤回复用 `BatchMovePhotosToTrashUseCase`、`UndoBatchActionUseCase`。
+提交复用 `BatchMovePhotosToTrashUseCase`、`BatchFavoritePhotosUseCase`。撤回对两个 `BatchAction` 依次调用 `UndoBatchActionUseCase`，并 `removeResolved`。
 
 ***
 

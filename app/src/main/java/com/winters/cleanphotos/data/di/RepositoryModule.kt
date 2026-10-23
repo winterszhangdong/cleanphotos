@@ -3,10 +3,12 @@ package com.winters.cleanphotos.data.di
 import com.winters.cleanphotos.data.repository.PhotoRepositoryImpl
 import com.winters.cleanphotos.data.repository.ReviewRepositoryImpl
 import com.winters.cleanphotos.data.repository.SimilarPhotoRepositoryImpl
+import com.winters.cleanphotos.data.repository.SimilarResolvedRepositoryImpl
 import com.winters.cleanphotos.data.repository.UserPreferencesRepositoryImpl
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.repository.ReviewRepository
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
+import com.winters.cleanphotos.domain.repository.SimilarResolvedRepository
 import com.winters.cleanphotos.domain.repository.UserPreferencesRepository
 import dagger.Binds
 import dagger.Module
@@ -53,4 +55,10 @@ abstract class RepositoryModule {
     abstract fun bindSimilarPhotoRepository(
         impl: SimilarPhotoRepositoryImpl
     ): SimilarPhotoRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSimilarResolvedRepository(
+        impl: SimilarResolvedRepositoryImpl
+    ): SimilarResolvedRepository
 }

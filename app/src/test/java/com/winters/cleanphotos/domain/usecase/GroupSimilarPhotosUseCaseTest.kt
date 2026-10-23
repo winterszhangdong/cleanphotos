@@ -101,15 +101,27 @@ class GroupSimilarPhotosUseCaseTest {
         val biggerFile = photo(2, 3_000, width = 10, height = 10, size = 50)
         val earlier = photo(3, 1_000, width = 10, height = 10, size = 50)
         val laterSame = photo(4, 4_000, width = 10, height = 10, size = 50)
-        assertEquals(1L, chooseSimilarKeep(listOf(biggerFile, biggerPixels, earlier)).id)
-        assertEquals(3L, chooseSimilarKeep(listOf(laterSame, earlier, biggerFile)).id)
+        assertEquals(1L, chooseSimilarRecommended(listOf(biggerFile, biggerPixels, earlier)).id)
+        assertEquals(3L, chooseSimilarRecommended(listOf(laterSame, earlier, biggerFile)).id)
         val same = listOf(
             photo(8, 1_000, width = 10, height = 10, size = 10),
             photo(5, 1_000, width = 10, height = 10, size = 10),
         )
-        assertEquals(5L, chooseSimilarKeep(same).id)
+        assertEquals(5L, chooseSimilarRecommended(same).id)
         val grouped = group(listOf(biggerPixels, earlier), hashes(1L to 0L, 3L to 0L))
-        assertEquals(1L, grouped.single().keepId)
+        assertEquals(1L, grouped.single().recommendedId)
+    }
+
+    @Test
+    fun `推荐先看清晰度，没有清晰度的排最后，相同再走原来的规则`() {
+        val sharpSmall = photo(1, 2_000, width = 10, height = 10, size = 1)
+        val blurryBig = photo(2, 1_000, width = 400, height = 400, size = 90)
+        assertEquals(1L, chooseSimilarRecommended(listOf(blurryBig, sharpSmall), mapOf(1L to 20.0, 2L to 1.0)).id)
+        assertEquals(2L, chooseSimilarRecommended(listOf(sharpSmall, blurryBig), mapOf(2L to 4.0)).id)
+        assertEquals(
+            2L,
+            chooseSimilarRecommended(listOf(blurryBig, sharpSmall), mapOf(1L to 3.0, 2L to 3.0)).id,
+        )
     }
 
     private fun ids(groups: List<com.winters.cleanphotos.domain.model.SimilarGroup>): List<Long> =

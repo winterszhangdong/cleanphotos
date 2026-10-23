@@ -1,18 +1,21 @@
 package com.winters.cleanphotos.domain.model
 
 /**
- * 一组连拍。[photos] 按拍摄时间升序，至少两张。[keepId] 是默认留下的那张，用户可以改。
+ * 一组连拍。[photos] 按拍摄时间升序，至少两张。
+ * [recommendedId] 是推荐的那张（最清晰，没有清晰度时退回像素数），不是唯一能留下的。
+ * [sharpness] 只含这组里算出来的拉普拉斯方差；取图失败的 id 不在里面。
  */
 data class SimilarGroup(
     val photos: List<PhotoItem>,
-    val keepId: Long,
+    val recommendedId: Long,
+    val sharpness: Map<Long, Double> = emptyMap(),
 ) {
     init {
         require(photos.size >= 2) { "少于两张不成组" }
-        require(photos.any { it.id == keepId }) { "保留的照片不在组里：$keepId" }
+        require(photos.any { it.id == recommendedId }) { "推荐的照片不在组里：$recommendedId" }
     }
 
-    /** 同一批照片的组身份。保留哪张不影响 key。 */
+    /** 同一批照片的组身份。标记哪张不影响 key。 */
     val key: String get() = photos.joinToString(",") { it.id.toString() }
 }
 
@@ -21,6 +24,14 @@ data class SimilarHashProgress(
     val done: Int,
     val total: Int,
     val hashes: Map<Long, Long>,
+    val finished: Boolean,
+)
+
+/** 清晰度计算进度。未完成时 [scores] 为空，完成时是这一批算出来的全部。 */
+data class SimilarSharpnessProgress(
+    val done: Int,
+    val total: Int,
+    val scores: Map<Long, Double>,
     val finished: Boolean,
 )
 

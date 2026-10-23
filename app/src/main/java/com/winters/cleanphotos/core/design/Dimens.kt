@@ -150,8 +150,15 @@ object Dimens {
     val EmptyRise = 12.6.dp
     /** 溶解模糊 5dp（31+）。 */
     val DissolveBlur = 5.dp
-    /** 相似照片组里一行缩略图的边长。 */
+    /** 相似照片组里一行缩略图的边长。对比页胶片条同大。 */
     val SimilarThumb = 72.dp
+    /** 对比页胶片条里，当前那张的相纸白描边。 */
+    val SimilarFilmStroke = 2.dp
+    /** 方向提示圆：未过阈值空心，过阈值实心。对比页和清理页同一套尺寸。 */
+    val CueRing = 32.dp
+    val CueSolid = 56.dp
+    val CueIcon = 16.dp
+    val CueIconSolid = 24.dp
 
     /** 撤回胶囊 / 垃圾桶提醒胶囊：高 56、内边距 8、间距 12、玻璃模糊 24、投影 0 16 40。 */
     val CapsuleHeight = 56.dp

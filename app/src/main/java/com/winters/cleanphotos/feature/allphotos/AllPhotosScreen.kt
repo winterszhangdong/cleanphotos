@@ -114,6 +114,7 @@ import com.winters.cleanphotos.core.util.NumberFormatter
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.feature.similar.SimilarList
 import com.winters.cleanphotos.feature.similar.SimilarUiState
+import com.winters.cleanphotos.feature.similar.SimilarUndoBar
 import kotlinx.coroutines.delay
 
 /**
@@ -131,8 +132,8 @@ fun AllPhotosScreen(
     onScopeChanged: (LibraryScope) -> Unit,
     onShowUnseenChanged: (Boolean) -> Unit,
     similarState: SimilarUiState,
-    onSimilarKeep: (String, Long) -> Unit,
-    onSimilarMoveRest: (String) -> Unit,
+    onSimilarOpen: (String, Long) -> Unit,
+    onSimilarCommit: (String) -> Unit,
     onSimilarUndo: () -> Unit,
     onSimilarUndoExpired: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -246,8 +247,8 @@ fun AllPhotosScreen(
                     uiState = similarState,
                     listState = similarListState,
                     contentPadding = PaddingValues(top = chromeTop + Dimens.FreeTop, bottom = dockListBottomPadding()),
-                    onKeep = onSimilarKeep,
-                    onMoveRest = onSimilarMoveRest,
+                    onOpen = onSimilarOpen,
+                    onCommit = onSimilarCommit,
                 )
                 allSeen || scopeEmpty || scopeSeen -> Unit
                 uiState.sections.isEmpty() -> {
@@ -359,14 +360,23 @@ fun AllPhotosScreen(
                 onMoveToTrash = selectionActions.onMoveToTrash,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
-            val undo = if (showingSimilar) similarState.undo else selection.undo
-            BatchUndoBar(
-                undo = undo,
-                visible = undo != null && !selecting,
-                onUndo = if (showingSimilar) onSimilarUndo else selectionActions.onUndo,
-                onExpired = if (showingSimilar) onSimilarUndoExpired else selectionActions.onUndoExpired,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+            if (showingSimilar) {
+                SimilarUndoBar(
+                    undo = similarState.undo,
+                    visible = similarState.undo != null && !selecting,
+                    onUndo = onSimilarUndo,
+                    onExpired = onSimilarUndoExpired,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            } else {
+                BatchUndoBar(
+                    undo = selection.undo,
+                    visible = selection.undo != null && !selecting,
+                    onUndo = selectionActions.onUndo,
+                    onExpired = selectionActions.onUndoExpired,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
 
             SortToast(sortToast)
 

@@ -13,7 +13,11 @@ import javax.inject.Inject
  * 视频、没有拍摄时间的、凑不满两张的都不成组。组按最早一张的时间倒序，新的在前。
  */
 class GroupSimilarPhotosUseCase @Inject constructor() {
-    operator fun invoke(photos: List<PhotoItem>, hashes: Map<Long, Long>): List<SimilarGroup> {
+    operator fun invoke(
+        photos: List<PhotoItem>,
+        hashes: Map<Long, Long>,
+        sharpness: Map<Long, Double> = emptyMap(),
+    ): List<SimilarGroup> {
         val hashed = imagesForSimilar(photos).filter { it.id in hashes }
         if (hashed.size < 2) return emptyList()
         val runs = mutableListOf<MutableList<PhotoItem>>()
@@ -33,7 +37,10 @@ class GroupSimilarPhotosUseCase @Inject constructor() {
         }
         return runs
             .filter { it.size >= 2 }
-            .map { group -> SimilarGroup(group, chooseSimilarKeep(group).id) }
+            .map { group ->
+                val scores = sharpness.filterKeys { id -> group.any { it.id == id } }
+                SimilarGroup(group, chooseSimilarRecommended(group, scores).id, scores)
+            }
             .sortedByDescending { it.photos.first().dateTaken }
     }
 
@@ -59,12 +66,13 @@ internal fun imagesForSimilar(photos: List<PhotoItem>): List<PhotoItem> =
         .sortedWith(compareBy({ it.dateTaken }, { it.id }))
 
 /**
- * 默认留下像素数最大的一张。像素相同留文件更大的，再相同留更早的，仍相同留 id 更小的。
+ * 推荐最清晰的一张。没有清晰度的排在最后。
+ * 清晰度相同，或都没有时：像素数最大，其次文件更大，再其次拍摄更早，仍相同则 id 更小。
  * 宽或高缺失算 0 像素，文件大小缺失算 0。
  */
-fun chooseSimilarKeep(photos: List<PhotoItem>): PhotoItem {
+fun chooseSimilarRecommended(photos: List<PhotoItem>, sharpness: Map<Long, Double> = emptyMap()): PhotoItem {
     require(photos.isNotEmpty())
-    return photos.reduce { best, photo -> if (keepBeats(photo, best)) photo else best }
+    return photos.reduce { best, photo -> if (recommendedBeats(photo, best, sharpness)) photo else best }
 }
 
 private fun pixels(photo: PhotoItem): Long {
@@ -74,7 +82,19 @@ private fun pixels(photo: PhotoItem): Long {
     return w.toLong() * h
 }
 
-private fun keepBeats(photo: PhotoItem, best: PhotoItem): Boolean {
+private fun recommendedBeats(photo: PhotoItem, best: PhotoItem, sharpness: Map<Long, Double>): Boolean {
+    val ps = sharpness[photo.id]
+    val bs = sharpness[best.id]
+    when {
+        ps == null && bs == null -> Unit
+        ps == null -> return false
+        bs == null -> return true
+        ps != bs -> return ps > bs
+    }
+    return tieBeats(photo, best)
+}
+
+private fun tieBeats(photo: PhotoItem, best: PhotoItem): Boolean {
     val pp = pixels(photo)
     val bp = pixels(best)
     if (pp != bp) return pp > bp

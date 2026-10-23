@@ -4,18 +4,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -30,24 +34,30 @@ import androidx.compose.ui.text.style.TextAlign
 import coil.request.ImageRequest
 import com.winters.cleanphotos.R
 import com.winters.cleanphotos.core.design.DarkroomColors
+import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.GlassSpecs
 import com.winters.cleanphotos.core.design.PhotoTile
 import com.winters.cleanphotos.core.design.SelectionCheck
+import com.winters.cleanphotos.core.design.UndoBar
+import com.winters.cleanphotos.core.design.UndoCapsuleContent
 import com.winters.cleanphotos.core.design.glassBlur
 import com.winters.cleanphotos.core.design.photoThumbKey
 import com.winters.cleanphotos.core.design.plainClickable
 import com.winters.cleanphotos.core.design.saturateBrightness
 import com.winters.cleanphotos.core.image.GridThumb
 import com.winters.cleanphotos.core.locale.currentLocale
+import com.winters.cleanphotos.core.text.asString
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarGroup
+import com.winters.cleanphotos.domain.model.SimilarMark
 import java.util.Locale
 
-/** 没被留下的缩略图：去色再压暗，和垃圾桶小样同一套退影处理。 */
-private val REST_FILTER: ColorFilter = saturateBrightness(0f, 0.7f)
+/** 标成移走的缩略图：去色再压暗，和垃圾桶小样同一套退影处理。 */
+internal const val SIMILAR_REST_BRIGHTNESS = 0.7f
+internal val SIMILAR_REST_FILTER: ColorFilter = saturateBrightness(0f, SIMILAR_REST_BRIGHTNESS)
 
 /**
  * 相似分组列表。顶栏、范围按钮和底部导航由照片页提供。
@@ -58,8 +68,8 @@ fun SimilarList(
     uiState: SimilarUiState,
     listState: LazyListState,
     contentPadding: PaddingValues,
-    onKeep: (groupKey: String, photoId: Long) -> Unit,
-    onMoveRest: (groupKey: String) -> Unit,
+    onOpen: (groupKey: String, photoId: Long) -> Unit,
+    onCommit: (groupKey: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -85,9 +95,10 @@ fun SimilarList(
                 items(uiState.groups, key = { it.key }, contentType = { "group" }) { group ->
                     SimilarGroupCard(
                         group = group,
+                        marks = uiState.marks[group.key].orEmpty(),
                         enabled = !uiState.moving,
-                        onKeep = onKeep,
-                        onMoveRest = onMoveRest,
+                        onOpen = onOpen,
+                        onCommit = onCommit,
                     )
                 }
             }
@@ -108,13 +119,14 @@ fun SimilarList(
 @Composable
 private fun SimilarGroupCard(
     group: SimilarGroup,
+    marks: Map<Long, SimilarMark>,
     enabled: Boolean,
-    onKeep: (groupKey: String, photoId: Long) -> Unit,
-    onMoveRest: (groupKey: String) -> Unit,
+    onOpen: (groupKey: String, photoId: Long) -> Unit,
+    onCommit: (groupKey: String) -> Unit,
 ) {
     val shape = RoundedCornerShape(Dimens.FreeCorner)
     val locale = currentLocale()
-    val rest = group.photos.size - 1
+    val removeCount = group.photos.count { marks[it.id] == SimilarMark.Remove }
     Column(
         Modifier
             .padding(horizontal = Dimens.ScreenSide)
@@ -133,10 +145,16 @@ private fun SimilarGroupCard(
             horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap),
         ) {
             items(group.photos, key = { it.id }) { photo ->
+                val mark = marks[photo.id] ?: SimilarMark.Keep
                 SimilarThumb(
                     photo = photo,
-                    kept = photo.id == group.keepId,
-                    onClick = { onKeep(group.key, photo.id) },
+                    mark = mark,
+                    contentDescription = stringResource(
+                        R.string.similar_film_cd,
+                        photo.displayName ?: photo.id.toString(),
+                        similarMarkLabel(mark),
+                    ),
+                    onClick = { onOpen(group.key, photo.id) },
                 )
             }
         }
@@ -149,19 +167,22 @@ private fun SimilarGroupCard(
                 .clip(buttonShape)
                 .glassBlur(GlassSpecs.Button)
                 .border(Dimens.Hairline, DarkroomColors.GlassRim, buttonShape)
-                .plainClickable(enabled = enabled, onClick = { onMoveRest(group.key) }),
+                .plainClickable(enabled = enabled, onClick = { onCommit(group.key) }),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                pluralStringResource(R.plurals.similar_move_rest, rest, rest),
-                style = DarkroomText.Button13,
-            )
+            Text(similarCommitLabel(removeCount), style = DarkroomText.Button13)
         }
     }
 }
 
 @Composable
-private fun SimilarThumb(photo: PhotoItem, kept: Boolean, onClick: () -> Unit) {
+internal fun SimilarThumb(
+    photo: PhotoItem,
+    mark: SimilarMark,
+    contentDescription: String?,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val model = remember(photo.id, photo.uri) {
         ImageRequest.Builder(context)
@@ -174,18 +195,82 @@ private fun SimilarThumb(photo: PhotoItem, kept: Boolean, onClick: () -> Unit) {
     }
     PhotoTile(
         model = model,
-        contentDescription = photo.displayName,
-        modifier = Modifier.width(Dimens.SimilarThumb),
+        contentDescription = contentDescription,
+        modifier = modifier.width(Dimens.SimilarThumb),
         developProfile = null,
-        colorFilter = if (kept) null else REST_FILTER,
+        colorFilter = if (mark == SimilarMark.Remove) SIMILAR_REST_FILTER else null,
         onClick = onClick,
     ) {
-        if (kept) SelectionCheck(visible = true)
+        when (mark) {
+            SimilarMark.Keep -> SelectionCheck(visible = true)
+            SimilarMark.Favorite -> SimilarStar()
+            SimilarMark.Remove -> Unit
+        }
     }
 }
 
+@Composable
+internal fun BoxScope.SimilarStar() {
+    Icon(
+        DarkroomIcons.StarSolid,
+        contentDescription = null,
+        tint = DarkroomColors.Amber,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(Dimens.CheckInset)
+            .size(Dimens.CheckBadge),
+    )
+}
+
+@Composable
+internal fun similarMarkLabel(mark: SimilarMark): String = stringResource(
+    when (mark) {
+        SimilarMark.Keep -> R.string.similar_mark_keep
+        SimilarMark.Remove -> R.string.similar_mark_remove
+        SimilarMark.Favorite -> R.string.similar_mark_favorite
+    },
+)
+
+@Composable
+internal fun similarCommitLabel(removeCount: Int): String =
+    if (removeCount > 0) {
+        pluralStringResource(R.plurals.similar_move_rest, removeCount, removeCount)
+    } else {
+        stringResource(R.string.similar_keep_all)
+    }
+
+/** 相似提交后的撤回胶囊。位置和样式与照片页批量撤回相同。 */
+@Composable
+fun SimilarUndoBar(
+    undo: SimilarUndo?,
+    visible: Boolean,
+    onUndo: () -> Unit,
+    onExpired: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    UndoBar(
+        content = undo?.let {
+            UndoCapsuleContent(
+                seq = it.seq,
+                thumbKey = it.thumbId,
+                thumbModel = it.thumbModel,
+                favorite = it.favoriteStyle,
+                title = it.title.asString(),
+                subtitle = null,
+            )
+        },
+        visible = visible,
+        onUndo = onUndo,
+        onExpired = onExpired,
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.NavBottom + Dimens.NavHeight + Dimens.UndoAboveNav)
+            .fillMaxWidth(),
+    )
+}
+
 /** 「9月21日 · 周一 · 07:42」/「Sep 21 · Mon · 07:42」。没有时刻时只写日期。 */
-private fun similarTakenLabel(photo: PhotoItem, locale: Locale): String {
+internal fun similarTakenLabel(photo: PhotoItem, locale: Locale): String {
     val date = DayDisplay.cleanPageDateFor(photo, locale)
     val meta = DayDisplay.reviewMeta(photo, locale)
     return if (meta.isEmpty()) date else "$date · $meta"

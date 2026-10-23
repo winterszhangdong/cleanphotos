@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.core.navigation
 
+import android.net.Uri
+
 /**
  * 应用导航路由定义。
  *
@@ -12,6 +14,8 @@ object NavRoutes {
     const val FAVORITES = "favorites"
     const val REVIEW = "review/{photoId}/{sortOrder}/{filterMode}/{scope}?unseenOnly={unseenOnly}"
     const val TRASH = "trash"
+    /** groupKey 含逗号，导航前要编码。 */
+    const val SIMILAR_COMPARE = "similar/{groupKey}/{photoId}"
 
     /**
      * 构造清理页路由，携带排序、过滤、scope，以及「只看没看过」。
@@ -25,4 +29,7 @@ object NavRoutes {
     ): String {
         return "review/$photoId/$sortOrder/$filterMode/$scope?unseenOnly=$unseenOnly"
     }
+
+    fun similarCompareRoute(groupKey: String, photoId: Long): String =
+        "similar/${Uri.encode(groupKey)}/$photoId"
 }

@@ -27,6 +27,7 @@ import com.winters.cleanphotos.feature.similar.SimilarViewModel
 fun AllPhotosRoute(
     onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String, unseenOnly: Boolean) -> Unit,
     onNavigateToTrash: () -> Unit,
+    onNavigateToSimilar: (groupKey: String, photoId: Long) -> Unit,
     viewModel: AllPhotosViewModel = hiltViewModel(),
     similarViewModel: SimilarViewModel = hiltViewModel(),
     languageViewModel: LanguageViewModel = hiltViewModel(),
@@ -96,8 +97,8 @@ fun AllPhotosRoute(
         onScopeChanged = viewModel::onScopeChanged,
         onShowUnseenChanged = viewModel::onShowUnseenChanged,
         similarState = similarState,
-        onSimilarKeep = similarViewModel::onKeep,
-        onSimilarMoveRest = similarViewModel::onMoveRest,
+        onSimilarOpen = onNavigateToSimilar,
+        onSimilarCommit = { similarViewModel.onCommit(it) },
         onSimilarUndo = similarViewModel::onUndo,
         onSimilarUndoExpired = similarViewModel::onUndoExpired,
         selection = selection,

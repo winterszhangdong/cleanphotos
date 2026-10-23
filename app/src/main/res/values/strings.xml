@@ -33,6 +33,17 @@
     <string name="filter_empty_on_this_day">No photos from this day</string>
     <string name="similar_comparing">Comparing %1$d / %2$d</string>
     <string name="similar_empty">No similar photos</string>
+    <string name="similar_keep_all">Keep all</string>
+    <string name="similar_position">%1$d / %2$d</string>
+    <string name="similar_recommended">Recommended · sharpest</string>
+    <string name="similar_action_keep">Keep</string>
+    <string name="similar_undo_kept">Kept</string>
+    <string name="similar_film_cd">%1$s, %2$s</string>
+    <string name="similar_mark_keep">keep</string>
+    <string name="similar_mark_remove">remove</string>
+    <string name="similar_mark_favorite">favorite</string>
+    <string name="similar_cue_keep">Keep swiping to keep it</string>
+    <string name="similar_cue_release_keep">Release to keep</string>
     <string name="scope_seen_title">Everything here is seen</string>
     <string name="show_seen">Show seen</string>
     <string name="cd_more">More</string>
@@ -214,8 +225,8 @@
         <item quantity="other">· %1$d photos can be removed</item>
     </plurals>
     <plurals name="similar_move_rest">
-        <item quantity="one">Move the other photo</item>
-        <item quantity="other">Move the other %1$d</item>
+        <item quantity="one">Move %1$d to trash</item>
+        <item quantity="other">Move %1$d to trash</item>
     </plurals>
     <!-- 语言名用各自的语言写，任何界面语言下都一样 -->
     <string name="language_zh" translatable="false">简体中文</string>

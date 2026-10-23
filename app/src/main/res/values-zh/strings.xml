@@ -32,6 +32,17 @@
     <string name="filter_empty_on_this_day">那年今天没有照片</string>
     <string name="similar_comparing">正在比对 %1$d / %2$d</string>
     <string name="similar_empty">没有找到相似照片</string>
+    <string name="similar_keep_all">都留下</string>
+    <string name="similar_position">%1$d / %2$d</string>
+    <string name="similar_recommended">推荐 · 最清晰</string>
+    <string name="similar_action_keep">留下</string>
+    <string name="similar_undo_kept">已留下</string>
+    <string name="similar_film_cd">%1$s，%2$s</string>
+    <string name="similar_mark_keep">留下</string>
+    <string name="similar_mark_remove">移走</string>
+    <string name="similar_mark_favorite">收藏</string>
+    <string name="similar_cue_keep">继续滑，改回留下</string>
+    <string name="similar_cue_release_keep">松手留下</string>
     <string name="scope_seen_title">这里都看过了</string>
     <string name="show_seen">显示看过的</string>
     <string name="cd_more">更多</string>
@@ -196,6 +207,6 @@
         <item quantity="other">· 可移走 %1$d 张</item>
     </plurals>
     <plurals name="similar_move_rest">
-        <item quantity="other">移走其余 %1$d 张</item>
+        <item quantity="other">移走 %1$d 张</item>
     </plurals>
 </resources>

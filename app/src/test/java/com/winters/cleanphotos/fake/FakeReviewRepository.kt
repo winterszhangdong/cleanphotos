@@ -35,8 +35,9 @@ class FakeReviewRepository : ReviewRepository {
     override suspend fun restorePhotoFromTrash(photo: PhotoItem): PhotoOperationResult = restoreResult
     /** 批量接口调用记录（每次调用一条，验证一次写入、只撤实际改变的）。 */
     val batchCalls = mutableListOf<Pair<String, List<Long>>>()
+    var batchFavoriteResult: PhotoOperationResult = PhotoOperationResult.Success
     override suspend fun favoritePhotos(photos: List<PhotoItem>): PhotoOperationResult {
-        batchCalls += "favorite" to photos.map { it.id }; return PhotoOperationResult.Success
+        batchCalls += "favorite" to photos.map { it.id }; return batchFavoriteResult
     }
     override suspend fun removeFavorites(photos: List<PhotoItem>): PhotoOperationResult {
         batchCalls += "unfavorite" to photos.map { it.id }; return PhotoOperationResult.Success

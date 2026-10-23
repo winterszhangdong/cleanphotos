@@ -2,9 +2,11 @@ package com.winters.cleanphotos.data.repository
 
 import android.util.Log
 import com.winters.cleanphotos.data.datasource.PhotoHashDataSource
+import com.winters.cleanphotos.data.datasource.PhotoSharpnessDataSource
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarHashProgress
 import com.winters.cleanphotos.domain.model.SimilarRules
+import com.winters.cleanphotos.domain.model.SimilarSharpnessProgress
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -21,6 +23,7 @@ import kotlinx.coroutines.launch
 @Singleton
 class SimilarPhotoRepositoryImpl @Inject constructor(
     private val photoHashDataSource: PhotoHashDataSource,
+    private val photoSharpnessDataSource: PhotoSharpnessDataSource,
 ) : SimilarPhotoRepository {
 
     private val hashDispatcher = Dispatchers.IO.limitedParallelism(SimilarRules.HASH_PARALLELISM)
@@ -52,6 +55,38 @@ class SimilarPhotoRepositoryImpl @Inject constructor(
                         send(SimilarHashProgress(n, total, HashMap(acc), finished = true))
                     } else {
                         send(SimilarHashProgress(n, total, emptyMap(), finished = false))
+                    }
+                }
+            }
+        }
+    }.flowOn(hashDispatcher)
+
+    override fun measureSharpness(photos: List<PhotoItem>): Flow<SimilarSharpnessProgress> = channelFlow {
+        if (photos.isEmpty()) {
+            send(SimilarSharpnessProgress(0, 0, emptyMap(), finished = true))
+            return@channelFlow
+        }
+        val total = photos.size
+        val acc = ConcurrentHashMap<Long, Double>()
+        val done = AtomicInteger(0)
+        send(SimilarSharpnessProgress(0, total, emptyMap(), finished = false))
+        coroutineScope {
+            photos.forEach { photo ->
+                launch {
+                    val score = try {
+                        photoSharpnessDataSource.sharpness(photo)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "清晰度失败 id=${photo.id}", e)
+                        null
+                    }
+                    if (score != null) acc[photo.id] = score
+                    val n = done.incrementAndGet()
+                    if (n == total) {
+                        send(SimilarSharpnessProgress(n, total, HashMap(acc), finished = true))
+                    } else {
+                        send(SimilarSharpnessProgress(n, total, emptyMap(), finished = false))
                     }
                 }
             }
