@@ -171,14 +171,16 @@ fun ReviewScreen(
             onNavigateBack()
         }
     }
-    // 预取大图：往后 3 张（连续快滑时每 ~180ms 前进一张，只预取 2 张会被追上，见 P4 验收日志）、往回 2 张
+    // 预取大图和环境光：往后 3 张（连续快滑时每 ~180ms 前进一张，只预取 2 张会被追上）、往回 2 张。当前页的环境光也在这里先做好。
     val imageSize = remember(size) { IntSize(size.width.coerceAtLeast(1), size.height.coerceAtLeast(1)) }
     LaunchedEffect(stage.currentKey, uiState.pages, imageSize) {
         val i = uiState.pages.indexOfFirst { it.key == stage.currentKey }
         if (i < 0 || size == IntSize.Zero) return@LaunchedEffect
-        for (j in listOf(i + 1, i + 2, i + 3, i - 1, i - 2)) {
+        val blurPx = with(density) { AMBIENT_BLUR.toPx() }
+        for (j in listOf(i, i + 1, i + 2, i + 3, i - 1, i - 2)) {
             val p = uiState.pages.getOrNull(j) as? ReviewPage.Photo ?: continue
-            context.imageLoader.enqueue(reviewImageRequest(context, p.photo, imageSize))
+            if (j != i) context.imageLoader.enqueue(reviewImageRequest(context, p.photo, imageSize))
+            launch { loadReviewAmbient(context, p.photo, imageSize, blurPx) }
         }
     }
 
@@ -187,6 +189,7 @@ fun ReviewScreen(
     val onSummary = current is ReviewPage.Summary
     val tutorial = uiState.showTutorial && !onSummary
     stage.onPhotoTap = { if (!tutorial) showDetails = !showDetails }
+    stage.onDetailsDismiss = { showDetails = false }
     // 只在「是否竖向拖动 / 方向」翻转时重组整屏；直接读 stage.dy 会让拖动的每一帧都重组 ReviewScreen（P4 卡顿剖析）
     val vertical by remember { derivedStateOf { stage.isVerticalDrag } }
     val upDrag by remember { derivedStateOf { stage.dy < 0f } }

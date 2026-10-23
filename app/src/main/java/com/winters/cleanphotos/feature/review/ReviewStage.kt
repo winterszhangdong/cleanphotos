@@ -3,6 +3,7 @@ package com.winters.cleanphotos.feature.review
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -14,7 +15,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -244,9 +244,12 @@ private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStag
         ReviewGestureMath.fitSize(photo.width, photo.height, imageSize.width.toFloat(), imageSize.height.toFloat())
     }
     val knownRatio = photo.width != null && photo.height != null
-    val letterboxed = !knownRatio || fit.width < imageSize.width - 1f || fit.height < imageSize.height - 1f
-    // 环境光是全屏 RenderEffect 模糊。垫底页 alpha = 0、左右邻页在屏外，模糊它们只是白占 GPU。
-    val ambientVisible = letterboxed && ApiTier.Current.hasBlur && (role == PageRole.Current || role == PageRole.Exit || role == PageRole.Recede)
+    // 小图预先模糊一次。左右邻页也画，滑进来时环境光已经在；垫底页 alpha = 0，只准备不画。
+    val ambient = rememberReviewAmbient(
+        photo,
+        imageSize,
+        enabled = photoNeedsAmbient(photo, imageSize) && ApiTier.Current.hasBlur,
+    )
     // 决定 7：只在「第一次从磁盘解码」时显影。组合时就能判断：大图不在内存缓存 → 这次一定走磁盘。
     // 若此刻它就是当前页，立即开始显影（同一帧压暗），解码期间显示网格缩略图占位，避免空帧，也不会「亮一帧再变暗」。
     val memoryCache = remember { coil.Coil.imageLoader(context).memoryCache }
@@ -266,20 +269,10 @@ private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStag
         }
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        if (ambientVisible) {
-            // 没铺满的地方用同一张照片放大 1.2、模糊 36dp、亮度 40% 做环境光；31 以下按分级表不画，露出暗房底色
-            val ambient = remember(photo.id, photo.uri) {
-                ImageRequest.Builder(context)
-                    .data(photo.uri)
-                    .size(AMBIENT_SIZE)
-                    .precision(Precision.INEXACT)
-                    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
-                    .memoryCacheKey("review-amb-${photo.id}")
-                    .crossfade(false)
-                    .build()
-            }
-            AsyncImage(
-                model = ambient,
+        if (ambient != null && role != PageRole.Beneath) {
+            // 没铺满的地方用同一张照片放大 1.2、亮度 40% 的已模糊小图；31 以下按分级表不画，露出暗房底色
+            Image(
+                bitmap = ambient,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 colorFilter = ColorFilter.colorMatrix(ColorMatrix(DevelopMatrix.compose(AMBIENT_BRIGHTNESS, 1f, AMBIENT_SATURATION))),
@@ -287,8 +280,7 @@ private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStag
                     .fillMaxSize()
                     // 放大 1.2 后会超出本页：不裁的话左右翻页时会盖到相邻页边缘，成一条灰边
                     .clipToBounds()
-                    .graphicsLayer { scaleX = AMBIENT_SCALE; scaleY = AMBIENT_SCALE }
-                    .blur(AMBIENT_BLUR),
+                    .graphicsLayer { scaleX = AMBIENT_SCALE; scaleY = AMBIENT_SCALE },
             )
         }
         AsyncImage(
@@ -492,8 +484,3 @@ private val AFTERIMAGE_GLOW = DarkroomColors.Amber.copy(alpha = 0.38f)
 /** 教学期间照片压暗到 32%、饱和 0.6。 */
 private const val TUTORIAL_BRIGHTNESS = 0.32f
 private const val TUTORIAL_SATURATION = 0.6f
-private const val AMBIENT_SCALE = 1.2f
-private const val AMBIENT_BRIGHTNESS = 0.4f
-private const val AMBIENT_SATURATION = 1.3f
-private const val AMBIENT_SIZE = 96
-private val AMBIENT_BLUR = 36.dp

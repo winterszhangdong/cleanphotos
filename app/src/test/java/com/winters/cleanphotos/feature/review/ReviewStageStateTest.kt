@@ -236,6 +236,28 @@ class ReviewStageStateTest {
         assertEquals("p2", s.currentKey)
     }
 
+    @Test fun `左右或上下拖动开始就收回详情_平移不收`() {
+        val s = bounceStage(three, "p2")
+        var n = 0
+        s.onDetailsDismiss = { n++ }
+        s.handler.onDragStart(DragAxis.Horizontal)
+        s.handler.onDragStart(DragAxis.Vertical)
+        s.handler.onDragStart(DragAxis.Pan)
+        assertEquals(2, n)
+    }
+
+    @Test fun `翻页和读屏上下滑也收回详情`() {
+        val s = bounceStage(three, "p2")
+        var n = 0
+        s.onDetailsDismiss = { n++ }
+        s.goPrevious()
+        assertEquals(1, n)
+        s.handler.onDown()
+        s.onSwipe = { _, _ -> "p3" }
+        assertTrue(s.accessibilitySwipe(up = true))
+        assertEquals(2, n)
+    }
+
     @Test fun `放大后拖动_横图上下不能拖出照片_左右拖到照片边缘为止`() {
         val wide = ReviewPage.Photo(TestPhotoData.createTestPhoto(id = 1).copy(width = 4000, height = 3000))
         val s = bounceStage(listOf(wide), "p1")

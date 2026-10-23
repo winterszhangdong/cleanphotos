@@ -243,6 +243,9 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     /** 单击当前照片（已排除双击）。由清理页用来显隐详情。 */
     var onPhotoTap: () -> Unit = {}
 
+    /** 左右滑或上下拖一开始，以及与之等价的翻页 / 上下滑操作：收回详情。进度条不走这里。 */
+    var onDetailsDismiss: () -> Unit = {}
+
     // —— 手势 ——
 
     val handler = object : ReviewGestureHandler {
@@ -265,6 +268,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         override fun onDragStart(axis: DragAxis) {
             this@ReviewStageState.axis = axis
             dragging = true
+            if (axis == DragAxis.Horizontal || axis == DragAxis.Vertical) onDetailsDismiss()
             when (axis) {
                 DragAxis.Vertical -> {
                     // 翻页动画中途按下又改成上下拖：剩下的横向位移弹回 0，而不是一帧跳回中间
@@ -279,7 +283,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
                 DragAxis.Horizontal -> {
                     dy = 0f
                     rawDx = dx
-                    // 竖拖淡出后被打断（回弹中改成横滑）：横滑不淡出顶栏，确保它回到不透明
+                    // 竖拖把进度条淡出后被打断：横滑不淡出进度条。详情已在上面收回，这里不把它拉回来。
                     restoreChrome()
                 }
                 else -> Unit
@@ -430,6 +434,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
 
     /** 过阈值松手：离场层独立播放，当前页立刻换成下一页并可以接受下一次手势。 */
     private fun trigger(photoPage: ReviewPage.Photo, release: VerticalRelease, vy: Float) {
+        onDetailsDismiss()
         val kind = if (release == VerticalRelease.Up) ExitKind.Up else ExitKind.Down
         val y = dy
         val flight = ExitFlight(
@@ -528,6 +533,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     /** TalkBack「上一张」：与右滑一样走翻页动画。 */
     fun goPrevious() {
         if (previousPage == null || pendingCommitKey != null) return
+        onDetailsDismiss()
         axis = DragAxis.Horizontal
         releaseHorizontal(thresholds.horizontalFlingVelocity * 2f, dir = 1)
     }
@@ -535,6 +541,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     /** 小结「下一天」：与左滑一样走翻页动画。 */
     fun goNext() {
         if (nextPage == null || pendingCommitKey != null) return
+        onDetailsDismiss()
         axis = DragAxis.Horizontal
         // 静止时 dx = 0，按位移推不出方向，直接指定去下一页
         releaseHorizontal(-thresholds.horizontalFlingVelocity * 2f, dir = -1)

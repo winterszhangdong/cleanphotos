@@ -188,7 +188,7 @@ com.example.photocleaner
 * 启动时后台预载全部字重（`CleanPhotosApp`），避免首次用到某个中文字重时主线程同步加载
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
-* Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，清理页、小结页、垃圾桶预览直接用视频 uri 画首帧（不播放）；网格缩略图和清理页大图都用 `RGB_565`。清理页环境光（全屏模糊）只画当前页、离场页和撤回让位页，左右邻页和 alpha 为 0 的垫底页不画
+* Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，清理页、小结页、垃圾桶预览直接用视频 uri 画首帧（不播放）；网格缩略图和清理页大图都用 `RGB_565`。清理页环境光把 96px 小图按屏幕上的 36dp 折算半径做一次盒式模糊并缓存，当前页、左右邻页、离场页和撤回让位页直接画这张图。alpha 为 0 的垫底页不画。不再对整页做实时 RenderEffect
 * 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、范围按钮 `ScopeChipRow`
 * 间距
 * 通用组件
