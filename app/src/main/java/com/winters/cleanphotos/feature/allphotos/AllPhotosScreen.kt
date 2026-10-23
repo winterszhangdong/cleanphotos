@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -209,7 +210,11 @@ fun AllPhotosScreen(
             }
         }
     }
+    // 从清理页返回会重新进入组合，滚动位置刚被恢复。只在范围真的变了才回顶部并展开顶栏。
+    var handledScope by rememberSaveable { mutableStateOf(uiState.scope.name) }
     LaunchedEffect(uiState.scope) {
+        if (handledScope == uiState.scope.name) return@LaunchedEffect
+        handledScope = uiState.scope.name
         gridState.scrollToItem(0)
         similarListState.scrollToItem(0)
         collapse.snapExpanded()
