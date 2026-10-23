@@ -161,7 +161,6 @@ fun NavGraph(
                                 scope = requireNotNull(args.getString("scope")),
                                 unseenOnly = args.getBoolean("unseenOnly"),
                                 onNavigateBack = { e.ifCurrent { navController.popBackStack() } },
-                                onNavigateToTrash = { e.ifCurrent { navController.navigate(NavRoutes.TRASH) } },
                             )
                         }
                     }

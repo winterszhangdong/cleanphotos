@@ -75,9 +75,6 @@
     <string name="cd_video">视频，%1$s</string>
     <string name="cd_video_named">视频，%1$s，%2$s</string>
     <string name="cd_video_only">视频</string>
-    <string name="hint_up_favorite">上滑收藏</string>
-    <string name="hint_up_unfavorite">上滑取消收藏</string>
-    <string name="hint_down">下滑移走</string>
     <string name="cue_keep_favorite">继续上滑收藏</string>
     <string name="cue_keep_unfavorite">继续上滑取消收藏</string>
     <string name="cue_keep_down">继续下滑</string>
@@ -87,7 +84,6 @@
     <string name="cue_sub_favorite">放进收藏</string>
     <string name="cue_sub_unfavorite">还在相册里</string>
     <string name="cue_sub_trash">清空前都能找回</string>
-    <string name="review_go_trash">去垃圾桶</string>
     <string name="back_to_photos">回到照片</string>
     <string name="edge_first">第一张</string>
     <string name="edge_last">最后一张</string>

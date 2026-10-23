@@ -670,7 +670,7 @@ app_trash_entries：App 内垃圾桶条目集合（Set<String>，格式 "photoId
 app_favorite_entries：App 内收藏条目集合（Set<String>，格式 "photoId,favoritedAt"）
 app_seen_entries：已看过的照片 ID 集合（Set<String>，每条为 photoId 字符串）
 has_migrated_favorites：是否已完成系统 IS_FAVORITE 到 AppFavoriteStore 的一次性迁移
-review_swipe_action_count：累计成功的上滑 / 下滑处理次数（Int）。≥ 20 时清理页永久隐藏方向提示小点
+review_swipe_action_count：累计成功的上滑 / 下滑处理次数（Int）。2026-10-23 起清理页不再根据它显示方向提示
 total_freed_bytes：累计已确认从垃圾桶永久删除的字节（Long）。只增不减。只计刷新后确认已从图库消失的照片（size 未知按 0）；进程重建后没有删除前快照的那一次不计入
 ```
 
@@ -1019,7 +1019,7 @@ summarizedDays：本次会话已出过小结的天
 | ObserveLibraryDayStateUseCase | 相册全量照片（可见 + 收藏 + 垃圾桶）、处理过 id、看过 id |
 | ObserveTrashSummaryUseCase | `TrashSummary(count, totalBytes)`，size 未知按 0 |
 | ObserveAllSeenStatsUseCase | 决定 11：`AllSeenStats(favoriteCount, trashCount, trashBytes)` |
-| ObserveShowDirectionHintsUseCase / RecordSwipeActionUseCase | 决定 10：`review_swipe_action_count` < 20 时显示方向提示小点；成功上下滑后 +1，撤回不回退 |
+| ObserveShowDirectionHintsUseCase / RecordSwipeActionUseCase | 决定 10：成功上下滑后 `review_swipe_action_count` +1，撤回不回退。界面不再读取这个数来画提示 |
 | ObserveTotalFreedBytesUseCase / AddFreedBytesUseCase | 垃圾桶空状态「累计已释放」：读 / 累加 `total_freed_bytes` |
 ### TrashReminderRules
 

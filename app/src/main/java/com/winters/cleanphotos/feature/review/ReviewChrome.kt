@@ -218,9 +218,9 @@ private fun DrawScope.drawContinuous(cells: List<DayCellState>, radius: CornerRa
 
 // ---------------------------------------------------------------- 顶栏
 
-/** .rv-top：40dp 玻璃返回 / 更多 + 日期（里程表）+ mono 星期·时间。 */
+/** .rv-top：40dp 玻璃返回 + 日期（里程表）+ mono 星期·时间。没有右上角更多。 */
 @Composable
-internal fun ReviewTopBar(photo: PhotoItem?, onBack: () -> Unit, onMore: (() -> Unit)?, modifier: Modifier = Modifier) {
+internal fun ReviewTopBar(photo: PhotoItem?, onBack: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(40.dp)) {
         GlassIconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(DarkroomIcons.Back, contentDescription = stringResource(R.string.cd_back), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
@@ -238,38 +238,17 @@ internal fun ReviewTopBar(photo: PhotoItem?, onBack: () -> Unit, onMore: (() -> 
                 Text(DayDisplay.reviewMeta(photo, locale), style = DarkroomText.RvDateMeta.merge(shadow))
             }
         }
-        if (onMore != null) {
-            GlassIconButton(onClick = onMore, modifier = Modifier.align(Alignment.CenterEnd)) {
-                Icon(DarkroomIcons.More, contentDescription = stringResource(R.string.cd_more), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
-            }
-        }
     }
 }
 
-/** .rv-meta：文件名 · 大小 + 两颗方向提示小点（决定 10，累计 20 次后隐藏；横屏只留文件信息）。 */
+/** .rv-meta：文件名 · 大小（视频再加时长）。点照片后才出现，不带方向提示。 */
 @Composable
-internal fun ReviewMeta(photo: PhotoItem, showHints: Boolean, scope: ReviewScope, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        val name = photo.displayName?.substringBeforeLast('.') ?: "—"
-        val locale = currentLocale()
-        val size = photo.size?.let { " · " + FileSizeFormatter.format(it, locale) }.orEmpty()
-        val duration = photo.durationMs?.let { " · " + DurationFormatter.format(it) }.orEmpty()
-        Text(name + size + duration, style = DarkroomText.RvFile, maxLines = 1)
-        if (showHints) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HintDot(DarkroomColors.Amber, stringResource(if (scope == ReviewScope.Favorites) R.string.hint_up_unfavorite else R.string.hint_up_favorite))
-                HintDot(DarkroomColors.Fade, stringResource(R.string.hint_down))
-            }
-        }
-    }
-}
-
-@Composable
-private fun HintDot(color: Color, label: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(color))
-        Text(label, style = DarkroomText.RvFile)
-    }
+internal fun ReviewMeta(photo: PhotoItem, modifier: Modifier = Modifier) {
+    val name = photo.displayName?.substringBeforeLast('.') ?: "—"
+    val locale = currentLocale()
+    val size = photo.size?.let { " · " + FileSizeFormatter.format(it, locale) }.orEmpty()
+    val duration = photo.durationMs?.let { " · " + DurationFormatter.format(it) }.orEmpty()
+    Text(name + size + duration, style = DarkroomText.RvFile, maxLines = 1, modifier = modifier.fillMaxWidth())
 }
 
 // ---------------------------------------------------------------- 过阈值提示

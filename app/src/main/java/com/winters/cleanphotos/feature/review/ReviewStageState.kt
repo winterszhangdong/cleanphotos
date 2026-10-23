@@ -240,6 +240,9 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
 
     val isVerticalDrag: Boolean get() = axis == DragAxis.Vertical && dy != 0f
 
+    /** 单击当前照片（已排除双击）。由清理页用来显隐详情。 */
+    var onPhotoTap: () -> Unit = {}
+
     // —— 手势 ——
 
     val handler = object : ReviewGestureHandler {
@@ -326,6 +329,10 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
 
         override fun onUpWithoutDrag() {
             if (dx != 0f || dy != 0f) settleBack(0f, 0f)
+        }
+
+        override fun onSingleTap() {
+            if (currentPage is ReviewPage.Photo) onPhotoTap()
         }
 
         override fun onDoubleTap(position: Offset) {

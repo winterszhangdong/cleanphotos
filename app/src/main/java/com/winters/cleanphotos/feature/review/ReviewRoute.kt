@@ -18,7 +18,6 @@ fun ReviewRoute(
     scope: String,
     unseenOnly: Boolean,
     onNavigateBack: () -> Unit,
-    onNavigateToTrash: () -> Unit = {},
     viewModel: ReviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -51,7 +50,6 @@ fun ReviewRoute(
         onUndoExpired = viewModel::onUndoExpired,
         onDismissError = viewModel::dismissError,
         onNavigateBack = onNavigateBack,
-        onNavigateToTrash = onNavigateToTrash,
         onDismissTutorial = viewModel::dismissTutorial,
     )
 }

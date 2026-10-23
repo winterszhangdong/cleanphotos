@@ -75,9 +75,6 @@
     <string name="cd_video">Video, %1$s</string>
     <string name="cd_video_named">Video, %1$s, %2$s</string>
     <string name="cd_video_only">Video</string>
-    <string name="hint_up_favorite">Up: favorite</string>
-    <string name="hint_up_unfavorite">Up: unfavorite</string>
-    <string name="hint_down">Down: remove</string>
     <string name="cue_keep_favorite">Keep swiping to favorite</string>
     <string name="cue_keep_unfavorite">Keep swiping to unfavorite</string>
     <string name="cue_keep_down">Keep swiping down</string>
@@ -87,7 +84,6 @@
     <string name="cue_sub_favorite">Goes to Favorites</string>
     <string name="cue_sub_unfavorite">Stays in your library</string>
     <string name="cue_sub_trash">Recoverable until emptied</string>
-    <string name="review_go_trash">Go to trash</string>
     <string name="back_to_photos">Back to photos</string>
     <string name="edge_first">First photo</string>
     <string name="edge_last">Last photo</string>

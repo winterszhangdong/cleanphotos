@@ -8,7 +8,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.res.Configuration
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -62,7 +61,6 @@ import com.winters.cleanphotos.core.navigation.DockMode
 import com.winters.cleanphotos.core.navigation.LocalAppDock
 import com.winters.cleanphotos.core.design.BottomTab
 import com.winters.cleanphotos.core.design.DarkroomColors
-import com.winters.cleanphotos.core.design.DarkroomMenu
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.GestureTokens
@@ -76,8 +74,6 @@ import com.winters.cleanphotos.core.navigation.rememberPredictiveBack
 import com.winters.cleanphotos.core.navigation.navChrome
 import com.winters.cleanphotos.core.navigation.sharedPhoto
 import com.winters.cleanphotos.core.design.Haptics
-import com.winters.cleanphotos.core.design.MenuOption
-import com.winters.cleanphotos.core.design.MenuScrim
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.SystemBarIcons
@@ -103,7 +99,6 @@ fun ReviewScreen(
     onUndoExpired: (Long) -> Unit,
     onDismissError: () -> Unit,
     onNavigateBack: () -> Unit,
-    onNavigateToTrash: () -> Unit,
     onDismissTutorial: () -> Unit,
     /** 入口照片：会话还在加载时先用它的网格缩略图铺满，避免进入那几帧空屏。 */
     entryPhotoId: Long? = null,
@@ -117,9 +112,8 @@ fun ReviewScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stage = remember { ReviewStageState(scope) }
-    var menuOpen by remember { mutableStateOf(false) }
-    BackHandler(enabled = menuOpen) { menuOpen = false }
-    val back = rememberPredictiveBack(enabled = !menuOpen, onBack = onNavigateBack)
+    var showDetails by remember { mutableStateOf(false) }
+    val back = rememberPredictiveBack(enabled = true, onBack = onNavigateBack)
 
     val statusTop = if (landscape) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -192,6 +186,7 @@ fun ReviewScreen(
     val currentPhoto = (current as? ReviewPage.Photo)?.photo
     val onSummary = current is ReviewPage.Summary
     val tutorial = uiState.showTutorial && !onSummary
+    stage.onPhotoTap = { if (!tutorial) showDetails = !showDetails }
     // 只在「是否竖向拖动 / 方向」翻转时重组整屏；直接读 stage.dy 会让拖动的每一帧都重组 ReviewScreen（P4 卡顿剖析）
     val vertical by remember { derivedStateOf { stage.isVerticalDrag } }
     val upDrag by remember { derivedStateOf { stage.dy < 0f } }
@@ -286,8 +281,8 @@ fun ReviewScreen(
                 }
             }
 
-            // 上下暖黑渐变；拖动时随控件一起退开
-            if (currentPhoto != null && !tutorial) {
+            // 上下暖黑渐变：只在详情露出来时垫在字下面；拖动时随控件一起退开
+            if (currentPhoto != null && !tutorial && showDetails) {
                 Box(
                     Modifier.zIndex(5f).align(Alignment.TopCenter).fillMaxWidth().height(if (landscape) 96.dp else 160.dp).navChrome()
                         .graphicsLayer { alpha = stage.chromeAlpha.value }
@@ -319,26 +314,27 @@ fun ReviewScreen(
                 )
             }
 
-            if (currentPhoto != null || (tutorial && currentPhoto != null)) {
-                ReviewTopBar(
-                    photo = currentPhoto,
-                    onBack = onNavigateBack,
-                    onMore = if (tutorial) null else ({ menuOpen = true }),
-                    modifier = Modifier
-                        .zIndex(6f)
-                        .align(Alignment.TopCenter)
-                        .navChrome()
-                        .padding(
-                            top = statusTop + when {
-                                landscape -> 24.dp
-                                tutorial -> 12.dp
-                                else -> 20.dp
-                            },
-                            start = if (landscape) 40.dp else 12.dp,
-                            end = if (landscape) 24.dp else 12.dp,
-                        )
-                        .graphicsLayer { alpha = stage.chromeAlpha.value },
-                )
+            // 进入时不显示。点一次照片才淡入返回和日期；再点一次收回。教学期间仍给出返回。
+            AnimatedVisibility(
+                visible = currentPhoto != null && (showDetails || tutorial),
+                enter = fadeIn(tween(MotionDurations.SHORT)),
+                exit = fadeOut(tween(MotionDurations.MICRO)),
+                modifier = Modifier
+                    .zIndex(6f)
+                    .align(Alignment.TopCenter)
+                    .navChrome()
+                    .padding(
+                        top = statusTop + when {
+                            landscape -> 24.dp
+                            tutorial -> 12.dp
+                            else -> 20.dp
+                        },
+                        start = if (landscape) 40.dp else 12.dp,
+                        end = if (landscape) 24.dp else 12.dp,
+                    )
+                    .graphicsLayer { alpha = stage.chromeAlpha.value },
+            ) {
+                ReviewTopBar(photo = currentPhoto, onBack = onNavigateBack)
             }
 
             // 松手后提示圆钮保持满强度，随离场 266ms 淡出（不再在松手那一帧消失）
@@ -380,7 +376,7 @@ fun ReviewScreen(
             val undoVisible = uiState.undo != null && !vertical && !tutorial && !onSummary
             if (currentPhoto != null && !tutorial) {
                 AnimatedVisibility(
-                    visible = !undoVisible,
+                    visible = showDetails && !undoVisible,
                     enter = fadeIn(tween(MotionDurations.SHORT)),
                     exit = fadeOut(tween(MotionDurations.MICRO)),
                     modifier = Modifier
@@ -394,7 +390,7 @@ fun ReviewScreen(
                         )
                         .graphicsLayer { alpha = stage.chromeAlpha.value },
                 ) {
-                    ReviewMeta(currentPhoto, showHints = uiState.showDirectionHints && !landscape, scope = uiState.scope)
+                    ReviewMeta(currentPhoto)
                 }
             }
 
@@ -449,25 +445,6 @@ fun ReviewScreen(
                 )
             }
 
-            if (menuOpen) {
-                Box(Modifier.zIndex(12f).fillMaxSize()) {
-                    MenuScrim(visible = true, onDismiss = { menuOpen = false })
-                    DarkroomMenu(
-                        visible = true,
-                        header = stringResource(R.string.menu_more_header),
-                        options = listOf(
-                            MenuOption(stringResource(R.string.review_go_trash), uiState.trashCount.takeIf { it > 0 }?.toString(), false) {
-                                menuOpen = false
-                                onNavigateToTrash()
-                            },
-                            MenuOption(stringResource(R.string.back_to_photos), null, false) {
-                                menuOpen = false
-                                onNavigateBack()
-                            },
-                        ),
-                    )
-                }
-            }
         }
     }
 }

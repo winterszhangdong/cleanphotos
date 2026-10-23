@@ -117,11 +117,39 @@ fun Modifier.photoGridGestures(
     }
 }
 
+/**
+ * 手指是否落在这一格上。
+ *
+ * [cellTop] 用的是 [LazyGridItemInfo.offset]：原点在内容起点，不含 contentPadding。
+ * 放置时才会再加 [androidx.compose.foundation.lazy.grid.LazyGridLayoutInfo.beforeContentPadding]
+ * （即 `-viewportStartOffset`）。手指坐标相对网格左上角，所以要比对前加上 [viewportStartOffset]。
+ * 照片页顶栏改成叠在列表上之后，网格有一大块顶部内边距；漏加这段时，点上面的格子会命中下面那张。
+ */
+internal fun pointerHitsGridCell(
+    position: Offset,
+    cellLeft: Int,
+    cellTop: Int,
+    cellWidth: Int,
+    cellHeight: Int,
+    viewportStartOffset: Int,
+): Boolean {
+    val contentY = position.y + viewportStartOffset
+    return position.x >= cellLeft && position.x < cellLeft + cellWidth &&
+        contentY >= cellTop && contentY < cellTop + cellHeight
+}
+
 /** 手指下的照片格（key 为 Long 的项）；天标题、年份分隔、空白处返回 null。 */
 private fun photoAt(state: LazyGridState, position: Offset): Long? {
-    val info = state.layoutInfo.visibleItemsInfo.firstOrNull { item ->
-        position.x >= item.offset.x && position.x < item.offset.x + item.size.width &&
-            position.y >= item.offset.y && position.y < item.offset.y + item.size.height
+    val layout = state.layoutInfo
+    val info = layout.visibleItemsInfo.firstOrNull { item ->
+        pointerHitsGridCell(
+            position,
+            item.offset.x,
+            item.offset.y,
+            item.size.width,
+            item.size.height,
+            layout.viewportStartOffset,
+        )
     } ?: return null
     return info.key as? Long
 }
