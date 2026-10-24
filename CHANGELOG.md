@@ -7,6 +7,20 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-24
+
+### Added
+
+- 安卓：清理页和垃圾桶全屏预览可以播放视频。当前页停稳后静音自动开始，只播一次，播完回到开头并暂停。单击切换播放 / 暂停；暂停、未开始和播完时画面中央有一颗玻璃播放键。详情打开时有进度行（两端时间、可拖动轨道、声音开关），声音只在这次停留里记住，默认静音。上下或左右拖动立刻定格。系统关闭动画时不自动播放。相似对比页和网格仍然不播放。
+- 安卓：识别动态照片（Google、小米、vivo、OPPO、三星、荣耀、华为）。清理页停稳后静音自动播一次，播完露出静态图；右上角「动态」胶囊从头再播，始终无声。垃圾桶预览同样播放，单击不做额外操作。
+
+---
+
+### Added
+
+- Android: videos play in review and in the trash full-screen preview. After the page settles they start muted and play once, then return to the first frame and pause. Tap to play or pause; a glass play button sits in the center when paused, not started, or finished. With details open, a progress row shows the times, a draggable track and a sound switch. Sound is remembered only for this visit and starts muted. Dragging up, down, left or right freezes the current frame. With system animations off, playback does not start by itself. The similar-photo compare page and the grid still do not play.
+- Android: motion photos are recognized (Google, Xiaomi, vivo, OPPO, Samsung, Honor, Huawei). In review they play once, muted, after the page settles, then the still image shows again. The "Motion" capsule replays from the start and stays silent. The trash preview plays the same way; a tap does nothing extra there.
+
 ## [1.4.0] - 2026-10-24
 
 ### Fixed
@@ -269,7 +283,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.1...v1.2.2
