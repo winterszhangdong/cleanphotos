@@ -7,6 +7,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-24
+
+### Fixed
+
+- 安卓：清理页照片四周的环境光提前准备好，左右滑入时已经在，不再等照片落定后过一会儿才亮起来。
+
 ### Changed
 
 - 安卓：相似照片可以挑着留了。点缩略图进入对比页看大图，放大后切换照片位置不变，方便逐张比较；上滑留下并打勾，下滑移走，一组可以留多张，也可以全部移走。默认推荐最清晰的一张，处理过的组不会再出现。移走的照片保持彩色，缩略图底部一条退影灰。松手后方向提示停住并淡出。
@@ -15,8 +21,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 安卓：顶栏只留 ⋯（排序、只看没看过、语言）；「只看没看过」改成开关，可以和截图、大文件等范围叠加。
 - 安卓：缩略图不再画未看光点，日期行改为「已看 / 总数」，看完显示「已看完」。照片、收藏、垃圾桶三页顶栏去掉小标题。
 - 安卓：垃圾桶提醒不再在照片页弹胶囊；最早一张放满 30 天时，垃圾桶「清空后可释放」卡片写明「最早一张已放 N 天」。
+- 安卓：清理页默认只显示顶部进度条；单击照片才显示返回、日期和文件名 · 大小，再单击收起，开始滑动时也会自动收起。右上角的菜单去掉了。
 
 ---
+
+### Fixed
+
+- Android: the ambient glow around photos on the Review screen is prepared in advance, so it is already there as you swipe left or right instead of fading in a moment after the photo settles.
 
 ### Changed
 
@@ -26,6 +37,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Android: the header keeps only ⋯ (sort, unseen only, language). "Unseen only" is now a switch that combines with any scope, such as screenshots or large files.
 - Android: thumbnails no longer carry unseen dots; each day shows "seen / total", or "All seen" when done. Photos, Favorites and Trash headers drop their small titles.
 - Android: the trash reminder no longer pops up on the Photos page; once the oldest item has been in the trash for 30 days, the "Empty to free up" card on the Trash page says so.
+- Android: the Review screen shows only the progress bar by default; tap the photo to show back, date and file name · size, tap again to hide them, and they also hide as soon as you start swiping. The top-right menu is gone.
 
 ## [1.3.0] - 2026-10-22
 
@@ -257,7 +269,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.0...v1.2.1
