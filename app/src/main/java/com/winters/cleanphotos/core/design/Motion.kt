@@ -232,10 +232,12 @@ object GestureTokens {
     /** 会话首尾阻尼：L = 屏宽 × 0.3，系数 0.55。 */
     const val EDGE_RESISTANCE_LENGTH_FRACTION = 0.3f
     const val EDGE_RESISTANCE_FACTOR = 0.55f
-    /** 决定 3：拖动缩放到 0.9，下滑饱和到 0.35、亮度到 0.55。 */
+    /** 决定 3：拖动缩放到 0.9，下滑饱和到 0.35、亮度到 0.55。清理页用，相似对比页不借用。 */
     const val DRAG_MIN_SCALE = 0.9f
     const val DRAG_MIN_SATURATION = 0.35f
     const val DRAG_MIN_BRIGHTNESS = 0.55f
+    /** 相似对比页按住下滑时，大图亮度收到这里。饱和度保持 1。 */
+    const val SIMILAR_DRAG_MIN_BRIGHTNESS = 0.82f
     /** 左右翻页进入页亮度起点。 */
     const val PAGE_ENTER_BRIGHTNESS = 0.7f
     /** 缩放范围。 */

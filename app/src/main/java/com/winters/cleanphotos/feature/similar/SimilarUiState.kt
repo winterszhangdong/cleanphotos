@@ -9,17 +9,14 @@ import com.winters.cleanphotos.domain.model.SimilarMark
 enum class SimilarPhase { Loading, Comparing, Ready }
 
 /**
- * 一次提交的撤回。移走、收藏、已处理记录一起撤。
- * [favoriteStyle] 为真时胶囊用琥珀（只有收藏、没有移走）。
+ * 一次提交的撤回。移走和已处理记录一起撤。
  */
 data class SimilarUndo(
     val seq: Long,
     val thumbId: Long,
     val thumbModel: Uri,
-    val favoriteStyle: Boolean,
     val title: UiText,
     val trashed: BatchAction?,
-    val favorited: BatchAction?,
     val resolvedIds: Set<Long>?,
 )
 

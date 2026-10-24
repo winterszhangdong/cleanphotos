@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,21 +11,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -34,7 +30,6 @@ import androidx.compose.ui.text.style.TextAlign
 import coil.request.ImageRequest
 import com.winters.cleanphotos.R
 import com.winters.cleanphotos.core.design.DarkroomColors
-import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.GlassSpecs
@@ -45,7 +40,6 @@ import com.winters.cleanphotos.core.design.UndoCapsuleContent
 import com.winters.cleanphotos.core.design.glassBlur
 import com.winters.cleanphotos.core.design.photoThumbKey
 import com.winters.cleanphotos.core.design.plainClickable
-import com.winters.cleanphotos.core.design.saturateBrightness
 import com.winters.cleanphotos.core.image.GridThumb
 import com.winters.cleanphotos.core.locale.currentLocale
 import com.winters.cleanphotos.core.text.asString
@@ -54,10 +48,6 @@ import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarGroup
 import com.winters.cleanphotos.domain.model.SimilarMark
 import java.util.Locale
-
-/** 标成移走的缩略图：去色再压暗，和垃圾桶小样同一套退影处理。 */
-internal const val SIMILAR_REST_BRIGHTNESS = 0.7f
-internal val SIMILAR_REST_FILTER: ColorFilter = saturateBrightness(0f, SIMILAR_REST_BRIGHTNESS)
 
 /**
  * 相似分组列表。顶栏、范围按钮和底部导航由照片页提供。
@@ -181,6 +171,7 @@ internal fun SimilarThumb(
     mark: SimilarMark,
     contentDescription: String?,
     onClick: (() -> Unit)?,
+    framed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -193,33 +184,34 @@ internal fun SimilarThumb(
             .crossfade(false)
             .build()
     }
-    PhotoTile(
-        model = model,
-        contentDescription = contentDescription,
-        modifier = modifier.width(Dimens.SimilarThumb),
-        developProfile = null,
-        colorFilter = if (mark == SimilarMark.Remove) SIMILAR_REST_FILTER else null,
-        onClick = onClick,
-    ) {
-        when (mark) {
-            SimilarMark.Keep -> SelectionCheck(visible = true)
-            SimilarMark.Favorite -> SimilarStar()
-            SimilarMark.Remove -> Unit
+    Box(modifier.width(Dimens.SimilarThumb)) {
+        PhotoTile(
+            model = model,
+            contentDescription = contentDescription,
+            modifier = Modifier.fillMaxWidth(),
+            developProfile = null,
+            onClick = onClick,
+        ) {
+            if (mark == SimilarMark.Keep) SelectionCheck(visible = true)
+        }
+        if (framed) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .border(Dimens.SimilarFilmStroke, DarkroomColors.Paper, RoundedCornerShape(Dimens.SimilarFilmStroke)),
+            )
+        }
+        if (mark == SimilarMark.Remove) {
+            // 描边之后再画，底边的相纸白描边不会盖住这条线。
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(Dimens.SimilarRemoveBar)
+                    .background(DarkroomColors.Fade),
+            )
         }
     }
-}
-
-@Composable
-internal fun BoxScope.SimilarStar() {
-    Icon(
-        DarkroomIcons.StarSolid,
-        contentDescription = null,
-        tint = DarkroomColors.Amber,
-        modifier = Modifier
-            .align(Alignment.TopEnd)
-            .padding(Dimens.CheckInset)
-            .size(Dimens.CheckBadge),
-    )
 }
 
 @Composable
@@ -227,7 +219,6 @@ internal fun similarMarkLabel(mark: SimilarMark): String = stringResource(
     when (mark) {
         SimilarMark.Keep -> R.string.similar_mark_keep
         SimilarMark.Remove -> R.string.similar_mark_remove
-        SimilarMark.Favorite -> R.string.similar_mark_favorite
     },
 )
 
@@ -254,7 +245,7 @@ fun SimilarUndoBar(
                 seq = it.seq,
                 thumbKey = it.thumbId,
                 thumbModel = it.thumbModel,
-                favorite = it.favoriteStyle,
+                favorite = false,
                 title = it.title.asString(),
                 subtitle = null,
             )

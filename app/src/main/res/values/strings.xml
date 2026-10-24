@@ -41,9 +41,10 @@
     <string name="similar_film_cd">%1$s, %2$s</string>
     <string name="similar_mark_keep">keep</string>
     <string name="similar_mark_remove">remove</string>
-    <string name="similar_mark_favorite">favorite</string>
-    <string name="similar_cue_keep">Keep swiping to keep it</string>
+    <string name="similar_cue_keep">Keep swiping up to keep</string>
     <string name="similar_cue_release_keep">Release to keep</string>
+    <string name="similar_cue_remove">Keep swiping down to remove</string>
+    <string name="similar_cue_release_remove">Release to remove</string>
     <string name="scope_seen_title">Everything here is seen</string>
     <string name="show_seen">Show seen</string>
     <string name="cd_more">More</string>

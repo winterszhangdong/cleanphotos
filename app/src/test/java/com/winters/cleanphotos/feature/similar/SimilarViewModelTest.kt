@@ -10,12 +10,10 @@ import com.winters.cleanphotos.domain.model.SimilarHashProgress
 import com.winters.cleanphotos.domain.model.SimilarMark
 import com.winters.cleanphotos.domain.model.SimilarSharpnessProgress
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
-import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.GroupSimilarPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveSimilarGroupsUseCase
-import com.winters.cleanphotos.domain.usecase.ResolveBatchFavoriteUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
 import com.winters.cleanphotos.fake.FakePhotoRepository
 import com.winters.cleanphotos.fake.FakeReviewRepository
@@ -77,18 +75,18 @@ class SimilarViewModelTest {
         vm.start()
         advanceUntilIdle()
         val key = vm.uiState.value.groups.single().key
-        vm.onMark(key, 2L, SimilarMark.Favorite)
+        vm.onMark(key, 2L, SimilarMark.Keep)
         vm.onMark(key, 1L, SimilarMark.Remove)
         photos.setPhotos(listOf(shot(1, 1_000, width = 10), shot(2, 2_000, width = 400)))
         advanceUntilIdle()
         val state = vm.uiState.value
         assertEquals(2L, state.groups.single().recommendedId)
-        assertEquals(SimilarMark.Favorite, state.marks.getValue(key)[2L])
+        assertEquals(SimilarMark.Keep, state.marks.getValue(key)[2L])
         assertEquals(SimilarMark.Remove, state.marks.getValue(key)[1L])
     }
 
     @Test
-    fun `提交同时移走和收藏，撤回两步和已处理记录`() = runTest(dispatcher) {
+    fun `提交移走并记下仍留下的，撤回两步`() = runTest(dispatcher) {
         photos.setPhotos(
             listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000), shot(4, 4_000)),
         )
@@ -97,11 +95,10 @@ class SimilarViewModelTest {
         advanceUntilIdle()
         val key = vm.uiState.value.groups.single().key
         vm.onMark(key, 2L, SimilarMark.Keep)
-        vm.onMark(key, 4L, SimilarMark.Favorite)
         vm.onCommit(key)
         advanceUntilIdle()
-        assertEquals(listOf(3L), calls("trash"))
-        assertEquals(listOf(4L), calls("favorite"))
+        assertEquals(listOf(3L, 4L), calls("trash"))
+        assertTrue(review.batchCalls.none { it.first == "favorite" })
         assertEquals(setOf(1L, 2L), resolved.added.single())
         assertTrue(vm.uiState.value.undo != null)
 
@@ -109,8 +106,8 @@ class SimilarViewModelTest {
         advanceUntilIdle()
         assertNull(vm.uiState.value.undo)
         assertEquals(setOf(1L, 2L), resolved.removed.single())
-        assertEquals(listOf(4L), calls("unfavorite"))
-        assertEquals(listOf(3L), calls("restore"))
+        assertEquals(listOf(3L, 4L), calls("restore"))
+        assertTrue(review.batchCalls.none { it.first == "unfavorite" })
     }
 
     @Test
@@ -127,8 +124,8 @@ class SimilarViewModelTest {
         assertEquals(setOf(1L, 2L), resolved.added.single())
         val undo = vm.uiState.value.undo
         assertTrue(undo != null)
-        assertEquals(false, undo!!.favoriteStyle)
-        assertEquals(UiText.Res(R.string.similar_undo_kept), undo.title)
+        assertEquals(UiText.Res(R.string.similar_undo_kept), undo!!.title)
+        assertNull(undo.trashed)
     }
 
     @Test
@@ -147,37 +144,19 @@ class SimilarViewModelTest {
     }
 
     @Test
-    fun `移走失败不出现撤回，也不收藏`() = runTest(dispatcher) {
+    fun `移走失败不出现撤回`() = runTest(dispatcher) {
         photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000)))
         review.batchMoveResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
         val vm = viewModel()
         vm.start()
         advanceUntilIdle()
         val key = vm.uiState.value.groups.single().key
-        vm.onMark(key, 1L, SimilarMark.Favorite)
         vm.onCommit(key)
         advanceUntilIdle()
         assertNull(vm.uiState.value.undo)
         assertEquals(false, vm.uiState.value.moving)
-        assertTrue(review.batchCalls.none { it.first == "favorite" })
-    }
-
-    @Test
-    fun `收藏失败时撤回已经移走的，不出胶囊`() = runTest(dispatcher) {
-        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000)))
-        review.batchFavoriteResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
-        val vm = viewModel()
-        vm.start()
-        advanceUntilIdle()
-        val key = vm.uiState.value.groups.single().key
-        vm.onMark(key, 2L, SimilarMark.Favorite)
-        vm.onCommit(key)
-        advanceUntilIdle()
-        assertNull(vm.uiState.value.undo)
-        assertEquals(listOf(3L), calls("trash"))
-        assertEquals(listOf(2L), calls("favorite"))
-        assertEquals(listOf(3L), calls("restore"))
         assertTrue(resolved.added.isEmpty())
+        assertTrue(review.batchCalls.none { it.first == "favorite" })
     }
 
     @Test
@@ -233,7 +212,6 @@ class SimilarViewModelTest {
         return SimilarViewModel(
             observeSimilarGroupsUseCase = observe,
             batchMovePhotosToTrashUseCase = BatchMovePhotosToTrashUseCase(review, seen),
-            batchFavoritePhotosUseCase = BatchFavoritePhotosUseCase(ResolveBatchFavoriteUseCase(), review, seen),
             undoBatchActionUseCase = UndoBatchActionUseCase(review),
             similarResolvedRepository = resolved,
         )

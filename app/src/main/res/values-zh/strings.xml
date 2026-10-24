@@ -40,9 +40,10 @@
     <string name="similar_film_cd">%1$s，%2$s</string>
     <string name="similar_mark_keep">留下</string>
     <string name="similar_mark_remove">移走</string>
-    <string name="similar_mark_favorite">收藏</string>
-    <string name="similar_cue_keep">继续滑，改回留下</string>
+    <string name="similar_cue_keep">继续上滑留下</string>
     <string name="similar_cue_release_keep">松手留下</string>
+    <string name="similar_cue_remove">继续下滑移走</string>
+    <string name="similar_cue_release_remove">松手移走</string>
     <string name="scope_seen_title">这里都看过了</string>
     <string name="show_seen">显示看过的</string>
     <string name="cd_more">更多</string>

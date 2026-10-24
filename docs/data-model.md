@@ -1047,7 +1047,7 @@ DHash.hamming：两个 Long 的不同位数
 ### SimilarGroup
 
 ```kotlin
-enum class SimilarMark { Keep, Remove, Favorite }
+enum class SimilarMark { Keep, Remove }
 
 data class SimilarGroup(
     val photos: List<PhotoItem>, // 拍摄时间升序，至少 2 张
@@ -1062,7 +1062,7 @@ data class SimilarGroup(
 
 推荐 `chooseSimilarRecommended`：清晰度高的优先，没有清晰度的最后。其后与旧规则相同：像素数（宽 × 高，缺失算 0）最大，其次 `size` 更大，再其次 `dateTaken` 更早，最后 id 更小。
 
-页面上的标记是 `Map<groupKey, Map<photoId, SimilarMark>>`，只活在 `SimilarViewModel`。默认推荐为留下，其余为移走。收藏也算用户留下的一种，但收藏后照片离开全部照片。
+页面上的标记是 `Map<groupKey, Map<photoId, SimilarMark>>`，只活在 `SimilarViewModel`。默认推荐为留下，其余为移走。上滑写成留下，下滑写成移走。已经是这一侧时不变。
 
 ### 已处理记录
 
@@ -1097,7 +1097,7 @@ interface SimilarPhotoRepository {
 | ObserveSimilarGroupsUseCase | 观察全部照片。先哈希再只给组内算清晰度，然后按已处理记录过滤。记录变化不重新哈希 |
 | chooseSimilarRecommended | 一组里默认推荐哪张 |
 
-提交复用 `BatchMovePhotosToTrashUseCase`、`BatchFavoritePhotosUseCase`。撤回对两个 `BatchAction` 依次调用 `UndoBatchActionUseCase`，并 `removeResolved`。
+提交复用 `BatchMovePhotosToTrashUseCase`。撤回调用 `UndoBatchActionUseCase`，并 `removeResolved`。
 
 ***
 

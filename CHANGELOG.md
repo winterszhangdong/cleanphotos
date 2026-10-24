@@ -9,7 +9,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 
-- 安卓：相似照片可以挑着留了。点缩略图进入对比页看大图，放大后切换照片位置不变，方便逐张比较；上滑收藏、下滑移走，一组可以留多张，也可以全部移走。默认推荐最清晰的一张，处理过的组不会再出现。
+- 安卓：相似照片可以挑着留了。点缩略图进入对比页看大图，放大后切换照片位置不变，方便逐张比较；上滑留下并打勾，下滑移走，一组可以留多张，也可以全部移走。默认推荐最清晰的一张，处理过的组不会再出现。移走的照片保持彩色，缩略图底部一条退影灰。松手后方向提示停住并淡出。
 - 安卓：照片页改版，减少界面上的「点」。顶栏下一排常驻的范围按钮（全部 / 相似 / 大文件 / 截图 / 聊天 / 那年今天），取代原来的筛选菜单，一步就能切到；大号数字显示当前范围的张数，大文件、截图、聊天再显示总大小。往下翻时顶栏和按钮收起，往上一拨就回来。
 - 安卓：相似照片不再单独开一页，切到「相似」就在照片页里成组对比。
 - 安卓：顶栏只留 ⋯（排序、只看没看过、语言）；「只看没看过」改成开关，可以和截图、大文件等范围叠加。
@@ -20,7 +20,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 
-- Android: similar photos are easier to choose from. Tap a thumbnail to compare them full size; the zoom stays put as you switch photos. Swipe up to favorite, down to remove, and keep as many as you like, or none. The sharpest photo is suggested by default, and groups you have handled will not come back.
+- Android: similar photos are easier to choose from. Tap a thumbnail to compare them full size; the zoom stays put as you switch photos. Swipe up to keep it (a check), down to remove it, and keep as many as you like, or none. The sharpest photo is suggested by default, and groups you have handled will not come back. Photos marked for removal stay in color, with a gray line along the bottom of the thumbnail. The swipe hint freezes and fades out when you let go.
 - Android: redesigned Photos page with less visual noise. A permanent row of scope buttons under the header (All / Similar / Large files / Screenshots / Chat / On this day) replaces the filter menu; the big number shows the count for the current scope, plus total size for large files, screenshots and chats. The header and buttons slide away as you scroll down and come back when you scroll up a little.
 - Android: similar photos no longer open a separate page; choose "Similar" to compare groups right on the Photos page.
 - Android: the header keeps only ⋯ (sort, unseen only, language). "Unseen only" is now a switch that combines with any scope, such as screenshots or large files.

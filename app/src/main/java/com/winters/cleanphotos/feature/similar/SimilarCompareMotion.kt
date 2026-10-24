@@ -1,6 +1,8 @@
 package com.winters.cleanphotos.feature.similar
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -9,6 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Velocity
 import com.winters.cleanphotos.core.design.GestureTokens
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionSprings
 import com.winters.cleanphotos.core.design.SpringToken
 import com.winters.cleanphotos.feature.review.DragAxis
@@ -20,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * 对比页手势。照片不飞走：上下滑松手弹回，只改标记。
@@ -43,15 +47,26 @@ internal class SimilarCompareMotion(
     var pageIndex = 0
     var pageCount = 0
 
-    /** -1 下一张，1 上一张。调用前已经把位移归零。 */
+    /** -1 下一张，1 上一张。松手决定翻页时立刻调用，不等弹簧结束。 */
     var onCommitPage: (Int) -> Unit = {}
     var onVertical: (up: Boolean) -> Unit = {}
+
+    /** 手指还按在上下滑上。松手立刻变 false，提示不再跟回弹位移。 */
+    var fingerVertical by mutableStateOf(false)
+
+    /** 松手那一帧的提示。淡出期间只用这些，不读 dy。上滑留下，下滑移走。 */
+    var holding by mutableStateOf(false)
+    var heldUp by mutableStateOf(false)
+    var heldPast by mutableStateOf(false)
+    var heldProgress by mutableFloatStateOf(0f)
+    var cueAlpha by mutableFloatStateOf(0f)
 
     private var rawDx = 0f
     private var rawZoom = 1f
     private var norm = Offset(0.5f, 0.5f)
     private var settleJob: Job? = null
     private var zoomJob: Job? = null
+    private var cueJob: Job? = null
 
     override val isZoomed: Boolean get() = zoom > 1.01f
 
@@ -63,6 +78,16 @@ internal class SimilarCompareMotion(
 
     override fun onDragStart(axis: DragAxis) {
         this.axis = axis
+        if (axis == DragAxis.Vertical) {
+            cueJob?.cancel()
+            cueJob = null
+            holding = false
+            fingerVertical = true
+            // 翻页弹簧被这次按下取消后，剩下的横向位移收回来，停在已经切过去的那张上。
+            if (dx != 0f) settleDxHome()
+        } else {
+            dismissCue()
+        }
     }
 
     override fun onDrag(axis: DragAxis, delta: Offset) {
@@ -94,6 +119,7 @@ internal class SimilarCompareMotion(
     }
 
     override fun onDragCancel() {
+        holdCue()
         springBack(0f, 0f)
     }
 
@@ -135,6 +161,7 @@ internal class SimilarCompareMotion(
     fun prepareJump() {
         settleJob?.cancel()
         zoomJob?.cancel()
+        dismissCue()
         captureNorm()
         dx = 0f
         dy = 0f
@@ -155,26 +182,88 @@ internal class SimilarCompareMotion(
             springBack(vx, 0f)
             return
         }
-        val target = if (dir < 0) -width else width
+        // 先切下标再把位移接上，画面不跳。等弹簧结束再切的话，中途按下会取消弹簧，
+        // 接着上下滑把位移弹回 0，就回到翻页前的那张。
+        captureNorm()
+        val shift = if (dir < 0) width else -width
+        pageIndex = (pageIndex - dir).coerceIn(0, pageCount - 1)
+        onCommitPage(dir)
+        if (!animationsEnabled) {
+            dx = 0f
+            rawDx = 0f
+            axis = DragAxis.None
+            return
+        }
+        dx += shift
+        rawDx = dx
         settleJob?.cancel()
         val from = dx
         settleJob = scope.launch {
-            animateAxis(from, target, vx, MotionSprings.Snappy) {
+            animateAxis(from, 0f, vx, MotionSprings.Snappy) {
                 dx = it
                 rawDx = it
             }
             dx = 0f
             rawDx = 0f
             axis = DragAxis.None
-            captureNorm()
-            onCommitPage(dir)
+        }
+    }
+
+    /** 上下滑开始时，把翻页没走完的横向位移收回 0。不取消这次竖滑。 */
+    private fun settleDxHome() {
+        settleJob?.cancel()
+        val from = dx
+        settleJob = scope.launch {
+            animateAxis(from, 0f, 0f, MotionSprings.Settle) {
+                dx = it
+                rawDx = it
+            }
         }
     }
 
     private fun releaseVertical(vy: Float) {
+        holdCue()
         val release = ReviewGestureMath.verticalRelease(dy, vy, thresholds)
         if (accepting && release != VerticalRelease.None) onVertical(release == VerticalRelease.Up)
         springBack(0f, vy)
+    }
+
+    /**
+     * 把提示停在松手这一帧，再淡出。必须在 [onVertical] 之前调用。
+     * 回弹会穿过阈值，提示不能再读 dy。
+     */
+    private fun holdCue() {
+        if (!fingerVertical) return
+        heldUp = dy < 0f
+        heldPast = abs(dy) >= thresholds.vertical
+        heldProgress = ReviewGestureMath.cueProgress(dy, thresholds)
+        fingerVertical = false
+        cueJob?.cancel()
+        if (!animationsEnabled) {
+            holding = false
+            cueAlpha = 0f
+            cueJob = null
+            return
+        }
+        holding = true
+        cueAlpha = 1f
+        cueJob = scope.launch {
+            val a = Animatable(1f)
+            a.animateTo(0f, tween(MotionDurations.RELEASE_CUE_FADE, easing = LinearEasing)) {
+                cueAlpha = value
+            }
+            if (fingerVertical) return@launch
+            cueAlpha = 0f
+            holding = false
+        }
+    }
+
+    private fun dismissCue() {
+        cueJob?.cancel()
+        cueJob = null
+        fingerVertical = false
+        holding = false
+        cueAlpha = 0f
     }
 
     private fun springBack(vx: Float, vy: Float) {
@@ -265,4 +354,19 @@ internal class SimilarCompareMotion(
     private companion object {
         const val PINCH_RAW_MIN = 0.1f
     }
+}
+
+/** 对比页大图亮度。只有手指按着并且往下拖时收到 [GestureTokens.SIMILAR_DRAG_MIN_BRIGHTNESS]，饱和度另算、始终为 1。邻页仍走翻页亮度。 */
+internal fun similarHeroBrightness(
+    slot: Int,
+    fingerVertical: Boolean,
+    dy: Float,
+    dx: Float,
+    width: Float,
+    thresholds: ReviewThresholds,
+): Float {
+    if (slot != 0) return ReviewGestureMath.enteringBrightness(dx, width)
+    if (!fingerVertical || dy <= 0f) return 1f
+    val floor = GestureTokens.SIMILAR_DRAG_MIN_BRIGHTNESS
+    return 1f - (1f - floor) * ReviewGestureMath.effectFraction(dy, thresholds)
 }

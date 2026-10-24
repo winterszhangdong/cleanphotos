@@ -154,6 +154,8 @@ object Dimens {
     val SimilarThumb = 72.dp
     /** 对比页胶片条里，当前那张的相纸白描边。 */
     val SimilarFilmStroke = 2.dp
+    /** 标成移走的缩略图底部退影灰细线。照片本身保持原色。 */
+    val SimilarRemoveBar = 2.dp
     /** 方向提示圆：未过阈值空心，过阈值实心。对比页和清理页同一套尺寸。 */
     val CueRing = 32.dp
     val CueSolid = 56.dp

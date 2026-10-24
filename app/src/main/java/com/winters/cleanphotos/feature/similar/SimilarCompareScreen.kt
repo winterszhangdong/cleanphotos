@@ -35,14 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -73,8 +70,6 @@ import com.winters.cleanphotos.core.navigation.DockMode
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarGroup
 import com.winters.cleanphotos.domain.model.SimilarMark
-import com.winters.cleanphotos.domain.model.cycled
-import com.winters.cleanphotos.feature.review.DragAxis
 import com.winters.cleanphotos.feature.review.ReviewGestureMath
 import com.winters.cleanphotos.feature.review.ReviewThresholds
 import com.winters.cleanphotos.feature.review.detectReviewGestures
@@ -158,25 +153,19 @@ private fun SimilarCompareScreen(
         motion.onCommitPage = { dir -> index = (safeIndex - dir).coerceIn(0, photos.lastIndex) }
         motion.onVertical = vert@{ up ->
             val photo = photos.getOrNull(motion.pageIndex) ?: return@vert
-            val mark = marks[photo.id] ?: SimilarMark.Keep
-            onMark(group.key, photo.id, mark.cycled(up))
+            onMark(group.key, photo.id, if (up) SimilarMark.Keep else SimilarMark.Remove)
         }
     }
-    val favoriteLabel = stringResource(R.string.action_favorite)
-    val removeLabel = stringResource(R.string.action_move_to_trash)
     val keepLabel = stringResource(R.string.similar_action_keep)
-    val actions = remember(group.key, current.id, favoriteLabel, removeLabel, keepLabel) {
+    val removeLabel = stringResource(R.string.similar_mark_remove)
+    val actions = remember(group.key, current.id, keepLabel, removeLabel) {
         listOf(
-            CustomAccessibilityAction(favoriteLabel) {
-                onMark(group.key, current.id, SimilarMark.Favorite)
+            CustomAccessibilityAction(keepLabel) {
+                onMark(group.key, current.id, SimilarMark.Keep)
                 true
             },
             CustomAccessibilityAction(removeLabel) {
                 onMark(group.key, current.id, SimilarMark.Remove)
-                true
-            },
-            CustomAccessibilityAction(keepLabel) {
-                onMark(group.key, current.id, SimilarMark.Keep)
                 true
             },
         )
@@ -186,6 +175,7 @@ private fun SimilarCompareScreen(
         CompareTopBar(
             index = safeIndex,
             total = photos.size,
+            mark = currentMark,
             recommended = current.id == group.recommendedId && current.id in group.sharpness,
             onBack = onBack,
         )
@@ -230,7 +220,7 @@ private fun SimilarCompareScreen(
                     imageSize = imageSize,
                 )
             }
-            CompareCue(motion = motion, mark = currentMark, modifier = Modifier.align(Alignment.Center))
+            CompareCueLayer(motion = motion, modifier = Modifier.align(Alignment.Center))
         }
         CompareFilmstrip(
             photos = photos,
@@ -252,7 +242,7 @@ private fun SimilarCompareScreen(
 }
 
 @Composable
-private fun CompareTopBar(index: Int, total: Int, recommended: Boolean, onBack: () -> Unit) {
+private fun CompareTopBar(index: Int, total: Int, mark: SimilarMark, recommended: Boolean, onBack: () -> Unit) {
     Box(
         Modifier
             .statusBarsPadding()
@@ -270,8 +260,13 @@ private fun CompareTopBar(index: Int, total: Int, recommended: Boolean, onBack: 
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(stringResource(R.string.similar_position, index + 1, total), style = DarkroomText.Body)
-            if (recommended) {
-                Text(stringResource(R.string.similar_recommended), style = DarkroomText.Caption)
+            val caption = when {
+                mark == SimilarMark.Remove -> stringResource(R.string.similar_mark_remove) to DarkroomText.Caption.copy(color = DarkroomColors.Fade)
+                recommended && mark == SimilarMark.Keep -> stringResource(R.string.similar_recommended) to DarkroomText.Caption
+                else -> null
+            }
+            if (caption != null) {
+                Text(caption.first, style = caption.second)
             }
         }
     }
@@ -318,58 +313,62 @@ private fun ComparePage(
             modifier = Modifier
                 .fillMaxSize()
                 .tone(
-                    saturation = {
-                        val base = if (mark == SimilarMark.Remove) 0f else 1f
-                        val drag = if (slot == 0) ReviewGestureMath.dragSaturation(motion.dy, motion.thresholds) else 1f
-                        base * drag
-                    },
+                    saturation = { 1f },
                     brightness = {
-                        val base = if (mark == SimilarMark.Remove) SIMILAR_REST_BRIGHTNESS else 1f
-                        val drag = if (slot == 0) {
-                            ReviewGestureMath.dragBrightness(motion.dy, motion.thresholds)
-                        } else {
-                            ReviewGestureMath.enteringBrightness(motion.dx, motion.width)
-                        }
-                        base * drag
+                        similarHeroBrightness(
+                            slot = slot,
+                            fingerVertical = motion.fingerVertical,
+                            dy = motion.dy,
+                            dx = motion.dx,
+                            width = motion.width,
+                            thresholds = motion.thresholds,
+                        )
                     },
                 ),
         )
-        if (mark == SimilarMark.Favorite) {
-            val fit = ReviewGestureMath.fitSize(photo.width, photo.height, motion.width, motion.height)
-            val density = LocalDensity.current
-            Box(
-                Modifier.size(
-                    with(density) { fit.width.toDp() },
-                    with(density) { fit.height.toDp() },
-                ),
-            ) { SimilarStar() }
-        }
     }
 }
 
 @Composable
-private fun CompareCue(motion: SimilarCompareMotion, mark: SimilarMark, modifier: Modifier = Modifier) {
-    val vertical by remember { derivedStateOf { motion.axis == DragAxis.Vertical && motion.dy != 0f } }
-    val up by remember { derivedStateOf { motion.dy < 0f } }
-    val past by remember { derivedStateOf { abs(motion.dy) >= motion.thresholds.vertical } }
-    if (!vertical) return
-    val towardFavorite = up && mark != SimilarMark.Favorite
-    val towardRemove = !up && mark != SimilarMark.Remove
-    val amber = towardFavorite
-    val accent = if (amber) DarkroomColors.Amber else DarkroomColors.Paper
-    val icon = when {
-        towardFavorite -> DarkroomIcons.StarSolid
-        towardRemove -> DarkroomIcons.Trash
-        else -> DarkroomIcons.Check
+private fun CompareCueLayer(motion: SimilarCompareMotion, modifier: Modifier = Modifier) {
+    val dragging by remember { derivedStateOf { motion.fingerVertical } }
+    val holding by remember { derivedStateOf { motion.holding } }
+    if (dragging) {
+        val up by remember { derivedStateOf { motion.dy < 0f } }
+        val past by remember { derivedStateOf { abs(motion.dy) >= motion.thresholds.vertical } }
+        CompareCue(
+            up = up,
+            past = past,
+            progress = { ReviewGestureMath.cueProgress(motion.dy, motion.thresholds) },
+            modifier = modifier,
+        )
+    } else if (holding) {
+        CompareCue(
+            up = motion.heldUp,
+            past = motion.heldPast,
+            progress = { motion.heldProgress },
+            modifier = modifier.graphicsLayer { alpha = motion.cueAlpha },
+        )
     }
-    val title = when {
-        towardFavorite -> if (past) R.string.cue_release_favorite else R.string.cue_keep_favorite
-        towardRemove -> if (past) R.string.cue_release_trash else R.string.cue_keep_down
-        else -> if (past) R.string.similar_cue_release_keep else R.string.similar_cue_keep
+}
+
+@Composable
+private fun CompareCue(
+    up: Boolean,
+    past: Boolean,
+    progress: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    val accent = DarkroomColors.Paper
+    val icon = if (up) DarkroomIcons.Check else DarkroomIcons.Down
+    val title = if (up) {
+        if (past) R.string.similar_cue_release_keep else R.string.similar_cue_keep
+    } else {
+        if (past) R.string.similar_cue_release_remove else R.string.similar_cue_remove
     }
     if (!past) {
-        val ring = if (amber) DarkroomColors.Amber.copy(alpha = 0.6f) else DarkroomColors.Paper.copy(alpha = 0.32f)
-        val text = if (amber) DarkroomColors.Amber.copy(alpha = 0.8f) else DarkroomColors.Paper.copy(alpha = 0.5f)
+        val ring = DarkroomColors.Paper.copy(alpha = 0.32f)
+        val text = DarkroomColors.Paper.copy(alpha = 0.5f)
         Row(
             modifier,
             horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap, Alignment.CenterHorizontally),
@@ -379,7 +378,7 @@ private fun CompareCue(motion: SimilarCompareMotion, mark: SimilarMark, modifier
                 Modifier.size(Dimens.CueRing).drawBehind {
                     val w = Dimens.Hairline.toPx()
                     drawCircle(ring.copy(alpha = ring.alpha * 0.45f), style = Stroke(w))
-                    val p = ReviewGestureMath.cueProgress(motion.dy, motion.thresholds)
+                    val p = progress()
                     drawArc(
                         ring,
                         -90f,
@@ -401,16 +400,9 @@ private fun CompareCue(motion: SimilarCompareMotion, mark: SimilarMark, modifier
             Box(
                 Modifier
                     .size(Dimens.CueSolid)
-                    .then(
-                        if (amber) {
-                            Modifier.dropShadow(CircleShape, Shadow(radius = Dimens.CueRing, color = DarkroomColors.AmberGlow))
-                        } else {
-                            Modifier
-                        },
-                    )
                     .drawBehind {
                         drawCircle(
-                            if (amber) DarkroomColors.Amber.copy(alpha = 0.18f) else DarkroomColors.Paper.copy(alpha = 0.08f),
+                            DarkroomColors.Paper.copy(alpha = 0.08f),
                             radius = size.minDimension / 2f + Dimens.DayGap.toPx(),
                         )
                     }
@@ -452,11 +444,7 @@ private fun CompareFilmstrip(
                     similarMarkLabel(mark),
                 ),
                 onClick = { onSelect(i) },
-                modifier = Modifier.border(
-                    width = if (i == index) Dimens.SimilarFilmStroke else Dimens.Hairline,
-                    color = if (i == index) DarkroomColors.Paper else Color.Transparent,
-                    shape = RoundedCornerShape(Dimens.SimilarFilmStroke),
-                ),
+                framed = i == index,
             )
         }
     }
