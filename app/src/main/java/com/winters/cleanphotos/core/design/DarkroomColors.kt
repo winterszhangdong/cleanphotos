@@ -63,6 +63,11 @@ object DarkroomColors {
     // —— P3 ——
     /** .tile 占位底 #1c1a18。 */
     val TileFill = Color(0xFF1C1A18)
+    /**
+     * 格子角标衬底的终点：暗室底 @ 62%。
+     * 只在有大小或时长的格子底部，从透明收到这一档，不压暗整张照片。
+     */
+    val TileBadgeScrim = Room.copy(alpha = 0.62f)
     /** .list-fade：0 → rgba(15,14,13,0.92) @70% → room。 */
     val ListFadeMid = Room.copy(alpha = 0.92f)
     /** .btn-clear 描边 rgba(196,85,63,0.55)。 */

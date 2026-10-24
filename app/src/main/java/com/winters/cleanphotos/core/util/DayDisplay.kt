@@ -85,6 +85,16 @@ object DayDisplay {
     /** 月份标题（小结页月历）：中文「9月」，英文「Sep」。 */
     fun monthName(monthValue: Int, locale: Locale): String = monthOf(LocalDate.of(2000, monthValue, 1), locale)
 
+    /**
+     * 按月分组的标题，走日期行的两段：中文大号「10」+「月」，英文大号月份短名（与 [monthOf] 相同）。
+     */
+    fun monthTitle(date: LocalDate, locale: Locale): DayHeader =
+        if (isChinese(locale)) {
+            DayHeader(date.monthValue.toString(), "月")
+        } else {
+            DayHeader(date.month.getDisplayName(TextStyle.SHORT, locale), "")
+        }
+
     private fun headerOf(date: LocalDate, locale: Locale): DayHeader {
         return DayHeader(
             dayNumeral = date.dayOfMonth.toString(),

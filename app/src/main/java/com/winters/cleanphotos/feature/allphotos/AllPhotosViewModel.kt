@@ -8,8 +8,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.permission.PermissionChecker
-import com.winters.cleanphotos.domain.model.OnThisDayRules
+import com.winters.cleanphotos.domain.model.PhotoFilterMode
+import com.winters.cleanphotos.domain.model.PhotoFilterRules
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
+import com.winters.cleanphotos.domain.model.ScopeLayout
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
@@ -57,9 +59,11 @@ class AllPhotosViewModel @Inject constructor(
     private val _selection = MutableStateFlow(PhotoSelectionState())
     val selection: StateFlow<PhotoSelectionState> = _selection.asStateFlow()
 
-    /** 当前列表里可见的照片，按显示顺序（拖选按这个顺序取区间）。 */
-    private var visiblePhotos: List<PhotoItem> = emptyList()
-    private var visibleById: Map<Long, PhotoItem> = emptyMap()
+    /** 当前范围叠上「只看没看过」之后的完整列表（按显示顺序）。全选、批量操作、选中集合都用它。 */
+    private var selectablePhotos: List<PhotoItem> = emptyList()
+    private var selectableById: Map<Long, PhotoItem> = emptyMap()
+    /** 屏幕上露出的格子，按显示顺序。拖选取这个区间，不包含按天被收起的照片。 */
+    private var gridPhotos: List<PhotoItem> = emptyList()
     /** 长按开始拖选那一刻已选中的集合；拖选结果 = 它 ∪ 起点到当前格的区间。 */
     private var dragBase: Set<Long> = emptySet()
     /** 本次拖选的起点；长按没生效（处理中 / 不在列表）时为 null，拖动回调直接忽略。 */
@@ -102,47 +106,57 @@ class AllPhotosViewModel @Inject constructor(
                 val scope = frame.scope
                 val unseenOnly = frame.unseenOnly
                 val seenIds = frame.seenIds
-                val sorted = sortPhotosUseCase(allPhotos, sortOrder)
-                // 相似不吃范围过滤，分组自己算；网格数据仍按「全部」留着，切回去不用重排
-                val filterMode = scope.toFilterMode()
-                val scoped = if (scope == LibraryScope.Similar) {
-                    sorted
-                } else {
-                    filterPhotosUseCase(sorted, filterMode, seenIds, unseenOnly = false)
+                // shortcut: 今天只在照片列表 / 看过状态变化时重算，跨过午夜不会自动刷新；要精确就加一个按日期变化的 Flow
+                val today = LocalDate.now()
+                // 相似不吃范围过滤，网格仍按「全部」+ 菜单排序留着。大文件只在这个范围按大小排，不排整库两次。
+                val dateSorted = if (scope == LibraryScope.LargeFiles) null else sortPhotosUseCase(allPhotos, sortOrder)
+                val scoped = when (scope) {
+                    LibraryScope.Similar -> dateSorted!!
+                    LibraryScope.LargeFiles -> sortPhotosUseCase(
+                        allPhotos.filter { PhotoFilterRules.matches(it, PhotoFilterMode.LargeFiles, today) },
+                        PhotoSortOrder.LargestFirst,
+                    )
+                    else -> filterPhotosUseCase(dateSorted!!, scope.toFilterMode(), seenIds, unseenOnly = false, today)
                 }
                 val applyUnseen = unseenOnly && scope != LibraryScope.Similar
                 val visible = if (applyUnseen) scoped.filter { it.id !in seenIds } else scoped
-                // shortcut: 今天只在照片列表 / 看过状态变化时重算，跨过午夜不会自动刷新；要精确就加一个按日期变化的 Flow
-                val today = LocalDate.now()
-                var onThisDayCount = 0
-                for (photo in allPhotos) {
-                    if (OnThisDayRules.isOnThisDay(photo, today)) onThisDayCount++
+                val onThisDayCount = if (scope == LibraryScope.OnThisDay) {
+                    scoped.size
+                } else {
+                    allPhotos.count { PhotoFilterRules.matches(it, PhotoFilterMode.OnThisDay, today) }
                 }
-                val current = _uiState.value
-                current.copy(
-                    totalCount = allPhotos.size,
-                    onThisDayCount = onThisDayCount,
-                    scopeCount = scoped.size,
-                    visibleCount = visible.size,
-                    visibleBytes = visible.sumOf { it.size ?: 0L },
-                    sortOrder = sortOrder,
-                    scope = scope,
-                    unseenOnly = unseenOnly,
-                    sections = buildPhotoSectionsUseCase(visible, dayPool = scoped, seenIds = seenIds),
-                    seenIds = seenIds,
-                    allSeenStats = stats,
-                    hangPhotos = sorted.take(HANG_PHOTO_COUNT),
+                val layout = if (scope == LibraryScope.Similar) ScopeLayout.Day else scope.layout
+                val sections = buildPhotoSectionsUseCase(visible, dayPool = scoped, seenIds = seenIds, layout = layout)
+                Listed(
+                    state = AllPhotosUiState(
+                        totalCount = allPhotos.size,
+                        onThisDayCount = onThisDayCount,
+                        scopeCount = scoped.size,
+                        visibleCount = visible.size,
+                        visibleBytes = visible.sumOf { it.size ?: 0L },
+                        sortOrder = sortOrder,
+                        scope = scope,
+                        unseenOnly = unseenOnly,
+                        sections = sections,
+                        seenIds = seenIds,
+                        allSeenStats = stats,
+                        hangPhotos = dateSorted?.take(HANG_PHOTO_COUNT).orEmpty(),
+                    ),
+                    selectable = visible,
+                    selectableById = visible.associateBy { it.id },
+                    gridPhotos = sections.flatMap { it.photos },
                 )
             }
                 // 排序 / 分组整个相册不在主线程：本页留在返回栈里时，清理页每次滑动都会让这里重算一遍
                 .flowOn(computeDispatcher)
-                .collect { state ->
-                    visiblePhotos = state.sections.flatMap { it.photos }
-                    visibleById = visiblePhotos.associateBy { it.id }
-                    // 列表变了（照片被移走、范围切换）：选中集合只保留还在列表里的；一张不剩即退出多选
+                .collect { listed ->
+                    selectablePhotos = listed.selectable
+                    selectableById = listed.selectableById
+                    gridPhotos = listed.gridPhotos
+                    // 列表变了（照片被移走、范围切换）：选中集合只保留还在完整列表里的；一张不剩即退出多选
                     updateSelection(_selection.value.selectedIds)
                     val now = _uiState.value
-                    _uiState.value = state.copy(
+                    _uiState.value = listed.state.copy(
                         isLoading = now.isLoading,
                         isInitialLoad = now.isInitialLoad,
                         hasPermission = now.hasPermission,
@@ -198,7 +212,7 @@ class AllPhotosViewModel @Inject constructor(
      * 相似范围不能多选。返回是否开始了拖选。
      */
     fun onLongPressPhoto(photoId: Long): Boolean {
-        if (_scope.value == LibraryScope.Similar || photoId !in visibleById || _selection.value.isProcessing) {
+        if (_scope.value == LibraryScope.Similar || gridPhotos.none { it.id == photoId } || _selection.value.isProcessing) {
             dragAnchor = null
             return false
         }
@@ -211,10 +225,10 @@ class AllPhotosViewModel @Inject constructor(
     /** 长按后不松手拖动：选中 = 长按前已选 ∪ 起点到当前格（按列表顺序）。 */
     fun onDragSelect(anchorId: Long, currentId: Long) {
         if (_scope.value == LibraryScope.Similar || anchorId != dragAnchor || _selection.value.isProcessing) return
-        val from = visiblePhotos.indexOfFirst { it.id == anchorId }
-        val to = visiblePhotos.indexOfFirst { it.id == currentId }
+        val from = gridPhotos.indexOfFirst { it.id == anchorId }
+        val to = gridPhotos.indexOfFirst { it.id == currentId }
         if (from < 0 || to < 0) return
-        val range = visiblePhotos.subList(minOf(from, to), maxOf(from, to) + 1).map { it.id }
+        val range = gridPhotos.subList(minOf(from, to), maxOf(from, to) + 1).map { it.id }
         updateSelection(dragBase + range)
     }
 
@@ -224,9 +238,10 @@ class AllPhotosViewModel @Inject constructor(
         updateSelection(if (photoId in current) current - photoId else current + photoId)
     }
 
-    /** 天标题「全选这一天」：这一天已全选 → 全部取消，否则补齐。 */
+    /** 组标题「全选」：这一组已全选 → 全部取消，否则补齐。按完整列表，不只是露出的格子。 */
     fun onToggleDay(dayKey: String) {
-        val ids = _uiState.value.sections.firstOrNull { it.dayKey == dayKey }?.photos?.map { it.id } ?: return
+        val ids = _uiState.value.sections.firstOrNull { it.dayKey == dayKey }?.selectableIds ?: return
+        if (ids.isEmpty()) return
         val current = _selection.value.selectedIds
         updateSelection(if (current.containsAll(ids)) current - ids.toSet() else current + ids)
     }
@@ -264,7 +279,7 @@ class AllPhotosViewModel @Inject constructor(
     private fun runBatch(block: suspend (List<PhotoItem>) -> Pair<com.winters.cleanphotos.domain.model.BatchAction, PhotoOperationResult>) {
         val state = _selection.value
         if (!state.isSelecting || state.isProcessing) return
-        val selected = visiblePhotos.filter { it.id in state.selectedIds }
+        val selected = selectablePhotos.filter { it.id in state.selectedIds }
         _selection.value = state.copy(isProcessing = true)
         viewModelScope.launch {
             val outcome = try {
@@ -288,7 +303,7 @@ class AllPhotosViewModel @Inject constructor(
     }
 
     private fun updateSelection(ids: Set<Long>) {
-        val kept = ids.filterTo(LinkedHashSet()) { it in visibleById }
+        val kept = ids.filterTo(LinkedHashSet()) { it in selectableById }
         if (kept.isEmpty()) {
             // 退出多选：拖选起点和起点集合一起作废，下次长按重新开始
             dragBase = emptySet()
@@ -297,7 +312,7 @@ class AllPhotosViewModel @Inject constructor(
         val current = _selection.value
         _selection.value = current.copy(
             selectedIds = kept,
-            allSelectedFavorite = kept.isNotEmpty() && kept.all { visibleById.getValue(it).isFavorite },
+            allSelectedFavorite = kept.isNotEmpty() && kept.all { selectableById.getValue(it).isFavorite },
         )
     }
 
@@ -329,4 +344,11 @@ private data class PhotoFrame(
     val scope: LibraryScope,
     val unseenOnly: Boolean,
     val seenIds: Set<Long>,
+)
+
+private data class Listed(
+    val state: AllPhotosUiState,
+    val selectable: List<PhotoItem>,
+    val selectableById: Map<Long, PhotoItem>,
+    val gridPhotos: List<PhotoItem>,
 )

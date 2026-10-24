@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -218,27 +221,32 @@ fun DayHeaderRow(
     modifier: Modifier = Modifier,
     showChevron: Boolean = true,
 ) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(Dimens.DayHeight)
-            .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, top = Dimens.DayTop, bottom = Dimens.DayBottom),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap),
-    ) {
+    Row(modifier.fillMaxWidth().height(Dimens.DayHeight)) {
       // 50dp 固定高度：大字号时缩放封顶，天数字不被裁（1.0 时不变）
       CappedFontScale(FontScaleCaps.DAY_HEADER) {
-        Text(numeral, style = DarkroomText.DayNumeral, modifier = Modifier.alignByBaseline())
-        Text(meta, style = DarkroomText.DayMeta, modifier = Modifier.alignByBaseline())
-        Spacer(Modifier.weight(1f))
-        Row(
-            Modifier
-                .align(Alignment.CenterVertically)
-                .then(if (onEnter != null) Modifier.plainClickable(onClick = onEnter) else Modifier),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            right()
-            if (showChevron) Icon(DarkroomIcons.Chevron, contentDescription = stringResource(R.string.cd_enter_day), tint = DarkroomColors.Dim, modifier = Modifier.size(Dimens.DayChevron))
+        Row(Modifier.fillMaxSize()) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .padding(start = Dimens.ScreenSide, top = Dimens.DayTop, bottom = Dimens.DayBottom),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap),
+            ) {
+                Text(numeral, style = DarkroomText.DayNumeral, modifier = Modifier.alignByBaseline())
+                Text(meta, style = DarkroomText.DayMeta, modifier = Modifier.alignByBaseline())
+            }
+            // 右侧热区撑满行高（50）且至少 48dp 宽。只有这里进入这一天 / 全选。
+            Row(
+                Modifier
+                    .fillMaxHeight()
+                    .defaultMinSize(minWidth = Dimens.MinTouch)
+                    .then(if (onEnter != null) Modifier.plainClickable(onClick = onEnter) else Modifier)
+                    .padding(end = Dimens.ScreenSide),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                right()
+                if (showChevron) Icon(DarkroomIcons.Chevron, contentDescription = stringResource(R.string.cd_enter_day), tint = DarkroomColors.Dim, modifier = Modifier.size(Dimens.DayChevron))
+            }
         }
       }
     }

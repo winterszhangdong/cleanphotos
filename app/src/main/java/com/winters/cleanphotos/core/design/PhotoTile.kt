@@ -20,6 +20,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
@@ -33,7 +38,8 @@ import kotlinx.coroutines.launch
 
 /**
  * 方形缩略图（.tile）：#1c1a18 占位、居中裁切。
- * 视频在右下角用 [DarkroomText.TileSize] 标时长（已有文字阴影，亮图上也能读）。不画播放图标。
+ * 视频在右下角用 [DarkroomText.TileSize] 标时长，不画播放图标。
+ * 有大小或时长角标时，在照片之上、文字之下铺一条底部淡渐变（[tileBadgeScrim]），没有角标的格子不画。
  * 首次从磁盘解码才按 [developProfile] 显影（决定 7），命中内存缓存直接显示。显影不拦截点击。
  */
 @Composable
@@ -43,6 +49,10 @@ fun PhotoTile(
     modifier: Modifier = Modifier,
     isVideo: Boolean = false,
     durationMs: Long? = null,
+    /** 左下角文件大小。大文件平铺用，和右下角时长互不重叠。 */
+    sizeLabel: String? = null,
+    /** overlay 里另外画了角标（垃圾桶右下文件大小）时也铺同一条衬底。 */
+    overlayBadge: Boolean = false,
     developProfile: DevelopProfile? = DevelopProfiles.GridFirstScreen,
     developDelayMs: Int = 0,
     colorFilter: ColorFilter? = null,
@@ -58,6 +68,7 @@ fun PhotoTile(
     // 只在真正显影时挂 graphicsLayer：静止态不留离屏合成层，滚动更顺
     var developing by remember { mutableStateOf(false) }
     val durationLabel = durationMs?.let { DurationFormatter.format(it) }
+    val hasBadge = sizeLabel != null || durationLabel != null || overlayBadge
     val spoken = when {
         !isVideo -> contentDescription
         durationLabel != null && !contentDescription.isNullOrBlank() ->
@@ -65,6 +76,11 @@ fun PhotoTile(
         durationLabel != null -> stringResource(R.string.cd_video, durationLabel)
         !contentDescription.isNullOrBlank() -> stringResource(R.string.cd_video, contentDescription)
         else -> stringResource(R.string.cd_video_only)
+    }
+    val spokenWithSize = when {
+        sizeLabel == null -> spoken
+        spoken != null -> stringResource(R.string.cd_photo_size, spoken, sizeLabel)
+        else -> sizeLabel
     }
     Box(
         modifier
@@ -75,7 +91,7 @@ fun PhotoTile(
     ) {
         AsyncImage(
             model = model,
-            contentDescription = spoken,
+            contentDescription = spokenWithSize,
             contentScale = ContentScale.Crop,
             colorFilter = colorFilter,
             onSuccess = { success ->
@@ -90,8 +106,19 @@ fun PhotoTile(
             },
             modifier = imageModifier
                 .fillMaxSize()
+                .then(if (hasBadge) Modifier.tileBadgeScrim() else Modifier)
                 .then(if (developing && develop != null) Modifier.develop(develop) else Modifier),
         )
+        if (sizeLabel != null) {
+            Text(
+                sizeLabel,
+                style = DarkroomText.TileSize,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .clearAndSetSemantics { }
+                    .padding(start = Dimens.TileLabelInset, bottom = Dimens.TileLabelInset),
+            )
+        }
         if (durationLabel != null) {
             Text(
                 durationLabel,
@@ -104,6 +131,29 @@ fun PhotoTile(
             )
         }
         overlay()
+    }
+}
+
+/**
+ * 角标那一行的底部衬：透明 → [DarkroomColors.TileBadgeScrim]，高 [Dimens.TileBadgeScrimHeight]。
+ * 画在照片上面。调用方把文字排在这层之后，字才压在衬底上。尺寸变化才重建笔刷，不触发重组。
+ */
+fun Modifier.tileBadgeScrim(): Modifier = drawWithCache {
+    val band = Dimens.TileBadgeScrimHeight.toPx().coerceAtMost(size.height)
+    val top = size.height - band
+    val brush = if (band > 0f) {
+        Brush.verticalGradient(
+            colors = listOf(Color.Transparent, DarkroomColors.TileBadgeScrim),
+            startY = top,
+            endY = size.height,
+        )
+    } else {
+        null
+    }
+    onDrawWithContent {
+        drawContent()
+        val fade = brush ?: return@onDrawWithContent
+        drawRect(fade, topLeft = Offset(0f, top), size = Size(size.width, band))
     }
 }
 

@@ -11,6 +11,8 @@ import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
 import com.winters.cleanphotos.domain.model.MediaType
+import com.winters.cleanphotos.domain.model.PhotoSortOrder
+import com.winters.cleanphotos.domain.model.SectionHeader
 import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllSeenStatsUseCase
@@ -189,7 +191,7 @@ class AllPhotosViewModelTest {
         val other = vm.uiState.value.sections.first { it.dayKey != day.dayKey }
         vm.onLongPressPhoto(other.photos.first().id)
         vm.onToggleDay(day.dayKey)
-        assertEquals(day.photos.map { it.id }.toSet() + other.photos.first().id, vm.selection.value.selectedIds)
+        assertEquals(day.selectableIds.toSet() + other.photos.first().id, vm.selection.value.selectedIds)
         vm.onToggleDay(day.dayKey)
         assertEquals(setOf(other.photos.first().id), vm.selection.value.selectedIds)
     }
@@ -459,6 +461,111 @@ class AllPhotosViewModelTest {
         assertEquals(listOf(2L), unseen.sections.flatMap { it.photos }.map { it.id })
         assertEquals(2, unseen.scopeCount)
         assertEquals(1, unseen.visibleCount)
+    }
+
+    @Test
+    fun `一天三十张_全选三十张_拖选只含露出的格子_批量移入垃圾桶传三十张`() = runTest(testDispatcher) {
+        val photos = (1L..30L).map { TestPhotoData.createTestPhoto(it, dateGroup = "2024-05-20") }
+        fakePhotoRepository.setPhotos(photos)
+        val vm = createViewModel(); advanceUntilIdle()
+        val day = vm.uiState.value.sections.single()
+        val shown = day.photos.map { it.id }
+        assertEquals((30L downTo 23L).toList(), shown)
+        assertEquals((30L downTo 1L).toList(), day.selectableIds)
+
+        vm.onLongPressPhoto(shown.last())
+        vm.onDragSelect(shown.last(), shown.first())
+        assertEquals(shown.toSet(), vm.selection.value.selectedIds)
+
+        vm.onExitSelection()
+        vm.onToggleDay(day.dayKey)
+        assertEquals(30, vm.selection.value.count)
+        vm.onBatchMoveToTrash(); advanceUntilIdle()
+        assertEquals(listOf("trash" to (30L downTo 1L).toList()), fakeReviewRepository.batchCalls)
+    }
+
+    @Test
+    fun `大文件按大小排序_菜单排序保留_切回后生效`() = runTest(testDispatcher) {
+        val min = SmartFilterRules.LARGE_FILE_MIN_BYTES
+        val photos = listOf(
+            TestPhotoData.createTestPhoto(1).copy(size = min + 10, dateTaken = 3_000, dateGroup = "2024-05-20"),
+            TestPhotoData.createTestPhoto(2).copy(size = min + 50, dateTaken = 1_000, dateGroup = "2024-05-18"),
+            TestPhotoData.createTestPhoto(3).copy(size = 100, dateTaken = 5_000, dateGroup = "2024-05-21"),
+        )
+        fakePhotoRepository.setPhotos(photos)
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onScopeChanged(LibraryScope.LargeFiles)
+        advanceUntilIdle()
+        val large = vm.uiState.value
+        val section = large.sections.single()
+        assertEquals(listOf(2L, 1L), section.photos.map { it.id })
+        assertEquals(SectionHeader.None, section.header)
+        assertNull(section.yearHeader)
+        assertNull(section.date)
+        assertEquals(PhotoSortOrder.NewestFirst, large.sortOrder)
+        assertEquals(PhotoSortOrder.LargestFirst, large.reviewSortOrder)
+        assertFalse(large.scope.showsSortMenu)
+
+        vm.onSortOrderChanged(PhotoSortOrder.OldestFirst)
+        advanceUntilIdle()
+        val stillLarge = vm.uiState.value
+        assertEquals(listOf(2L, 1L), stillLarge.sections.single().photos.map { it.id })
+        assertEquals(PhotoSortOrder.OldestFirst, stillLarge.sortOrder)
+        assertEquals(PhotoSortOrder.LargestFirst, stillLarge.reviewSortOrder)
+
+        vm.onScopeChanged(LibraryScope.All)
+        advanceUntilIdle()
+        val all = vm.uiState.value
+        assertEquals(listOf(2L, 1L, 3L), all.sections.flatMap { it.photos }.map { it.id })
+        assertEquals(PhotoSortOrder.OldestFirst, all.sortOrder)
+        assertEquals(PhotoSortOrder.OldestFirst, all.reviewSortOrder)
+        assertTrue(all.scope.showsSortMenu)
+    }
+
+    @Test
+    fun `截图按月分组且超过八张不截断`() = runTest(testDispatcher) {
+        val zone = java.time.ZoneId.of("UTC")
+        fun shot(id: Long, date: java.time.LocalDate) = TestPhotoData.createTestPhoto(id, date.toString()).copy(
+            relativePath = "Pictures/Screenshots/",
+            dateTaken = date.atStartOfDay(zone).toInstant().toEpochMilli() + id,
+        )
+        val photos = (1L..10L).map { shot(it, java.time.LocalDate.of(2026, 10, it.toInt())) } +
+            (11L..13L).map { shot(it, java.time.LocalDate.of(2025, 9, (it - 10).toInt())) } +
+            TestPhotoData.createTestPhoto(14).copy(relativePath = "DCIM/Camera/", dateTaken = 9_000_000_000_000L)
+        fakePhotoRepository.setPhotos(photos)
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onScopeChanged(LibraryScope.Screenshots)
+        advanceUntilIdle()
+        val sections = vm.uiState.value.sections
+        assertEquals(listOf("2026-10", "2025-09"), sections.map { it.dayKey })
+        assertEquals(SectionHeader.Month, sections[0].header)
+        assertEquals((10L downTo 1L).toList(), sections[0].photos.map { it.id })
+        assertEquals(10, sections[0].selectableIds.size)
+        assertEquals(10, sections[0].totalCount)
+        assertEquals(2026, sections[0].yearHeader)
+        assertEquals(2025, sections[1].yearHeader)
+        assertEquals(listOf(13L, 12L, 11L), sections[1].photos.map { it.id })
+    }
+
+    @Test
+    fun `那年今天仍按天截断到八张_全选含全部`() = runTest(testDispatcher) {
+        val zone = java.time.ZoneId.systemDefault()
+        val day = previousSameDay(java.time.LocalDate.now(zone), 1)
+        val photos = (1L..10L).map {
+            TestPhotoData.createTestPhoto(it, day.toString()).copy(
+                dateTaken = day.atStartOfDay(zone).toInstant().toEpochMilli() + it * 1000,
+            )
+        }
+        fakePhotoRepository.setPhotos(photos)
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onScopeChanged(LibraryScope.OnThisDay)
+        advanceUntilIdle()
+        val section = vm.uiState.value.sections.single()
+        assertEquals(SectionHeader.Day, section.header)
+        assertEquals((10L downTo 3L).toList(), section.photos.map { it.id })
+        assertEquals((10L downTo 1L).toList(), section.selectableIds)
+        vm.onToggleDay(section.dayKey)
+        assertEquals(10, vm.selection.value.count)
     }
 }
 

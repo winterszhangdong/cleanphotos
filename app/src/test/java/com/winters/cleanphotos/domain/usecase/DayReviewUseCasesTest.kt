@@ -6,6 +6,7 @@ import com.winters.cleanphotos.domain.model.DayCellState
 import com.winters.cleanphotos.domain.model.DayKey
 import com.winters.cleanphotos.domain.model.MonthDayState
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ReviewLedger
 import com.winters.cleanphotos.domain.model.ReviewOutcome
 import com.winters.cleanphotos.fake.FakePhotoRepository
@@ -122,6 +123,11 @@ class DayReviewUseCasesTest {
     @Test fun summary_triggers_at_session_end_when_last_day_done() {
         val l = ReviewLedger((1L..6L).map { photo(it, sep21) }).let { var x = it; (1L..6L).forEach { id -> x = x.markViewed(id) }; x }
         assertTrue(should(l, fromPhotoId = 6, toPhotoId = null))
+    }
+
+    @Test fun summary_not_inserted_when_sorted_by_size() {
+        val l = ledgerAllTouchedDay21().copy(sortOrder = PhotoSortOrder.LargestFirst)
+        assertFalse(should(l, fromPhotoId = 6, toPhotoId = 7))
     }
 
     @Test fun summary_never_for_unknown_date() {

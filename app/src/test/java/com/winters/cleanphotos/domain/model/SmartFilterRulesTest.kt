@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 class SmartFilterRulesTest {
 
@@ -70,11 +71,17 @@ class SmartFilterRulesTest {
         val photos = listOf(seenShot, big, chat, plain)
         val filter = FilterPhotosUseCase(FakeSeenStateRepository())
         val seen = setOf(1L, 2L, 3L)
+        val today = LocalDate.of(2020, 1, 1)
 
-        assertEquals(listOf(1L), filter(photos, PhotoFilterMode.Screenshots, seen).map { it.id })
-        assertEquals(listOf(2L), filter(photos, PhotoFilterMode.LargeFiles, seen).map { it.id })
-        assertEquals(listOf(3L), filter(photos, PhotoFilterMode.ChatApps, seen).map { it.id })
-        assertEquals(listOf(4L), filter(photos, PhotoFilterMode.AllPhotos, seen, unseenOnly = true).map { it.id })
-        assertEquals(4, filter(photos, PhotoFilterMode.AllPhotos, seen).size)
+        assertEquals(listOf(1L), filter(photos, PhotoFilterMode.Screenshots, seen, today = today).map { it.id })
+        assertEquals(listOf(2L), filter(photos, PhotoFilterMode.LargeFiles, seen, today = today).map { it.id })
+        assertEquals(listOf(3L), filter(photos, PhotoFilterMode.ChatApps, seen, today = today).map { it.id })
+        assertEquals(listOf(4L), filter(photos, PhotoFilterMode.AllPhotos, seen, unseenOnly = true, today = today).map { it.id })
+        assertEquals(4, filter(photos, PhotoFilterMode.AllPhotos, seen, today = today).size)
+    }
+
+    @Test
+    fun `全部照片范围一律命中`() {
+        assertTrue(PhotoFilterRules.matches(photo(), PhotoFilterMode.AllPhotos, LocalDate.of(2020, 1, 1)))
     }
 }

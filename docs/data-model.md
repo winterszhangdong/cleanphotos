@@ -154,31 +154,46 @@ wasFavorited 和 favoritedAt 用于恢复时还原收藏快照
 
 ***
 
-## PhotoDateGroup
+## PhotoDaySection
 
-首页日期分组模型。
+照片页 / 收藏页的一组。代码是 `PhotoDaySection`（早先文档里的 PhotoDateGroup）。收藏页仍按天、每天最多 8 张。
 
 ```kotlin
-data class PhotoDateGroup(
-    val date: String,
+enum class ScopeLayout { Day, Month, Flat }
+enum class SectionHeader { Day, Month, None }
+
+data class PhotoDaySection(
+    val dayKey: String,
+    val date: LocalDate?,
+    val yearHeader: Int?,
     val photos: List<PhotoItem>,
-    val totalCount: Int
+    val totalCount: Int,
+    val unseenCount: Int,
+    val header: SectionHeader = SectionHeader.Day,
+    val selectableIds: List<Long> = photos.map { it.id },
 )
 ```
 
 字段说明：
 
 ```text
-date：分组键，来自 PhotoItem.dateGroup。界面不直接显示这串字。日期头由 DayDisplay 画成大号日数字加灰色 M月，例如 21 和 9月，不写年份。
-photos：该日期下用于展示的照片
-totalCount：该日期下照片总数
+dayKey：按天是 PhotoItem.dateGroup；按月是 yyyy-MM（未知日期仍是 "Unknown date"）；平铺固定 "flat"
+date：按天是这一天；按月是该月 1 日；未知日期和平铺为 null
+yearHeader：这一组上方要画的年份，与上一组同年时为 null。平铺为 null
+photos：露出的缩略图。按天最多 8 张；按月和平铺不截断
+totalCount：统计池里这一组的张数（照片页是当前范围、未叠「只看没看过」）
+unseenCount：统计池里还没看过的张数。seenCount = totalCount - unseenCount
+header：Day / Month / None。平铺不画标题
+selectableIds：这一组可以选中的全部 id（当前范围叠上「只看没看过」之后，含没露出的），按显示顺序
 ```
 
 规则：
 
 ```text
-photos 最多用于首页展示 8 张
-totalCount 表示该日期实际照片总数
+全部、那年今天：ScopeLayout.Day，每天最多露出 8 张
+截图、聊天：ScopeLayout.Month，不截断。月份标题中文大号数字加「月」，英文用月份短名
+大文件：ScopeLayout.Flat，一整列，不画年份和标题
+「全选」用 selectableIds，不是 photos
 ```
 
 ***
@@ -190,15 +205,17 @@ totalCount 表示该日期实际照片总数
 ```kotlin
 enum class PhotoSortOrder {
     NewestFirst,
-    OldestFirst
+    OldestFirst,
+    LargestFirst
 }
 ```
 
 说明：
 
 ```text
-NewestFirst：最新照片排在前面（默认）
+NewestFirst：最新照片排在前面（默认）。菜单里可选
 OldestFirst：最早的照片排在前面。菜单文案是「最早优先」
+LargestFirst：文件从大到小。不出现在菜单里，只在大文件范围和从那里进入的清理会话使用。size 相同按 dateTaken 新到旧。size 为 null 直接出错（这个范围不会放进这种照片）
 ```
 
 ***
@@ -226,7 +243,9 @@ OnThisDay：规则见 OnThisDayRules
 「只看没看过」不是这个枚举里的一项，是单独的布尔 unseenOnly：先按范围筛，再去掉 seenIds 里的照片。不持久化。相似范围忽略它
 ```
 
-判定在 `domain/model/SmartFilterRules.kt`（纯函数，大小写不敏感）：
+判定入口是 `domain/model/PhotoFilterRules.matches(photo, mode, today)`：AllPhotos 一律命中，其余分给下面两个纯函数。`FilterPhotosUseCase` 只调这个入口。
+
+`SmartFilterRules`（大小写不敏感）：
 
 ```text
 截图：relativePath 或 bucketName 含 "screenshot"、"截屏"、"截图"；字段为 null 不命中
@@ -491,7 +510,7 @@ lastAction：最近一次操作，用于撤回
 ```kotlin
 data class AllPhotosUiState(
     val totalCount: Int = 0,
-    val dateGroups: List<PhotoDateGroup> = emptyList(),
+    val sections: List<PhotoDaySection> = emptyList(),
     val visibleCount: Int = 0,
     val seenIds: Set<Long> = emptySet(),
     val isLoading: Boolean = false,
@@ -510,7 +529,9 @@ data class AllPhotosUiState(
 
 ```text
 totalCount：全部照片数量
-dateGroups：日期分组列表（代码里是 sections：PhotoDaySection）
+sections：当前范围的分组（PhotoDaySection）。按天、按月或平铺，见 PhotoDaySection
+reviewSortOrder：进清理页用的排序。大文件固定 LargestFirst，其它范围等于 sortOrder
+content：中间区域画什么（Loading / Error / Similar / AllSeen / ScopeEmpty / ScopeSeen / LibraryEmpty / Grid）。界面只按这个值分支
 scopeCount：当前范围、还没叠「只看没看过」的张数
 visibleCount：叠上「只看没看过」之后的张数。相似范围不吃开关，等于全部照片张数
 visibleBytes：visibleCount 这些照片的 size 之和，null 记 0。顶栏只在大文件 / 截图 / 聊天显示
@@ -518,7 +539,7 @@ seenIds：已看过的照片 ID 集合。日期行用它算「已看 / 总数」
 isLoading：是否加载中
 hasPermission：是否有相册权限
 errorMessage：错误信息
-sortOrder：当前排序方式。菜单文案是「最新优先」和「最早优先」
+sortOrder：菜单里的排序（最新优先 / 最早优先）。大文件范围不改它，网格另按 LargestFirst 排
 scope：当前范围。LibraryScope = All / Similar / LargeFiles / Screenshots / ChatApps / OnThisDay。相似映射到 PhotoFilterMode.AllPhotos
 unseenOnly：「只看没看过」。不持久化
 onThisDayCount：全部照片里命中「那年今天」的张数，不受「看过」影响
@@ -805,10 +826,11 @@ class SortPhotosUseCase {
 说明：
 
 ```text
-根据 sortOrder 对 photos 按 dateTaken 排序
+根据 sortOrder 对 photos 排序
 NewestFirst：dateTaken 降序
 OldestFirst：dateTaken 升序
 dateTaken 为 null 的照片排在最后
+LargestFirst：size 降序，size 相同再按 dateTaken 降序。size 为 null 直接出错
 ```
 
 ***
@@ -830,6 +852,7 @@ class FilterPhotosUseCase {
         filterMode: PhotoFilterMode,
         seenIds: Set<Long>,
         unseenOnly: Boolean = false,
+        today: LocalDate,
     ): List<PhotoItem>
 }
 ```
@@ -837,32 +860,37 @@ class FilterPhotosUseCase {
 说明：
 
 ```text
+全部经由 PhotoFilterRules.matches(photo, filterMode, today)
 AllPhotos：返回全部照片
 Screenshots / LargeFiles / ChatApps：按 SmartFilterRules 过滤
-OnThisDay：按 OnThisDayRules 过滤，今天取 LocalDate.now()
+OnThisDay：按 OnThisDayRules 过滤。纯函数用调用方传入的 today；suspend 版本内部取一次 LocalDate.now()
 unseenOnly 为 true：上面的结果再去掉 id 在 seenIds 里的照片
 ```
 
 ***
 
-### BuildPhotoDateGroupsUseCase
+### BuildPhotoSectionsUseCase
 
-将照片列表按日期分组。
+把已排序、已筛选的照片切成网格分组。代码类名是 `BuildPhotoSectionsUseCase`。`layout` 默认 `ScopeLayout.Day`，收藏页不传。
 
 ```kotlin
-class BuildPhotoDateGroupsUseCase {
+class BuildPhotoSectionsUseCase {
     operator fun invoke(
-        photos: List<PhotoItem>
-    ): List<PhotoDateGroup>
+        visible: List<PhotoItem>,
+        dayPool: List<PhotoItem>,
+        seenIds: Set<Long>,
+        layout: ScopeLayout = ScopeLayout.Day,
+    ): List<PhotoDaySection>
 }
 ```
 
 说明：
 
 ```text
-将已排序、已过滤的照片按 dateGroup 分组
-photos 包含该日期下的所有照片
-totalCount 记录该日期下实际照片总数
+visible：要显示的照片（已经叠过「只看没看过」），顺序即显示顺序
+dayPool：统计每组总数 / 未看数的池（照片页传当前范围、未叠开关的照片）
+Day 按 dateGroup，每天露出最多 8 张；Month 按 yyyy-MM，不截断；Flat 合成一组，键 "flat"
+selectableIds 是这一组 visible 的全部 id，含按天没露出的
 ```
 
 ***
@@ -939,7 +967,7 @@ class StartReviewSessionUseCase(
 
 ```text
 接受 startPhotoId、sortOrder、filterMode、scope、unseenOnly
-执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ 排序 → AllPhotos 再按 filterMode 过滤并叠 unseenOnly，Favorites 跳过过滤、也不吃 unseenOnly → 查找起始照片
+执行顺序：根据 scope 选择数据源（AllPhotos → observeAllPhotos，Favorites → observeFavoritedPhotos）→ AllPhotos 先按 filterMode 筛（不叠 unseenOnly），Favorites 不筛 → 再排序 → AllPhotos 需要时再叠 unseenOnly，Favorites 不吃这个开关 → 查找起始照片。先筛再排：按大小排时库里 size 为 null 的照片不在范围内，不能拿去比较
 找不到 startPhotoId 直接抛错，不回退到 0。起点已被「只看没看过」滤掉时，落到排序上它后面最近的一张，后面没有就取前面最近的一张
 scope 决定候选队列：AllPhotos 排除垃圾桶和已收藏，Favorites 只取已收藏且不在垃圾桶的
 ```
@@ -1127,6 +1155,7 @@ orderedPhotos：会话初始顺序（继承入口排序 / 筛选）
 viewedIds：本次会话看过的照片
 outcomes：photoId → Favorited / Unfavorited / Trashed
 summarizedDays：本次会话已出过小结的天
+sortOrder：会话排序，默认 NewestFirst。LargestFirst 时不插「这一天整理完了」
 ```
 
 撤回 `undoOutcome` 只去掉结果，照片仍算看过。引用不在会话里的 photoId 直接抛错。（P4 接入 ReviewViewModel。）
@@ -1136,7 +1165,7 @@ summarizedDays：本次会话已出过小结的天
 | UseCase | 作用 |
 | --- | --- |
 | BuildSessionDayProgressUseCase | 当前照片所在那一天的进度格：Favorited / Unfavorited / Trashed / Kept / Current / Pending；> 40 张 `useContinuousBar` |
-| ShouldInsertDaySummaryUseCase | 决定 2 四条件：前进且跨天（toPhotoId = null 表示会话走到末尾）、离开的那天全部看过或处理过、≥ 6 张、本会话首次 |
+| ShouldInsertDaySummaryUseCase | 决定 2：前进且跨天（toPhotoId = null 表示会话走到末尾）、离开的那天全部看过或处理过、≥ 6 张、本会话首次、不是未知日期。会话 sortOrder 为 LargestFirst 时直接不插 |
 | BuildDaySummaryUseCase | 小结：收藏 / 取消收藏 / 移走 / 保留数、移走字节、前 8 张（带结果）、月份条、下一天（封面 + 未看数）|
 | BuildMonthProgressUseCase | 决定 12：月份条 Done / Highlight / Pending / Empty，跨会话（持久化看过 + 收藏 + 垃圾桶），晚于今天为 Empty |
 | ObserveLibraryDayStateUseCase | 相册全量照片（可见 + 收藏 + 垃圾桶）、处理过 id、看过 id |

@@ -26,14 +26,6 @@ object SmartFilterRules {
         return containsAny(path, chatNeedles) || path.startsWith(QQ_PREFIX, ignoreCase = true)
     }
 
-    fun matches(photo: PhotoItem, mode: PhotoFilterMode): Boolean = when (mode) {
-        PhotoFilterMode.Screenshots -> isScreenshot(photo)
-        PhotoFilterMode.LargeFiles -> isLargeFile(photo)
-        PhotoFilterMode.ChatApps -> isChatApp(photo)
-        PhotoFilterMode.OnThisDay -> error("那年今天不走 SmartFilterRules")
-        PhotoFilterMode.AllPhotos -> error("$mode 不是智能筛选")
-    }
-
     private fun containsAny(value: String?, needles: List<String>): Boolean {
         if (value == null) return false
         return needles.any { value.contains(it, ignoreCase = true) }

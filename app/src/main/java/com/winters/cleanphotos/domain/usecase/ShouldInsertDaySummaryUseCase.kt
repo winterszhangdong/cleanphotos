@@ -1,6 +1,7 @@
 package com.winters.cleanphotos.domain.usecase
 
 import com.winters.cleanphotos.domain.model.DayKey
+import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ReviewRules
 import com.winters.cleanphotos.domain.model.ReviewLedger
 import javax.inject.Inject
@@ -18,6 +19,7 @@ import javax.inject.Inject
  */
 class ShouldInsertDaySummaryUseCase @Inject constructor() {
     operator fun invoke(ledger: ReviewLedger, fromPhotoId: Long, toPhotoId: Long?): Boolean {
+        if (ledger.sortOrder == PhotoSortOrder.LargestFirst) return false
         val from = ledger.photo(fromPhotoId)
         if (toPhotoId != null) {
             val to = ledger.photo(toPhotoId)

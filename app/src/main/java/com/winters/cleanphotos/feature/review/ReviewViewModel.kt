@@ -232,9 +232,10 @@ class ReviewViewModel @Inject constructor(
             try {
                 // 进程重建：从上次正在看的照片开始；它已被处理 / 不在列表里时由 UseCase 就近选一张
                 val startId = savedStateHandle.get<Long>(KEY_CURRENT_PHOTO) ?: photoId
+                val order = PhotoSortOrder.valueOf(sortOrder)
                 val session = startReviewSessionUseCase(
                     startId,
-                    PhotoSortOrder.valueOf(sortOrder),
+                    order,
                     PhotoFilterMode.valueOf(filterMode),
                     reviewScope,
                     unseenOnly,
@@ -243,7 +244,7 @@ class ReviewViewModel @Inject constructor(
                 core.update {
                     it.copy(
                         loading = false,
-                        ledger = ReviewLedger(session.photos),
+                        ledger = ReviewLedger(session.photos, sortOrder = order),
                         currentKey = ReviewPage.keyOf(start.id),
                     )
                 }

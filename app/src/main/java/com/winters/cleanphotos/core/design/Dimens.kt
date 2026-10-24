@@ -109,6 +109,8 @@ object Dimens {
     val DayBottom = 10.dp
     val DayGap = 8.dp
     val DayChevron = 16.dp
+    /** 日期行 / 月份行右侧进入或全选的热区至少这个宽，行高 50 已经够高。 */
+    val MinTouch = 48.dp
     /** .grid4 / .grid3 间隔 2。 */
     val GridGap = 2.dp
     /** .list-fade 高 128。 */
@@ -123,6 +125,11 @@ object Dimens {
     val FreeTop = 4.dp
     /** .grid3 .size 距右下 6。 */
     val TileLabelInset = 6.dp
+    /**
+     * 格子角标底部渐变的高度。盖住 6dp 内缩和 10sp 那一行，上沿淡出。
+     * 四列格子大约 90dp，这条只占底部一截。
+     */
+    val TileBadgeScrimHeight = 28.dp
     /** .sel-sum 高 40。 */
     val SelSumHeight = 40.dp
     /** .tile .ck：22，距右上 8，图标 14，暗室色外环 2。 */

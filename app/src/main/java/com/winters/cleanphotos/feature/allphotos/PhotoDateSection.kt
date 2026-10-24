@@ -46,6 +46,8 @@ import com.winters.cleanphotos.core.navigation.sharedPhoto
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoDaySection
+import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.SectionHeader
 
 /** 四列照片网格的列数。 */
 const val PHOTO_GRID_COLUMNS = 4
@@ -189,6 +191,8 @@ fun LazyGridScope.photoDaySections(
     onPhotoClick: (Long) -> Unit,
     selection: GridSelection? = null,
     showChevron: Boolean = true,
+    /** 平铺格子左下角的文件大小。不传则不画。 */
+    sizeLabel: ((PhotoItem) -> String)? = null,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -201,29 +205,36 @@ fun LazyGridScope.photoDaySections(
                 YearDivider(year, reorderModifier(i, reorderAnchor(), reorderPlace()).padding(top = if (index == 0) 0.dp else 8.dp))
             }
         }
-        val headerIndex = itemIndex++
-        item(key = section.dayKey, span = { GridItemSpan(maxLineSpan) }, contentType = "day") {
-            val locale = currentLocale()
-            val label = section.date?.let { DayDisplay.dayLabel(it, locale) } ?: DayDisplay.unknownDayLabel(stringResource(R.string.date_unknown))
-            if (selection != null && selection.selecting) {
-                val allPicked = section.photos.isNotEmpty() && section.photos.all { it.id in selection.selectedIds }
-                DayHeaderRow(
-                    numeral = label.dayNumeral,
-                    meta = label.monthLabel,
-                    right = { MonoWithBold(stringResource(if (allPicked) R.string.deselect_all else R.string.select_all), "") },
-                    onEnter = { selection.onToggleDay(section.dayKey) },
-                    modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
-                    showChevron = false,
-                )
-            } else {
-                DayHeaderRow(
-                    numeral = label.dayNumeral,
-                    meta = label.monthLabel,
-                    right = { right(section) },
-                    onEnter = section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
-                    modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
-                    showChevron = showChevron,
-                )
+        if (section.header != SectionHeader.None) {
+            val headerIndex = itemIndex++
+            item(key = section.dayKey, span = { GridItemSpan(maxLineSpan) }, contentType = "day") {
+                val locale = currentLocale()
+                val label = when (section.header) {
+                    SectionHeader.Day -> section.date?.let { DayDisplay.dayLabel(it, locale) }
+                    SectionHeader.Month -> section.date?.let { DayDisplay.monthTitle(it, locale) }
+                    SectionHeader.None -> error("平铺分组不画标题")
+                } ?: DayDisplay.unknownDayLabel(stringResource(R.string.date_unknown))
+                if (selection != null && selection.selecting) {
+                    val ids = section.selectableIds
+                    val allPicked = ids.isNotEmpty() && ids.all { it in selection.selectedIds }
+                    DayHeaderRow(
+                        numeral = label.dayNumeral,
+                        meta = label.monthLabel,
+                        right = { MonoWithBold(stringResource(if (allPicked) R.string.deselect_all else R.string.select_all), "") },
+                        onEnter = { selection.onToggleDay(section.dayKey) },
+                        modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
+                        showChevron = false,
+                    )
+                } else {
+                    DayHeaderRow(
+                        numeral = label.dayNumeral,
+                        meta = label.monthLabel,
+                        right = { right(section) },
+                        onEnter = section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
+                        modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
+                        showChevron = showChevron,
+                    )
+                }
             }
         }
         val firstRow = rowOffset
@@ -255,6 +266,7 @@ fun LazyGridScope.photoDaySections(
                     contentDescription = photo.displayName,
                     isVideo = photo.mediaType == MediaType.Video,
                     durationMs = photo.durationMs,
+                    sizeLabel = sizeLabel?.invoke(photo),
                     // 同一天第二行起上方 2dp 间隔（.grid4 gap 2px）；天与天之间没有额外间隔
                     modifier = reorderModifier(tileIndex, reorderAnchor(), reorderPlace())
                         .padding(top = if (row == 0) 0.dp else Dimens.GridGap)

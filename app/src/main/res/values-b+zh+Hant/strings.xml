@@ -87,6 +87,7 @@
     <string name="cd_video">视频，%1$s</string>
     <string name="cd_video_named">视频，%1$s，%2$s</string>
     <string name="cd_video_only">视频</string>
+    <string name="cd_photo_size">%1$s，%2$s</string>
     <string name="cue_keep_favorite">继续上滑收藏</string>
     <string name="cue_keep_unfavorite">继续上滑取消收藏</string>
     <string name="cue_keep_down">继续下滑</string>

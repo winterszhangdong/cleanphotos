@@ -351,6 +351,8 @@ MediaType（枚举：Image / Video）
 PhotoFilterMode（枚举：AllPhotos / Screenshots / LargeFiles / ChatApps / OnThisDay）。「只看没看过」是布尔 unseenOnly，不是枚举项
 SmartFilterRules（截图 / 大文件 / 聊天软件存图判定）
 OnThisDayRules（那年今天：本地月日相同且年份更早；今天由调用方传入）
+PhotoFilterRules（范围判定入口：AllPhotos 一律命中，其余分给 SmartFilterRules / OnThisDayRules）
+ScopeLayout（枚举：Day / Month / Flat。照片页各范围的分组方式）
 SimilarGroup（recommendedId + sharpness）、SimilarMark、SimilarRules、DHash、Sharpness（相似照片分组和清晰度）
 PhotoDateGroup
 PhotoAction
@@ -419,7 +421,7 @@ LocateMotionPhotoVideoUseCase（图片走 Repository；视频直接变成 Playba
 AllPhotosRoute（照片页导航项里同时持有 SimilarViewModel；第一次切到相似才 start，且只启动一次。对比页用同一个返回栈条目上的 ViewModel）
 AllPhotosScreen（顶栏 + 范围行 quick return；相似列表嵌在这一页）
 SimilarCompareRoute（全屏对比；手势在 feature/similar，复用清理页的判定函数，不改清理页）
-AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化）
+AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化。大文件内部用 LargestFirst，菜单排序另存）
 AllPhotosUiState
 PhotoDateSection
 PhotoChromeCollapse

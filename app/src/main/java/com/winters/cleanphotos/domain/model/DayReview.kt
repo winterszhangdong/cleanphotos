@@ -20,6 +20,8 @@ data class ReviewLedger(
     val viewedIds: Set<Long> = emptySet(),
     val outcomes: Map<Long, ReviewOutcome> = emptyMap(),
     val summarizedDays: Set<String> = emptySet(),
+    /** 会话排序。按大小排时同一天是散的，不插「这一天整理完了」。 */
+    val sortOrder: PhotoSortOrder = PhotoSortOrder.NewestFirst,
 ) {
     /** 每次滑动都会 copy 账本好几次；索引只依赖 orderedPhotos，同一份列表复用同一份索引，copy 不再 O(n) 重建。 */
     private val index: LedgerIndex = LedgerIndex.of(orderedPhotos)

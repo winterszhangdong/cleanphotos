@@ -57,6 +57,17 @@ class DayDisplayTest {
     }
 
     @Test
+    fun monthTitle_splitsChineseNumeralAndUsesShortEnglishName() {
+        val october = LocalDate.of(2026, 10, 21)
+        val zhTitle = DayDisplay.monthTitle(october, zh)
+        assertEquals("10", zhTitle.dayNumeral)
+        assertEquals("月", zhTitle.monthLabel)
+        val enTitle = DayDisplay.monthTitle(october, en)
+        assertEquals("Oct", enTitle.dayNumeral)
+        assertEquals("", enTitle.monthLabel)
+    }
+
+    @Test
     fun englishLocale_usesShortMonthAndWeekday() {
         val date = LocalDate.of(2026, 9, 2)
         assertEquals("Sep · Wed", DayDisplay.dayLabel(date, en).monthLabel)

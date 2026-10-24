@@ -44,11 +44,13 @@ fun TrashPhotoItem(
     val pick = pickState.value
     val saturation = TRASH_SATURATION + (1f - TRASH_SATURATION) * pick
     val brightness = TRASH_BRIGHTNESS + (1f - TRASH_BRIGHTNESS) * pick
+    val showSize = photo.size != null && !isSelected && photo.durationMs == null
     PhotoTile(
         model = photo.uri,
         contentDescription = photo.displayName,
         isVideo = photo.mediaType == MediaType.Video,
         durationMs = photo.durationMs,
+        overlayBadge = showSize,
         modifier = modifier
             .then(if (dissolveProgress != null) Modifier.dissolveLayer(dissolveProgress, tier) else Modifier)
             .then(if (isSelectionMode) Modifier.background(DarkroomColors.Room) else Modifier),
@@ -56,11 +58,10 @@ fun TrashPhotoItem(
         imageModifier = Modifier.selectedShrink { pickState.value },
         onClick = if (dissolveProgress != null) null else ({ if (isSelectionMode) onToggleSelection(photo) else onPhotoClick(photo) }),
     ) {
-        val size = photo.size
-        // 视频右下角是时长；再叠文件大小会盖住它
-        if (size != null && !isSelected && photo.durationMs == null) {
+        // 视频右下角是时长；再叠文件大小会盖住它。showSize 已经排除了没大小的格子。
+        if (showSize) {
             Text(
-                FileSizeFormatter.format(size, currentLocale()),
+                FileSizeFormatter.format(checkNotNull(photo.size), currentLocale()),
                 style = DarkroomText.TileSize,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = Dimens.TileLabelInset, bottom = Dimens.TileLabelInset),
             )

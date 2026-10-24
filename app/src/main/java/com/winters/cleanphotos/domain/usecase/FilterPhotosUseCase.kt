@@ -1,9 +1,8 @@
 package com.winters.cleanphotos.domain.usecase
 
-import com.winters.cleanphotos.domain.model.OnThisDayRules
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
+import com.winters.cleanphotos.domain.model.PhotoFilterRules
 import com.winters.cleanphotos.domain.model.PhotoItem
-import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.repository.SeenStateRepository
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
@@ -21,26 +20,19 @@ class FilterPhotosUseCase @Inject constructor(
         photos: List<PhotoItem>,
         filterMode: PhotoFilterMode,
         unseenOnly: Boolean = false,
-    ): List<PhotoItem> = invoke(photos, filterMode, seenStateRepository.observeSeenIds().first(), unseenOnly)
+    ): List<PhotoItem> {
+        val today = LocalDate.now()
+        return invoke(photos, filterMode, seenStateRepository.observeSeenIds().first(), unseenOnly, today)
+    }
 
     operator fun invoke(
         photos: List<PhotoItem>,
         filterMode: PhotoFilterMode,
         seenIds: Set<Long>,
         unseenOnly: Boolean = false,
+        today: LocalDate,
     ): List<PhotoItem> {
-        val ranged = when (filterMode) {
-            PhotoFilterMode.AllPhotos -> photos
-            PhotoFilterMode.Screenshots,
-            PhotoFilterMode.LargeFiles,
-            PhotoFilterMode.ChatApps,
-            -> photos.filter { SmartFilterRules.matches(it, filterMode) }
-            PhotoFilterMode.OnThisDay -> {
-                // shortcut: 今天只在照片列表 / 看过状态变化时重算，跨过午夜不会自动刷新；要精确就加一个按日期变化的 Flow
-                val today = LocalDate.now()
-                photos.filter { OnThisDayRules.isOnThisDay(it, today) }
-            }
-        }
+        val ranged = photos.filter { PhotoFilterRules.matches(it, filterMode, today) }
         return if (unseenOnly) ranged.filter { it.id !in seenIds } else ranged
     }
 }

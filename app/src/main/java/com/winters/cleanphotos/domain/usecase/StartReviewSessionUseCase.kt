@@ -30,13 +30,19 @@ class StartReviewSessionUseCase @Inject constructor(
         // 进程被回收后系统直接重建清理页：照片页还没刷新过，内存照片表是空的，先加载一次
         photoRepository.ensurePhotosLoaded()
 
-        val sorted = when (scope) {
-            ReviewScope.AllPhotos -> sortPhotosUseCase(photoRepository.observeAllPhotos().first(), sortOrder)
-            ReviewScope.Favorites -> sortPhotosUseCase(photoRepository.observeFavoritedPhotos().first(), sortOrder)
+        val candidates = when (scope) {
+            ReviewScope.AllPhotos -> photoRepository.observeAllPhotos().first()
+            ReviewScope.Favorites -> photoRepository.observeFavoritedPhotos().first()
         }
+        // 先按范围筛再排。按大小排时库里 size 为 null 的照片不在范围内，不能拿去比较。
+        // 收藏范围跳过过滤，也不吃「只看没看过」。
+        val ranged = when (scope) {
+            ReviewScope.AllPhotos -> filterPhotosUseCase(candidates, filterMode, unseenOnly = false)
+            ReviewScope.Favorites -> candidates
+        }
+        val sorted = sortPhotosUseCase(ranged, sortOrder)
         val photos = when (scope) {
-            ReviewScope.AllPhotos -> filterPhotosUseCase(sorted, filterMode, unseenOnly)
-            // 收藏范围跳过过滤，也不吃「只看没看过」
+            ReviewScope.AllPhotos -> if (unseenOnly) filterPhotosUseCase(sorted, filterMode, unseenOnly = true) else sorted
             ReviewScope.Favorites -> sorted
         }
 

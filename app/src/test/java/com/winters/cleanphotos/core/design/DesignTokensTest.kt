@@ -52,6 +52,14 @@ class DesignTokensTest {
         assertEquals(SpringToken(0.85f, 200f), MotionSprings.Gentle)
     }
 
+    @Test fun tile_badge_scrim_is_a_short_room_fade() {
+        assertEquals(28f, Dimens.TileBadgeScrimHeight.value)
+        assertEquals(0.62f, DarkroomColors.TileBadgeScrim.alpha, 0.001f)
+        assertEquals(DarkroomColors.Room.red, DarkroomColors.TileBadgeScrim.red, 0.001f)
+        assertEquals(DarkroomColors.Room.green, DarkroomColors.TileBadgeScrim.green, 0.001f)
+        assertEquals(DarkroomColors.Room.blue, DarkroomColors.TileBadgeScrim.blue, 0.001f)
+    }
+
     @Test fun nav_indicator_is_16dp_by_decision_6() {
         assertEquals(16f, Dimens.NavIndicatorWidth.value)
         assertEquals(2f, Dimens.NavIndicatorHeight.value)

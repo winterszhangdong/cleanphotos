@@ -73,7 +73,19 @@ class OnThisDayRulesTest {
 
         assertEquals(
             listOf(1L, 4L),
-            filter(listOf(lastYear, thisYear, otherDay, video, noDate), PhotoFilterMode.OnThisDay, setOf(1L, 4L)).map { it.id },
+            filter(listOf(lastYear, thisYear, otherDay, video, noDate), PhotoFilterMode.OnThisDay, setOf(1L, 4L), today = now).map { it.id },
+        )
+    }
+
+    @Test
+    fun `纯函数用传入的今天而不是当前日期`() {
+        val clockZone = ZoneId.systemDefault()
+        val today = LocalDate.of(2020, 6, 15)
+        val hit = photo(1, today.minusYears(3).atStartOfDay(clockZone).toInstant().toEpochMilli())
+        val filter = FilterPhotosUseCase(FakeSeenStateRepository())
+        assertEquals(
+            listOf(1L),
+            filter(listOf(hit), PhotoFilterMode.OnThisDay, emptySet(), today = today).map { it.id },
         )
     }
 }

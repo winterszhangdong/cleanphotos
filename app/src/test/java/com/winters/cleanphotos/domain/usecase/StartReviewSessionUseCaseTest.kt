@@ -145,6 +145,26 @@ class StartReviewSessionUseCaseTest {
     }
 
     @Test
+    fun `LargestFirst会话按大小降序且不含非大文件`() = runTest {
+        val min = SmartFilterRules.LARGE_FILE_MIN_BYTES
+        val fakeRepo = FakePhotoRepository()
+        val small = TestPhotoData.createTestPhoto(1).copy(size = 100, dateTaken = 3_000)
+        val noSize = TestPhotoData.createTestPhoto(5).copy(size = null, dateTaken = 9_000)
+        val medium = TestPhotoData.createTestPhoto(2).copy(size = min + 100, dateTaken = 1_000)
+        val hugeOlder = TestPhotoData.createTestPhoto(3).copy(size = min + 5_000, dateTaken = 500)
+        val hugeNewer = TestPhotoData.createTestPhoto(4).copy(size = min + 5_000, dateTaken = 4_000)
+        fakeRepo.setPhotos(listOf(small, noSize, medium, hugeOlder, hugeNewer))
+        val session = createUseCase(fakeRepo)(
+            startPhotoId = 2L,
+            sortOrder = PhotoSortOrder.LargestFirst,
+            filterMode = PhotoFilterMode.LargeFiles,
+            scope = ReviewScope.AllPhotos,
+        )
+        assertEquals(listOf(4L, 3L, 2L), session.photos.map { it.id })
+        assertEquals(2, session.currentIndex)
+    }
+
+    @Test
     fun `那年今天会话只含往年同月日`() = runTest {
         val zone = java.time.ZoneId.systemDefault()
         val today = java.time.LocalDate.now(zone)

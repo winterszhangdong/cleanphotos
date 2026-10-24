@@ -87,7 +87,7 @@ fun AllPhotosRoute(
         onPhotoClick = { photoId ->
             onNavigateToReview(
                 photoId,
-                uiState.sortOrder.name,
+                uiState.reviewSortOrder.name,
                 uiState.scope.toFilterMode().name,
                 uiState.unseenOnly,
             )

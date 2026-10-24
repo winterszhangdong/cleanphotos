@@ -3856,3 +3856,31 @@ TrashPreviewOverlay 与 ReviewScreen 横滑行为不一致
 ## 17 垃圾桶提醒
 
 照片页提醒整条链路已删除（胶囊、Observe / Mark UseCase、DataStore 读写、对应单测）。`TrashReminderRules` 只保留 `AGE_THRESHOLD_MS`（30 天），名字和数值不变，垃圾桶页使用。不再测大小阈值、7 天间隔或照片页胶囊。
+
+***
+
+## 18 照片页按范围分组
+
+### 多选越过每天 8 张
+
+- 一天 30 张：露出 8 张，`selectableIds` 为 30。点「全选」后 `selection.count == 30`。批量移入垃圾桶传入这 30 张。
+- 拖选只覆盖屏幕上露出的格子，不含没露出的。
+- 顶栏「已选 N」用 `selection.count`。
+
+### 排序与分组
+
+- 大文件：先筛再按 `LargestFirst`（size 降序，相同按 dateTaken 降序）。非大文件和 size 为 null 的不进列表。菜单 `sortOrder` 保持用户所选；在这个范围里改菜单排序不改变网格顺序；切回全部后菜单排序生效。`reviewSortOrder` 为 `LargestFirst`。⋯ 菜单 `showsSortMenu == false`。
+- 平铺：一组，键 `flat`，没有日期、没有年份、`SectionHeader.None`，不截断。
+- 截图 / 聊天：按 `yyyy-MM` 分组，超过 8 张不截断。跨年出现年份分隔。已看 / 总数用未叠「只看没看过」的这一月。全选作用于这一月叠上开关之后的全部 id。
+- 那年今天：仍按天，每年一组，每天最多露出 8 张，全选含没露出的。
+- `FilterPhotosUseCase` 纯函数使用调用方传入的 `today`，不取 `LocalDate.now()`。`PhotoFilterRules.matches` 对 `AllPhotos` 一律命中。
+- 从大文件进入的清理会话顺序与网格一致（size 降序）。`ShouldInsertDaySummaryUseCase` 在 `sortOrder == LargestFirst` 时不插小结，即使原来的四条件都满足。
+
+### 空状态
+
+`AllPhotosUiState.content`：加载（相似范围除外）→ 空列表上的错误 → 相似 → 全部看过了 → 范围为空 → 范围都看过 → 相册为空 → 网格。空列表上的错误先于相似、全部看过了、范围为空。全部看过了在分组非空时不看错误。网格在分组非空且不是上面几种时出现，错误可以同时非空。
+
+### 月份标题
+
+- 中文 `DayDisplay.monthTitle`：大号数字「10」加「月」。
+- 英文：月份短名（「Oct」），第二段为空。

@@ -12,6 +12,10 @@ class SortPhotosUseCase @Inject constructor() {
         return when (sortOrder) {
             PhotoSortOrder.NewestFirst -> photos.sortedByDescending { it.dateTaken ?: 0L }
             PhotoSortOrder.OldestFirst -> photos.sortedBy { it.dateTaken ?: 0L }
+            PhotoSortOrder.LargestFirst -> photos.sortedWith(
+                compareByDescending<PhotoItem> { it.size ?: error("按大小排序的照片没有 size：${it.id}") }
+                    .thenByDescending { it.dateTaken ?: 0L },
+            )
         }
     }
 }

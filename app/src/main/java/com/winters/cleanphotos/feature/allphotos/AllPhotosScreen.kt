@@ -112,6 +112,7 @@ import com.winters.cleanphotos.core.design.skeletonColor
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.core.util.NumberFormatter
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
+import com.winters.cleanphotos.domain.model.ScopeLayout
 import com.winters.cleanphotos.feature.similar.SimilarList
 import com.winters.cleanphotos.feature.similar.SimilarUiState
 import com.winters.cleanphotos.feature.similar.SimilarUndoBar
@@ -159,11 +160,7 @@ fun AllPhotosScreen(
     val selecting = selection.isSelecting
     BackHandler(enabled = selecting && !menuOpen) { selectionActions.onExit() }
     LaunchedEffect(selecting) { if (selecting) menuOpen = false }
-    val loading = uiState.isLoading && uiState.sections.isEmpty() && uiState.scope != LibraryScope.Similar
-    val scopeEmpty = !loading && uiState.errorMessage == null && uiState.scope.isNarrowRange && uiState.scopeCount == 0 && uiState.totalCount > 0
-    val scopeSeen = !loading && uiState.errorMessage == null && uiState.scope.isNarrowRange &&
-        uiState.unseenOnly && uiState.visibleCount == 0 && uiState.scopeCount > 0
-    val allSeen = !loading && uiState.scope == LibraryScope.All && uiState.unseenOnly && uiState.visibleCount == 0 && uiState.totalCount > 0
+    val content = uiState.content
     val showingSimilar = uiState.scope == LibraryScope.Similar
     val sortToast = remember { SortToastState() }
     val locale = currentLocale()
@@ -225,8 +222,11 @@ fun AllPhotosScreen(
     }
 
     val chromeTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + Dimens.HeaderHeight + Dimens.ScopeRowHeight
-    val showList = !loading && uiState.errorMessage == null && !allSeen && !scopeEmpty && !scopeSeen &&
-        (showingSimilar || uiState.sections.isNotEmpty())
+    val showListFade = when (content) {
+        LibraryContent.Grid -> uiState.errorMessage == null
+        LibraryContent.Similar -> uiState.errorMessage == null && similarState.groups.isNotEmpty()
+        else -> false
+    }
 
     GlassBackdropHost {
         AppDockEffect(
@@ -236,41 +236,38 @@ fun AllPhotosScreen(
             } else null,
         )
         Box(modifier.fillMaxSize().background(DarkroomColors.Room).nestedScroll(chromeScroll)) {
-            when {
-                loading -> LoadingSkeleton(Modifier.padding(top = chromeTop))
-                uiState.errorMessage != null && uiState.sections.isEmpty() -> {
+            when (content) {
+                LibraryContent.Loading -> LoadingSkeleton(Modifier.padding(top = chromeTop))
+                is LibraryContent.Error -> {
                     Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
-                        MessageState(stringResource(R.string.photos_error_title), uiState.errorMessage.asString())
+                        MessageState(stringResource(R.string.photos_error_title), content.message.asString())
                     }
                 }
-                showingSimilar -> SimilarList(
+                LibraryContent.Similar -> SimilarList(
                     uiState = similarState,
                     listState = similarListState,
                     contentPadding = PaddingValues(top = chromeTop + Dimens.FreeTop, bottom = dockListBottomPadding()),
                     onOpen = onSimilarOpen,
                     onCommit = onSimilarCommit,
                 )
-                allSeen || scopeEmpty || scopeSeen -> Unit
-                uiState.sections.isEmpty() -> {
+                LibraryContent.AllSeen -> AllSeenContent(
+                    uiState = uiState,
+                    onTrashClick = onTrashClick,
+                    onShowSeen = { onShowUnseenChanged(false) },
+                )
+                LibraryContent.ScopeEmpty -> SmartFilterEmpty(
+                    title = stringResource(uiState.scope.emptyTitleRes()),
+                    onShowAll = { onScopeChanged(LibraryScope.All) },
+                )
+                LibraryContent.ScopeSeen -> ScopeSeenEmpty(onShowSeen = { onShowUnseenChanged(false) })
+                LibraryContent.LibraryEmpty -> {
                     Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
                         MessageState(stringResource(R.string.photos_empty_title), stringResource(R.string.photos_empty_body))
                     }
                 }
-                else -> PhotoList(uiState, onPhotoClick, selection, selectionActions, gridState, chromeTop)
+                LibraryContent.Grid -> PhotoList(uiState, onPhotoClick, selection, selectionActions, gridState, chromeTop)
             }
-            if (allSeen) {
-                AllSeenContent(uiState = uiState, onTrashClick = onTrashClick, onShowSeen = { onShowUnseenChanged(false) })
-            }
-            if (scopeEmpty) {
-                SmartFilterEmpty(
-                    title = stringResource(uiState.scope.emptyTitleRes()),
-                    onShowAll = { onScopeChanged(LibraryScope.All) },
-                )
-            }
-            if (scopeSeen) {
-                ScopeSeenEmpty(onShowSeen = { onShowUnseenChanged(false) })
-            }
-            if (showList && !(showingSimilar && similarState.groups.isEmpty())) ListFade()
+            if (showListFade) ListFade()
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -298,7 +295,7 @@ fun AllPhotosScreen(
                                 unit = pluralStringResource(R.plurals.count_unit, selection.count),
                                 sub = stringResource(R.string.header_sub_selected),
                             )
-                            loading -> {
+                            content == LibraryContent.Loading -> {
                                 SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
                                 Text(
                                     stringResource(R.string.photos_loading),
@@ -384,43 +381,51 @@ fun AllPhotosScreen(
                 visible = menuOpen,
                 // 顶栏只剩 56dp：菜单紧贴 ⋯ 下方，盖住范围行而不是悬在它下面
                 top = Dimens.HeaderHeight,
-                sections = listOf(
-                    MenuSection(
-                        header = stringResource(R.string.menu_sort_header),
-                        options = listOf(
-                            MenuOption(stringResource(R.string.sort_newest), stringResource(R.string.sort_default), uiState.sortOrder == PhotoSortOrder.NewestFirst) {
-                                onSortOrderChanged(PhotoSortOrder.NewestFirst)
-                                menuOpen = false
-                            },
-                            MenuOption(stringResource(R.string.sort_oldest), null, uiState.sortOrder == PhotoSortOrder.OldestFirst) {
-                                onSortOrderChanged(PhotoSortOrder.OldestFirst)
-                                menuOpen = false
-                            },
-                        ),
-                    ),
-                    MenuSection(
-                        options = listOf(
-                            MenuOption(
-                                label = stringResource(R.string.menu_unseen_only),
-                                trailing = null,
-                                selected = false,
-                                onClick = {
-                                    onShowUnseenChanged(!uiState.unseenOnly)
-                                    menuOpen = false
-                                },
-                                toggle = uiState.unseenOnly,
+                sections = buildList {
+                    if (uiState.scope.showsSortMenu) {
+                        add(
+                            MenuSection(
+                                header = stringResource(R.string.menu_sort_header),
+                                options = listOf(
+                                    MenuOption(stringResource(R.string.sort_newest), stringResource(R.string.sort_default), uiState.sortOrder == PhotoSortOrder.NewestFirst) {
+                                        onSortOrderChanged(PhotoSortOrder.NewestFirst)
+                                        menuOpen = false
+                                    },
+                                    MenuOption(stringResource(R.string.sort_oldest), null, uiState.sortOrder == PhotoSortOrder.OldestFirst) {
+                                        onSortOrderChanged(PhotoSortOrder.OldestFirst)
+                                        menuOpen = false
+                                    },
+                                ),
+                            ),
+                        )
+                    }
+                    add(
+                        MenuSection(
+                            options = listOf(
+                                MenuOption(
+                                    label = stringResource(R.string.menu_unseen_only),
+                                    trailing = null,
+                                    selected = false,
+                                    onClick = {
+                                        onShowUnseenChanged(!uiState.unseenOnly)
+                                        menuOpen = false
+                                    },
+                                    toggle = uiState.unseenOnly,
+                                ),
                             ),
                         ),
-                    ),
-                    MenuSection(
-                        options = listOf(
-                            MenuOption(stringResource(R.string.menu_language), stringResource(currentLanguage.labelRes()), false) {
-                                menuOpen = false
-                                onLanguageClick()
-                            },
+                    )
+                    add(
+                        MenuSection(
+                            options = listOf(
+                                MenuOption(stringResource(R.string.menu_language), stringResource(currentLanguage.labelRes()), false) {
+                                    menuOpen = false
+                                    onLanguageClick()
+                                },
+                            ),
                         ),
-                    ),
-                ),
+                    )
+                },
             )
             LanguageSheet(
                 visible = showLanguageSheet,
@@ -458,7 +463,8 @@ private fun PhotoList(
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
-    val reorder = rememberPhotoReorder(gridState, uiState.sortOrder, uiState.scope to uiState.unseenOnly)
+    val reorder = rememberPhotoReorder(gridState, uiState.reviewSortOrder, uiState.scope to uiState.unseenOnly)
+    val locale = currentLocale()
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
     LazyVerticalGrid(
@@ -496,6 +502,16 @@ private fun PhotoList(
             onPhotoClick = openPhoto,
             selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay, actions.onToggle, actions.onLongPress),
             showChevron = false,
+            sizeLabel = if (uiState.scope.layout == ScopeLayout.Flat) {
+                { photo ->
+                    FileSizeFormatter.format(
+                        photo.size ?: error("大文件没有 size：${photo.id}"),
+                        locale,
+                    )
+                }
+            } else {
+                null
+            },
         )
     }
 }
@@ -549,14 +565,6 @@ private fun ScopeSeenEmpty(onShowSeen: () -> Unit) {
             modifier = Modifier.padding(top = 24.dp).plainClickable(onClick = onShowSeen),
         )
     }
-}
-
-private fun LibraryScope.emptyTitleRes(): Int = when (this) {
-    LibraryScope.Screenshots -> R.string.filter_empty_screenshots
-    LibraryScope.LargeFiles -> R.string.filter_empty_large_files
-    LibraryScope.ChatApps -> R.string.filter_empty_chat_apps
-    LibraryScope.OnThisDay -> R.string.filter_empty_on_this_day
-    LibraryScope.All, LibraryScope.Similar -> error("$this 没有范围空状态")
 }
 
 @Composable
