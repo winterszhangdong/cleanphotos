@@ -80,6 +80,9 @@ internal fun ReviewStage(
     summaryContent: @Composable (DaySummary, isCurrent: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
+    /** 播放器当前画在哪一页。离场或左右滑出未结束时是离开的那页，不是新的当前页。 */
+    videoHostKey: String? = null,
+    videoOverlay: @Composable () -> Unit = {},
 ) {
     val entries = buildList {
         val current = state.currentPage
@@ -110,7 +113,7 @@ internal fun ReviewStage(
         SwipeGlow(state, Modifier.zIndex(1f))
         entries.forEach { entry ->
             androidx.compose.runtime.key(entry.page.key) {
-                PageLayer(state, entry, tutorialDim, imageSize, summaries, summaryContent)
+                PageLayer(state, entry, tutorialDim, imageSize, summaries, summaryContent, videoHostKey, videoOverlay)
             }
         }
         state.flights.forEach { f -> if (f.kind == ExitKind.Up) androidx.compose.runtime.key(f) { AmberAfterimages(f, imageSize) } }
@@ -125,6 +128,8 @@ private fun PageLayer(
     imageSize: IntSize,
     summaries: Map<String, DaySummary>,
     summaryContent: @Composable (DaySummary, isCurrent: Boolean) -> Unit,
+    videoHostKey: String?,
+    videoOverlay: @Composable () -> Unit,
 ) {
     val page = entry.page
     val role = entry.role
@@ -221,7 +226,14 @@ private fun PageLayer(
             .tone(saturation, brightness),
     ) {
         when (page) {
-            is ReviewPage.Photo -> ReviewPhotoImage(page.photo, role, state, imageSize)
+            is ReviewPage.Photo -> ReviewPhotoImage(
+                page.photo,
+                role,
+                state,
+                imageSize,
+                showVideo = page.key == videoHostKey && role != PageRole.Beneath && role != PageRole.Recede,
+                videoOverlay = videoOverlay,
+            )
             is ReviewPage.Summary -> summaries[page.dayKey]?.let { summaryContent(it, role == PageRole.Current) }
                 ?: Box(Modifier.fillMaxSize().background(DarkroomColors.Room))
         }
@@ -234,7 +246,14 @@ private fun PageLayer(
  * 决定 7：只有第一次从磁盘解码、且这时它就是当前页时才显影（≤ 280ms、起始亮度 ≥ 0.6），其余一律直接显示。
  */
 @Composable
-private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStageState, imageSize: IntSize) {
+private fun ReviewPhotoImage(
+    photo: PhotoItem,
+    role: PageRole,
+    state: ReviewStageState,
+    imageSize: IntSize,
+    showVideo: Boolean,
+    videoOverlay: @Composable () -> Unit,
+) {
     val context = LocalContext.current
     val request = remember(photo.id, photo.uri, imageSize) { reviewImageRequest(context, photo, imageSize) }
     val scope = rememberCoroutineScope()
@@ -283,13 +302,16 @@ private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStag
                     .graphicsLayer { scaleX = AMBIENT_SCALE; scaleY = AMBIENT_SCALE },
             )
         }
+        Box(
+            Modifier.then(if (knownRatio) Modifier.aspectRatio(fit.width / fit.height) else Modifier.fillMaxSize()),
+        ) {
         AsyncImage(
             model = request,
             contentDescription = null,
             // 宽高已知时容器就是照片比例，用 Crop 让共享元素从方形缩略图长成照片时内容一直撑满、不跳
             contentScale = if (knownRatio) ContentScale.Crop else ContentScale.Fit,
             modifier = Modifier
-                .then(if (knownRatio) Modifier.aspectRatio(fit.width / fit.height) else Modifier.fillMaxSize())
+                .fillMaxSize()
                 .sharedPhoto(photo.id, expandsHere = true, enabled = role == PageRole.Current)
                 .develop(developState),
             onSuccess = { success ->
@@ -306,6 +328,10 @@ private fun ReviewPhotoImage(photo: PhotoItem, role: PageRole, state: ReviewStag
                 }
             },
         )
+            if (showVideo) {
+                Box(Modifier.fillMaxSize()) { videoOverlay() }
+            }
+        }
     }
 }
 

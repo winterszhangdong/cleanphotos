@@ -63,6 +63,8 @@ object MotionDurations {
     const val DISSOLVE_EMPTY_DELAY = 160
     /** interaction.md：收藏 / 移走离场主体位移上限。 */
     const val EXIT_MAIN_MAX = 250
+    /** 翻页或离场落定后再开播，快滑中途不起播。 */
+    const val PLAYBACK_START_DELAY = 250
     /** 决定 9：共享元素 0–80 按下，80–400 放大，400–520 控件淡入。 */
     const val SHARED_PRESS = 80
     const val SHARED_EXPAND_END = 400

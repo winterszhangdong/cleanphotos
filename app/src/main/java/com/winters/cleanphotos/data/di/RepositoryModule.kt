@@ -1,10 +1,12 @@
 package com.winters.cleanphotos.data.di
 
+import com.winters.cleanphotos.data.repository.MotionPhotoRepositoryImpl
 import com.winters.cleanphotos.data.repository.PhotoRepositoryImpl
 import com.winters.cleanphotos.data.repository.ReviewRepositoryImpl
 import com.winters.cleanphotos.data.repository.SimilarPhotoRepositoryImpl
 import com.winters.cleanphotos.data.repository.SimilarResolvedRepositoryImpl
 import com.winters.cleanphotos.data.repository.UserPreferencesRepositoryImpl
+import com.winters.cleanphotos.domain.repository.MotionPhotoRepository
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.repository.ReviewRepository
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
@@ -61,4 +63,10 @@ abstract class RepositoryModule {
     abstract fun bindSimilarResolvedRepository(
         impl: SimilarResolvedRepositoryImpl
     ): SimilarResolvedRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMotionPhotoRepository(
+        impl: MotionPhotoRepositoryImpl
+    ): MotionPhotoRepository
 }

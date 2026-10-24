@@ -44,6 +44,79 @@ relativePath：相对外部存储根目录的文件夹，与 RELATIVE_PATH 相�
 bucketName：所在文件夹名（BUCKET_DISPLAY_NAME）
 ```
 
+`PhotoItem` 没有动态照片字段。识别结果不进整库查询，只在播放时按需计算。
+
+***
+
+## MotionPhotoVideo
+
+内嵌视频在原文件里的字节范围。识别不到就是没有这个值，不另造一种「未知」状态。
+
+```kotlin
+data class MotionPhotoVideo(
+    val offset: Long,
+    val length: Long,
+)
+```
+
+```text
+offset：内嵌 MP4 的起点，该处起 4 字节之后必须是 ftyp
+length：从 offset 走到最后一个完整合法 box 的结尾。vivo 的 uuid 尾盒、OPPO 的 jxrs 尾标不计入
+```
+
+## PlaybackTarget
+
+当前页要播什么。只存在于清理页和垃圾桶预览的 UiState，不持久化。
+
+```kotlin
+sealed interface PlaybackTarget {
+    val uri: Uri
+    data class Video(override val uri: Uri) : PlaybackTarget
+    data class MotionPhoto(override val uri: Uri, val video: MotionPhotoVideo) : PlaybackTarget
+}
+```
+
+```text
+Video：MediaStore 视频，播整个 uri
+MotionPhoto：图片文件里的一段 MP4，按 offset / length 截取
+普通图片：UiState.playback 为 null
+playbackMuted：这次进入该页的静音，默认 true。不进 DataStore，不进 SavedStateHandle
+```
+
+## PlaybackPolicy
+
+```kotlin
+enum class PlaybackKind { Video, MotionPhoto }
+
+data class PlaybackPolicy(
+    val autoplay: Boolean,
+    val loop: Boolean,
+)
+
+fun playbackPolicy(kind: PlaybackKind, animationsEnabled: Boolean): PlaybackPolicy
+```
+
+```text
+autoplay = animationsEnabled
+loop = kind == Video
+系统关闭动画只关掉自动播放，不改变循环
+```
+
+## 动态照片识别
+
+`MotionPhotoLocator` 对随机读接口做纯解析。JPEG 在 SOS 之前读段（上限约 512KB，Latin-1），同时认属性 `ns:Key="v"` 和元素 `<ns:Key>v</ns:Key>`。顺序：
+
+```text
+1. Google Motion Photo v1：Camera:MotionPhoto="1" 或 GCamera:MotionPhoto="1"。每一份 Container:Directory 单独算：Semantic=MotionPhoto 的 Length，加上该项之后、这份目录里其余项的 Length，起点 = 文件大小 − 这个和。Item:Padding 不参与。同一份 XMP 同时出现在 Exif 0x02BC 和 APP1 时不把两份 Length 加在一起。校验通过的第一份就用。
+2. 旧 MicroVideo：GCamera:MicroVideo="1" + GCamera:MicroVideoOffset。起点 = 文件大小 − offset。
+3. OPPO / 一加 / realme：命名空间 ns.oplus.com/photo/1.0/camera/ 或 ns.oppo.com/photo/1.0/camera/，OpCamera:OLivePhotoVersion + OpCamera:VideoLength。起点 = 文件大小 − VideoLength。校验失败再扫。
+4. 尾标。三星 SEF：末 8 字节是 u32LE(backOffset) + SEFT，SEFH 在 size − 8 − backOffset，type 0x0A30 的记录前 64 字节里找 `ftyp`，起点 = 命中处 − 4（有 mpv2 / mpv3 头时 ftyp 在头后面，同样命中）。荣耀 / 华为：末 20 字节 ASCII LIVE_<n>（右侧填充），先试起点 size − 20 − n；校验不过（华为样本视频与尾标之间多一段 20 字节记录，起点会晚 20 字节）就从该点前 64 字节起往后扫 ftyp。
+5. 兜底扫描只在两种情况做：XMP 里有 OPPO 标记但校验失败，或 Exif Make 去掉空白再转大写后恰好是 HUAWEI 或 HONOR。从 JPEG EOI（FF D9）之后找 ftyp。
+HEIC：走顶层 box，找到 mpvd，视频是该 box 的载荷。品牌含 heic / heix / hevc / hevx / mif1 / msf1 / heim / heis / avif / avis。
+```
+
+统一校验：`offset + 8 ≤ size`，`[offset+4, offset+8)` 为 `ftyp`。从 offset 按 MP4 顶层 box 走（32 位 size；size 为 1 时用 64 位 largesize；size 为 0 表示直到文件尾）。必须看到一个完整的 `moov`。类型不是 4 个可打印 ASCII，或 box 自身越出文件，就停在这个 box 之前。`moov` 从未完整落在文件内则返回 null。最后一段完整 box 的结尾是真实 length。
+
 ***
 
 ## AppTrashEntry
@@ -601,6 +674,22 @@ refreshTrashedPhotos：刷新垃圾桶照片数据
 
 ***
 
+### MotionPhotoRepository
+
+```kotlin
+interface MotionPhotoRepository {
+    suspend fun locate(photo: PhotoItem): MotionPhotoVideo?
+}
+```
+
+说明：
+
+```text
+只对 Image 读文件。缓存键是 id 加 size，上限 256，缓存 null，不缓存抛出的 IO 失败
+```
+
+***
+
 ### ReviewRepository
 
 ```kotlin
@@ -875,7 +964,39 @@ class ObserveTrashedPhotosUseCase(
 
 ***
 
+### LocateMotionPhotoVideoUseCase
+
+按照片类型给出播放目标。
+
+```kotlin
+class LocateMotionPhotoVideoUseCase(
+    private val motionPhotoRepository: MotionPhotoRepository
+) {
+    suspend operator fun invoke(photo: PhotoItem): MotionPhotoVideo?
+    suspend fun playbackTarget(photo: PhotoItem): PlaybackTarget?
+}
+```
+
+说明：
+
+```text
+invoke 委托 MotionPhotoRepository.locate
+playbackTarget：Video 直接返回 PlaybackTarget.Video，不读文件；Image 调用 invoke，有范围则包成 MotionPhoto，否则 null
+```
+
+***
+
 ## DataSource 列表
+
+### MotionPhotoDataSource
+
+按 uri 随机读文件并交给 `MotionPhotoLocator`。整段打开、读取、关闭都在 `Dispatchers.IO`。短读或越界抛 `IOException`。不缓存。
+
+```kotlin
+class MotionPhotoDataSource {
+    suspend fun locate(uri: Uri): MotionPhotoVideo?
+}
+```
 
 ### AppTrashStateDataSource
 

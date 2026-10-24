@@ -232,4 +232,9 @@
     <!-- 语言名用各自的语言写，任何界面语言下都一样 -->
     <string name="language_zh" translatable="false">简体中文</string>
     <string name="language_en" translatable="false">English</string>
+    <string name="cd_playback_play">Play</string>
+    <string name="cd_playback_pause">Pause</string>
+    <string name="cd_playback_sound_on">Sound on</string>
+    <string name="cd_playback_sound_off">Mute</string>
+    <string name="playback_motion">Motion</string>
 </resources>

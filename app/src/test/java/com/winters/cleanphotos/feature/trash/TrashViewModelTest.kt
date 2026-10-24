@@ -6,6 +6,12 @@ import android.net.Uri
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.domain.model.AppTrashEntry
+import com.winters.cleanphotos.domain.model.MediaType
+import com.winters.cleanphotos.domain.model.MotionPhotoVideo
+import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PlaybackTarget
+import com.winters.cleanphotos.domain.repository.MotionPhotoRepository
+import com.winters.cleanphotos.domain.usecase.LocateMotionPhotoVideoUseCase
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
 import com.winters.cleanphotos.domain.model.TrashReminderRules
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
@@ -32,6 +38,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -55,6 +62,12 @@ class TrashViewModelTest {
     private lateinit var fakePhotoRepository: FakePhotoRepository
     private lateinit var fakeReviewRepository: FakeReviewRepository
     private lateinit var fakePreferences: FakeUserPreferencesRepository
+    private val motionPhotos = FakeMotionPhotos()
+
+    private class FakeMotionPhotos : MotionPhotoRepository {
+        var located: MotionPhotoVideo? = null
+        override suspend fun locate(photo: PhotoItem): MotionPhotoVideo? = located
+    }
 
     @Before
     fun setUp() {
@@ -88,6 +101,7 @@ class TrashViewModelTest {
             sumPhotoBytesUseCase = com.winters.cleanphotos.domain.usecase.SumPhotoBytesUseCase(),
             observeTotalFreedBytesUseCase = ObserveTotalFreedBytesUseCase(fakePreferences),
             addFreedBytesUseCase = AddFreedBytesUseCase(fakePreferences),
+            locateMotionPhotoVideoUseCase = LocateMotionPhotoVideoUseCase(motionPhotos),
             computeDispatcher = testDispatcher,
         )
     }
@@ -661,5 +675,45 @@ class TrashViewModelTest {
 
         assertEquals(0L, fakePreferences.totalFreedBytesFlow.value)
         assertEquals(0L, viewModel.uiState.value.totalFreedBytes)
+    }
+
+    @Test
+    fun `预览视频直接播放，切到普通照片后没有播放目标，静音离开预览仍保持`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(2).map { it.copy(isTrashed = true) }.let { list ->
+            listOf(list[0].copy(mediaType = MediaType.Video), list[1])
+        }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onPhotoClick(photos[0])
+        advanceUntilIdle()
+        val playback = viewModel.uiState.value.playback
+        assertTrue(playback is PlaybackTarget.Video)
+        assertEquals(photos[0].uri, playback!!.uri)
+
+        viewModel.onPlaybackMuted(false)
+        viewModel.onPreviewPhotoChange(photos[1].id)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.playback)
+        assertFalse(viewModel.uiState.value.playbackMuted)
+
+        viewModel.onExitPreview()
+        assertFalse(viewModel.uiState.value.playbackMuted)
+        assertNull(viewModel.uiState.value.playback)
+    }
+
+    @Test
+    fun `预览动态照片给出内嵌视频范围`() = runTest(testDispatcher) {
+        motionPhotos.located = MotionPhotoVideo(8, 16)
+        val photos = TestPhotoData.createTestPhotos(1).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onPhotoClick(photos[0])
+        advanceUntilIdle()
+        val playback = viewModel.uiState.value.playback as PlaybackTarget.MotionPhoto
+        assertEquals(8L, playback.video.offset)
+        assertEquals(16L, playback.video.length)
     }
 }

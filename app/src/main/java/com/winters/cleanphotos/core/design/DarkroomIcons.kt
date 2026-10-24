@@ -31,6 +31,10 @@ object DarkroomIcons {
     val Up = icon("up", "M12 19V5M6 11l6-6 6 6")
     val Down = icon("down", "M12 5v14M6 13l6 6 6-6")
     val LeftRight = icon("lr", "M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4")
+    val Play = icon("play", "M9 7.2l8.2 4.8L9 16.8z")
+    val Pause = icon("pause", "M8.5 6.5v11M15.5 6.5v11")
+    val SoundOn = icon("sound-on", "M4.5 9.5v5h3.2l3.8 3V6.5l-3.8 3zM14.6 9.2a3.2 3.2 0 010 5.6M17 7a6 6 0 010 10")
+    val SoundOff = icon("sound-off", "M4.5 9.5v5h3.2l3.8 3V6.5l-3.8 3zM16 9.2l4.2 5.6M20.2 9.2L16 14.8")
 
     private fun icon(name: String, path: String, strokeWidth: Float = 1.6f, fill: Boolean = false): ImageVector =
         ImageVector.Builder(

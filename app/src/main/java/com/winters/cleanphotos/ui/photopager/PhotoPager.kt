@@ -57,6 +57,8 @@ fun PhotoPager(
     contentScale: ContentScale = ContentScale.Fit,
     colorFilter: androidx.compose.ui.graphics.ColorFilter? = null,
     backgroundColor: Color = PhotoPagerBackgroundColor,
+    videoHostId: Long? = null,
+    videoOverlay: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
@@ -127,6 +129,7 @@ fun PhotoPager(
                         contentScale = contentScale,
                         colorFilter = colorFilter,
                         onImageLoadFailed = failureCallback,
+                        videoOverlay = if (page.photo.id == videoHostId && page.role != PhotoPagerRole.Background) videoOverlay else null,
                         modifier = Modifier.fillMaxSize()
                     )
                 }

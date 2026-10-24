@@ -224,6 +224,23 @@ class ReviewStageStateTest {
         assertEquals("p2", s.currentKey)
     }
 
+    @Test fun `横向翻页弹簧未落定时钉住视频宿主_提前切页后钉还在`() {
+        val s = bounceStage(three, "p2")
+        s.activeVideoHostKey = "p2"
+        s.goNext()
+        assertEquals("p2", s.playbackPinnedKey)
+        assertEquals("p2", s.currentKey)
+        s.handler.onDown()
+        assertEquals("p3", s.currentKey)
+        assertEquals("p2", s.playbackPinnedKey)
+    }
+
+    @Test fun `不是视频宿主的横向翻页不钉播放器`() {
+        val s = bounceStage(three, "p2")
+        s.goNext()
+        assertNull(s.playbackPinnedKey)
+    }
+
     @Test fun `上下拖过阈值时落下第二根手指_放弃这次拖动_不触发操作`() {
         val s = bounceStage(three, "p2")
         var swiped = false

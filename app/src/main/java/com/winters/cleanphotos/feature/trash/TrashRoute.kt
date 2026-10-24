@@ -57,6 +57,7 @@ fun TrashRoute(
         onRestorePreviewPhoto = viewModel::onRestorePreviewPhoto,
         onExitPreview = viewModel::onExitPreview,
         onPreviewPhotoChange = viewModel::onPreviewPhotoChange,
+        onPlaybackMuted = viewModel::onPlaybackMuted,
         onShowEmptyTrashConfirm = viewModel::onShowEmptyTrashConfirm,
         onDismissEmptyTrashConfirm = viewModel::onDismissEmptyTrashConfirm,
         onConfirmEmptyTrash = viewModel::onConfirmEmptyTrash,

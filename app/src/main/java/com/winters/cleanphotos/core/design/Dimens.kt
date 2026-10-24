@@ -36,6 +36,10 @@ object Dimens {
 
     // 进度条
     val SegHeight = 2.dp
+    /** 播放进度条可拖区域高度。线宽复用 [SegHeight]，圆点半径复用 [NavItemGap]。 */
+    val PlaybackScrubHeight = 20.dp
+    /** 「动态」标签上下内边距。左右复用 [GhostGap]。 */
+    val PlaybackTagPadV = 6.dp
     val SegGap = 3.dp
     val SegSideInset = 16.dp
     val SegDash = 3.dp
@@ -137,7 +141,8 @@ object Dimens {
     val PermSide = 24.dp
     val PermGoBottom = 72.dp
     val PermAltBottom = 36.dp
-    /** .pv-act 距底 40、左右 24；.pv-hint 距底 100。 */
+    /** .pv-act 距底 40、左右 24；.pv-hint 距底 100。meta 左右同 24，控件和文件信息间距 8 复用 [GhostGap]。 */
+    val PreviewSide = 24.dp
     val PreviewActionBottom = 40.dp
     val PreviewHintBottom = 100.dp
     /** 排序提示（mini 228px ↔ 360dp，× 1.579）：高 24→38、圆角 12→19、左右 12→19；顶边在屏高 342/494 处。 */

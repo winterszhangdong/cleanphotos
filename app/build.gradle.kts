@@ -96,6 +96,7 @@ dependencies {
     implementation(libs.haze)
     implementation(libs.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.media3.exoplayer)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

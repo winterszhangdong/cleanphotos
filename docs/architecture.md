@@ -11,6 +11,7 @@
 - Coroutines
 - Flow
 - Coil
+- Media3 ExoPlayer（只播清理页和垃圾桶预览；`media3-exoplayer` 1.11.1）
 - MediaStore
 - DataStore
 - Hilt
@@ -130,6 +131,7 @@ PhotoHashDataSource
 AppTrashStateDataSource
 AppFavoriteStateDataSource
 AppSeenStateDataSource
+MotionPhotoDataSource
 ```
 
 说明：
@@ -188,13 +190,23 @@ com.example.photocleaner
 * 启动时后台预载全部字重（`CleanPhotosApp`），避免首次用到某个中文字重时主线程同步加载
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
-* Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，清理页、小结页、垃圾桶预览直接用视频 uri 画首帧（不播放）；网格缩略图和清理页大图都用 `RGB_565`。清理页环境光把 96px 小图按屏幕上的 36dp 折算半径做一次盒式模糊并缓存，当前页、左右邻页、离场页和撤回让位页直接画这张图。alpha 为 0 的垫底页不画。不再对整页做实时 RenderEffect
+* Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，网格、小结页、清理页和垃圾桶预览的静态层用视频 uri 画首帧；网格缩略图和清理页大图都用 `RGB_565`。播放是另一层 TextureView，不改静态图请求。清理页环境光把 96px 小图按屏幕上的 36dp 折算半径做一次盒式模糊并缓存，当前页、左右邻页、离场页和撤回让位页直接画这张图。alpha 为 0 的垫底页不画。不再对整页做实时 RenderEffect
 * 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、范围按钮 `ScopeChipRow`
 * 间距
 * 通用组件
 * 图标（`DraftIcons` 画返回、日期箭头和勾；其余仍可用 `MaterialSymbol`）
 * `DarkroomMenu`（暗色玻璃菜单：192dp、圆角 16、内边距 4、菜单项 44dp/圆角 12；可分多段，段间细线；开关项画 36×20 轨道）
 * 动效常量
+
+### core/media
+
+播放器是渲染器，和 Coil 一样留在 UI 层。不进 ViewModel，不进 data 层。
+
+* `PlaybackEngine`：清理页一个、垃圾桶预览一个。Composable `remember` 创建，`DisposableEffect` 释放。`Lifecycle.Event.ON_STOP` 暂停，`ON_START` 只把「已回到前台」标回来，不立刻 `play()`。
+* 视频：`MediaItem.fromUri`。动态照片：`ProgressiveMediaSource` + `ResolvingDataSource`，把读取范围收成 `MotionPhotoVideo` 的 offset / length。各厂商同一条路，不用 Media3 自带的 JPEG/HEIC 动态照片 extractor。
+* `PlaybackSurface`：`AndroidView(TextureView)`，`isOpaque = false`。监听 `onVideoSizeChanged`（宽高 × 像素比；Media3 1.11 已在解码端转正），在叠层里按视频自己的比例 Fit 居中；尺寸未到或 `onRenderedFirstFrame` 之前 `graphicsLayer` alpha 为 0。不用 SurfaceView，否则去色、圆角、离场飞行带不走画面。未引入 `media3-ui-compose`，避免和 Compose BOM 2026.02.01 冲突。控件图标是 `DarkroomIcons` 的 Play / Pause / SoundOn / SoundOff。
+* `PlaybackControls` / `PlaybackAutoplay`：停稳后延迟 `PLAYBACK_START_DELAY` 再播；进度条在 chrome 层。静音是 `volume = 0f` 且不申请音频焦点；取消静音才 `handleAudioFocus = true`。
+* 是否自动播放、是否循环由 `playbackPolicy(kind, animationsEnabled)` 决定：自动播放跟着系统动画开关，循环只跟类型（视频循环，动态照片不循环）。
 
 ### core/navigation
 
@@ -270,6 +282,7 @@ AppFavoriteStateDataSource
 AppSeenStateDataSource
 AppSimilarResolvedDataSource
 PhotoSharpnessDataSource
+MotionPhotoDataSource
 ```
 
 职责：
@@ -282,6 +295,7 @@ PhotoSharpnessDataSource
 * `AppTrashStateDataSource`：使用 DataStore 管理 App 内垃圾桶的软删除记录（upsertEntry / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
 * `AppFavoriteStateDataSource`：使用 DataStore 管理 App 内收藏记录（upsertEntry / upsertEntries / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
 * `AppSeenStateDataSource`：使用 DataStore 管理已看过状态（markSeen / removeEntries / removeMissingEntries / observeSeenIds）。
+* `MotionPhotoDataSource`：只在当前页（可预取下一张图）按需识别动态照片。`ContentResolver.openFileDescriptor(uri, "r")` 整段在 `Dispatchers.IO`，用 `FileChannel` 随机读头部和尾部。解析是 `MotionPhotoLocator` 对随机读接口的纯函数。识别不到返回 null。IO 异常抛出，不在这里吞。整库查询不调用它。
 
 ### preferences
 
@@ -306,6 +320,7 @@ PhotoRepositoryImpl
 ReviewRepositoryImpl
 SimilarPhotoRepositoryImpl
 UserPreferencesRepositoryImpl
+MotionPhotoRepositoryImpl
 ```
 
 职责：
@@ -313,6 +328,7 @@ UserPreferencesRepositoryImpl
 * 实现 domain 层 Repository 接口。
 * 聚合 DataSource。
 * 对上层隐藏平台细节。
+* `MotionPhotoRepositoryImpl`：非图片直接返回 null，不进缓存。命中按 `photo.id:size`（size 为空用 -1）记在访问序 `LinkedHashMap` 里，上限 256，同步访问。缓存 null。抛出的 IO 失败不缓存。不再自己切 `Dispatchers.IO`，文件读取整段在 `MotionPhotoDataSource`。
 
 ---
 
@@ -343,6 +359,9 @@ ReviewSession
 ReviewScope（枚举：AllPhotos / Favorites）
 AppTrashEntry（App 内垃圾桶条目：photoId + movedToTrashAt + wasFavorited + favoritedAt）
 TrashReminderRules（只留 AGE_THRESHOLD_MS = 30 天，给垃圾桶页用）
+MotionPhotoVideo（offset、length）
+PlaybackTarget（Video(uri) / MotionPhoto(uri, MotionPhotoVideo)）
+PlaybackPolicy（autoplay、loop；纯函数 playbackPolicy）
 AppFavoriteEntry（App 内收藏条目：photoId + favoritedAt）
 TrashScreenMode（枚举：Grid / Selection / Preview）
 ```
@@ -357,6 +376,7 @@ ReviewRepository（favoritePhoto / removeFavorite / moveToTrash / restoreFromTra
 SimilarPhotoRepository（hashPhotos / measureSharpness：进度流；单张失败跳过）
 SimilarResolvedRepository（observeResolved / addResolved / removeResolved）
 UserPreferencesRepository（教学、滑动次数、累计释放。不再读写 trash_reminder_shown_at）
+MotionPhotoRepository（locate(photo): MotionPhotoVideo?）
 ```
 
 ### usecase
@@ -382,6 +402,7 @@ ObserveTutorialStateUseCase
 SetTutorialSeenUseCase
 ObserveTotalFreedBytesUseCase（读 total_freed_bytes）
 AddFreedBytesUseCase（累加已确认删除的字节，bytes 必须 > 0）
+LocateMotionPhotoVideoUseCase（图片走 Repository；视频直接变成 PlaybackTarget.Video，不读文件）
 ```
 
 ---
@@ -429,6 +450,7 @@ ReviewPagerLayout
 
 * `ReviewScreen` 使用本地 `displayIndex`、`pendingSwitchIndex`、`settledOffsetXOverride`、`isHorizontalFlinging` 实现无缝 fling 切页缓冲：fling 动画先在本地完成视觉过渡，完成后再同步 ViewModel 索引，避免 fling 结束瞬间的跳变。
 * `ReviewPagerLayout` 是 deprecated shim，直接委托给共享 `buildPhotoPagerPages`。
+* `ReviewViewModel` 在当前页变化时算出 `PlaybackTarget?` 和本次进入的静音状态，放进 `ReviewUiState`。视频立刻给出地址；图片先清空再异步识别，识别完若已不是当前页则丢弃。读失败打日志并当成静态图。ExoPlayer 留在 `ReviewScreen`。离场飞行和左右翻页都用 `playbackPinnedKey` 把播放器留在离开的那一页（左右滑时这一页会变成 Previous / Next，弹簧落定前继续画定格帧）。离场主体结束或横向弹簧落定后再交给新的当前页。没钉住时，只有 `engine.media` 和 `uiState.playback` 是同一个目标、并且地址就是这一页，才把 TextureView 挂上去。
 
 ### favorites
 
@@ -464,7 +486,8 @@ TrashScreenMode
 
 说明：
 
-* `TrashPreviewOverlay` 使用与 `ReviewScreen` 一致的本地切页缓冲策略：`displayPhotoId`、`displayIndex`、`pendingPhotoId`、`isHorizontalFlinging`、`settledOffsetXOverride`，实现无缝 fling 切页。复用共享 `PhotoPager` 组件渲染全屏预览。
+* `TrashPreviewOverlay` 使用与 `ReviewScreen` 一致的本地切页缓冲策略：`displayPhotoId`、`displayIndex`、`pendingPhotoId`、`isHorizontalFlinging`、`settledOffsetXOverride`，实现无缝 fling 切页。复用共享 `PhotoPager` 组件渲染全屏预览。横向飞出开始时若当前张正在播，用 `videoPinnedId` 把 TextureView 留在飞出的那张（侧页也画），飞出结束、索引换掉之后才 `ensureLoaded` 下一张。只在 `engine.media == playback` 且地址就是当前照片时才挂到新页。`MotionPhotoRepositoryImpl` 不再包一层 `Dispatchers.IO`，识别的 IO 只在 `MotionPhotoDataSource`。
+* `TrashViewModel` 用同一个 `LocateMotionPhotoVideoUseCase` 给当前预览算出 `PlaybackTarget?`。静音跟着这个 ViewModel，退出预览不重置。播放器和控件复用 `core/media`，叠在 `PhotoPager` 当前页上。
 
 ---
 

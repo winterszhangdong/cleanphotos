@@ -2,6 +2,7 @@ package com.winters.cleanphotos.feature.trash
 
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PlaybackTarget
 
 data class TrashUiState(
     val photos: List<PhotoItem> = emptyList(),
@@ -28,6 +29,10 @@ data class TrashUiState(
     val justFreedBytes: Long? = null,
     /** 累计已确认释放的字节。0 不显示。 */
     val totalFreedBytes: Long = 0L,
+    /** 当前预览可播放的视频或动态照片。 */
+    val playback: PlaybackTarget? = null,
+    /** 这次停留垃圾桶页的静音。离开预览不清。 */
+    val playbackMuted: Boolean = true,
 )
 
 /** 清空前的网格快照：照片按阅读顺序，[totalBytes] 是「可释放」数字滚动归零的起点。 */

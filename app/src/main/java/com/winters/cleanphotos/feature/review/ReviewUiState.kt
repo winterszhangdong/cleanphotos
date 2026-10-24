@@ -4,6 +4,7 @@ import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.DaySummary
 import com.winters.cleanphotos.domain.model.PhotoActionType
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PlaybackTarget
 import com.winters.cleanphotos.domain.model.ReviewPage
 import com.winters.cleanphotos.domain.model.ReviewScope
 import com.winters.cleanphotos.domain.model.SessionDayProgress
@@ -36,4 +37,8 @@ data class ReviewUiState(
     val loadFailed: Boolean = false,
     /** 照片全部处理完且没有小结：回到入口页。 */
     val isCompleted: Boolean = false,
+    /** 当前页可播放的视频或动态照片。静态图为 null。 */
+    val playback: PlaybackTarget? = null,
+    /** 这次进入清理页的静音。默认静音，不写入 DataStore。 */
+    val playbackMuted: Boolean = true,
 )

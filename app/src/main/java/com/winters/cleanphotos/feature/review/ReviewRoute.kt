@@ -51,5 +51,6 @@ fun ReviewRoute(
         onDismissError = viewModel::dismissError,
         onNavigateBack = onNavigateBack,
         onDismissTutorial = viewModel::dismissTutorial,
+        onPlaybackMuted = viewModel::onPlaybackMuted,
     )
 }

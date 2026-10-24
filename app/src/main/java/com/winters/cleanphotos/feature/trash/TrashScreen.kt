@@ -104,6 +104,7 @@ fun TrashScreen(
     onRestorePreviewPhoto: () -> Unit,
     onExitPreview: () -> Unit,
     onPreviewPhotoChange: (Long) -> Unit,
+    onPlaybackMuted: (Boolean) -> Unit,
     onShowEmptyTrashConfirm: () -> Unit,
     onDismissEmptyTrashConfirm: () -> Unit,
     onConfirmEmptyTrash: () -> Unit,
@@ -163,6 +164,9 @@ fun TrashScreen(
                     onPhotoChange = onPreviewPhotoChange,
                     onRestore = onRestorePreviewPhoto,
                     onExit = onExitPreview,
+                    playback = uiState.playback,
+                    playbackMuted = uiState.playbackMuted,
+                    onPlaybackMuted = onPlaybackMuted,
                     // 全屏预览跟手缩小，后面露出垃圾桶网格快照
                     modifier = Modifier
                         .fillMaxSize()

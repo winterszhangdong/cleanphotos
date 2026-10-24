@@ -11,8 +11,10 @@ import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.domain.model.PhotoAction
 import com.winters.cleanphotos.domain.model.PhotoActionType
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
+import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
+import com.winters.cleanphotos.domain.model.PlaybackTarget
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ReviewEffect
@@ -25,6 +27,7 @@ import com.winters.cleanphotos.domain.usecase.BuildDaySummaryUseCase
 import com.winters.cleanphotos.domain.usecase.BuildReviewPagesUseCase
 import com.winters.cleanphotos.domain.usecase.BuildSessionDayProgressUseCase
 import com.winters.cleanphotos.domain.usecase.FavoritePhotoUseCase
+import com.winters.cleanphotos.domain.usecase.LocateMotionPhotoVideoUseCase
 import com.winters.cleanphotos.domain.usecase.LibraryDayState
 import com.winters.cleanphotos.domain.usecase.MarkPhotoSeenUseCase
 import com.winters.cleanphotos.domain.usecase.MovePhotoToTrashUseCase
@@ -55,6 +58,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
@@ -84,6 +88,7 @@ class ReviewViewModel @Inject constructor(
     private val observeLibraryDayStateUseCase: ObserveLibraryDayStateUseCase,
     private val observeShowDirectionHintsUseCase: ObserveShowDirectionHintsUseCase,
     private val observeTrashSummaryUseCase: ObserveTrashSummaryUseCase,
+    private val locateMotionPhotoVideoUseCase: LocateMotionPhotoVideoUseCase,
     @DefaultDispatcher computeDispatcher: CoroutineDispatcher,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -117,19 +122,30 @@ class ReviewViewModel @Inject constructor(
     /** 上一次发出的界面状态，只在下面的 combine 里读写（单协程顺序执行）。 */
     private var lastUi: ReviewUiState? = null
 
+    /** 当前页的播放目标。识别在 IO，不放进 buildUiState（那条在计算线程上）。 */
+    private val playbackTarget = MutableStateFlow<PlaybackTarget?>(null)
+    private val playbackMuted = MutableStateFlow(true)
+    private var playbackJob: Job? = null
+    private var prefetchJob: Job? = null
+
     val uiState: StateFlow<ReviewUiState> = combine(
-        core,
-        observeLibraryDayStateUseCase().onStart { emit(EMPTY_LIBRARY) }.catch { emit(EMPTY_LIBRARY) },
-        observeShowDirectionHintsUseCase().onStart { emit(false) }.catch { emit(false) },
-        observeTutorialStateUseCase().onStart { emit(true) }.catch { emit(true) },
-        observeTrashSummaryUseCase().catch { emit(TrashSummary(0, 0L)) },
-    ) { c, library, hints, tutorialSeen, trash ->
-        reuseUnchanged(buildUiState(c, library, hints, tutorialSeen, trash.count))
-    }
-        // 序列、进度、小结和上游的全库 combine 都不在主线程算：一次滑动会连锁触发好几轮，正好压在离场动画里。
-        // UI 不等这里——上下滑 / 翻页由 act() 同步返回的 key 在同一帧切换
-        .flowOn(computeDispatcher)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ReviewUiState())
+        combine(
+            core,
+            observeLibraryDayStateUseCase().onStart { emit(EMPTY_LIBRARY) }.catch { emit(EMPTY_LIBRARY) },
+            observeShowDirectionHintsUseCase().onStart { emit(false) }.catch { emit(false) },
+            observeTutorialStateUseCase().onStart { emit(true) }.catch { emit(true) },
+            observeTrashSummaryUseCase().catch { emit(TrashSummary(0, 0L)) },
+        ) { c, library, hints, tutorialSeen, trash ->
+            reuseUnchanged(buildUiState(c, library, hints, tutorialSeen, trash.count))
+        }
+            // 序列、进度、小结和上游的全库 combine 都不在主线程算：一次滑动会连锁触发好几轮，正好压在离场动画里。
+            // UI 不等这里——上下滑 / 翻页由 act() 同步返回的 key 在同一帧切换
+            .flowOn(computeDispatcher),
+        playbackTarget,
+        playbackMuted,
+    ) { base, target, muted ->
+        base.copy(playback = target, playbackMuted = muted)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, ReviewUiState())
 
     init {
         viewModelScope.launch {
@@ -150,6 +166,60 @@ class ReviewViewModel @Inject constructor(
                 if (id != null) savedStateHandle[KEY_CURRENT_PHOTO] = id
             }
         }
+        viewModelScope.launch {
+            core.map { it.currentKey }.distinctUntilChanged().collect { resolvePlayback(it) }
+        }
+    }
+
+    /** 这次进入清理页记住静音，不写 DataStore。 */
+    fun onPlaybackMuted(muted: Boolean) {
+        playbackMuted.value = muted
+    }
+
+    private fun resolvePlayback(key: String?) {
+        playbackJob?.cancel()
+        val photo = photoOf(key)
+        if (photo == null) {
+            playbackTarget.value = null
+            return
+        }
+        if (photo.mediaType == MediaType.Video) {
+            playbackTarget.value = PlaybackTarget.Video(photo.uri)
+            prefetchNext(photo.id)
+            return
+        }
+        playbackTarget.value = null
+        playbackJob = viewModelScope.launch {
+            val target = locateOrNull(photo)
+            if (core.value.currentKey == key) playbackTarget.value = target
+        }
+        prefetchNext(photo.id)
+    }
+
+    /** 下一张如果是图片，提前识别。失败只记日志，不发布到界面。 */
+    private fun prefetchNext(photoId: Long) {
+        val next = (neighborsOf(core.value, photoId)?.next as? ReviewPage.Photo)?.photo ?: return
+        if (next.mediaType != MediaType.Image) return
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch {
+            locateOrNull(next)
+        }
+    }
+
+    private suspend fun locateOrNull(photo: PhotoItem): PlaybackTarget? = try {
+        locateMotionPhotoVideoUseCase.playbackTarget(photo)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "动态照片识别失败 id=${photo.id}", e)
+        null
+    }
+
+    private fun photoOf(key: String?): PhotoItem? {
+        val id = photoIdOf(key) ?: return null
+        val ledger = core.value.ledger ?: return null
+        val index = ledger.indexOrNull(id) ?: return null
+        return ledger.orderedPhotos[index]
     }
 
     /** 携带入口页的排序、过滤和 scope。旋转屏幕时 ViewModel 存活，不重复初始化。 */

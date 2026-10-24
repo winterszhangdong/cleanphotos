@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +80,10 @@ import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.SystemBarIcons
 import com.winters.cleanphotos.core.design.glassBackdropSource
+import com.winters.cleanphotos.core.media.PlaybackAutoplay
+import com.winters.cleanphotos.core.media.PlaybackControls
+import com.winters.cleanphotos.core.media.PlaybackSurface
+import com.winters.cleanphotos.core.media.rememberPlaybackEngine
 import com.winters.cleanphotos.domain.model.PhotoActionType
 import com.winters.cleanphotos.domain.model.ReviewPage
 import com.winters.cleanphotos.domain.model.ReviewScope
@@ -100,6 +106,7 @@ fun ReviewScreen(
     onDismissError: () -> Unit,
     onNavigateBack: () -> Unit,
     onDismissTutorial: () -> Unit,
+    onPlaybackMuted: (Boolean) -> Unit,
     /** 入口照片：会话还在加载时先用它的网格缩略图铺满，避免进入那几帧空屏。 */
     entryPhotoId: Long? = null,
     modifier: Modifier = Modifier,
@@ -112,6 +119,7 @@ fun ReviewScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stage = remember { ReviewStageState(scope) }
+    val engine = rememberPlaybackEngine()
     var showDetails by remember { mutableStateOf(false) }
     val back = rememberPredictiveBack(enabled = true, onBack = onNavigateBack)
 
@@ -131,8 +139,37 @@ fun ReviewScreen(
             com.winters.cleanphotos.core.util.ReviewTrace.log("vmSync", "local" to stage.currentKey, "vm" to uiState.currentKey, "pages" to uiState.pages.size)
             stage.currentKey = uiState.currentKey
             stage.noteCurrentDay(tick = false)
+            stage.markPlaybackIdle()
         }
     }
+    val playbackPinned = stage.playbackPinnedKey
+    val playback = uiState.playback
+    val currentPhotoForPlayback = (stage.currentPage as? ReviewPage.Photo)?.photo
+    // 钉住期间不换片。弹簧落定、钉松开之后，只装和当前页是同一张的目标。
+    SideEffect {
+        if (playbackPinned == null) {
+            engine.ensureLoaded(playback?.takeIf { currentPhotoForPlayback?.uri == it.uri })
+        }
+        engine.ensureMuted(uiState.playbackMuted)
+    }
+    val playbackHostKey = playbackPinned ?: stage.currentKey
+    val playbackHost = (stage.pages.firstOrNull { it.key == playbackHostKey } as? ReviewPage.Photo)?.photo
+    val media = engine.media
+    // 钉住时只要地址还是这一页就继续画定格帧。没钉住时必须和 uiState.playback 是同一个目标，
+    // 否则翻到新页的那几帧会把上一张的画面盖上去。
+    val playbackOnHost = when {
+        media == null || playbackHost?.uri != media.uri -> null
+        playbackPinned != null -> media
+        media == playback -> media
+        else -> null
+    }
+    if (playbackPinned == null) {
+        stage.activeVideoHostKey = stage.currentKey.takeIf { playbackOnHost != null }
+    }
+    PlaybackAutoplay(
+        engine,
+        settled = stage.playbackSettled && playbackPinned == null && playbackOnHost != null,
+    )
 
     with(density) {
         stage.thresholds = ReviewThresholds(
@@ -246,6 +283,8 @@ fun ReviewScreen(
                 },
                 modifier = Modifier.glassBackdropSource(),
                 accessibilityActions = a11yActions,
+                videoHostKey = playbackHostKey.takeIf { playbackOnHost != null },
+                videoOverlay = { PlaybackSurface(engine, Modifier.fillMaxSize()) },
             )
 
             // 会话加载中（还没有当前页）：直接取内存里的网格缩略图铺满，进入那几帧不空屏
@@ -393,7 +432,19 @@ fun ReviewScreen(
                         )
                         .graphicsLayer { alpha = stage.chromeAlpha.value },
                 ) {
-                    ReviewMeta(currentPhoto)
+                    Column {
+                        val playback = uiState.playback
+                        if (playback != null && stage.playbackPinnedKey == null && currentPhoto.uri == playback.uri) {
+                            PlaybackControls(
+                                engine = engine,
+                                target = playback,
+                                muted = uiState.playbackMuted,
+                                onMutedChange = onPlaybackMuted,
+                                timeStyle = DarkroomText.RvFile,
+                            )
+                        }
+                        ReviewMeta(currentPhoto)
+                    }
                 }
             }
 

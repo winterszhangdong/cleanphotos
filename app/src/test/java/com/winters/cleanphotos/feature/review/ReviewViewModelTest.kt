@@ -6,8 +6,11 @@ import android.content.IntentSender
 import android.net.Uri
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
+import com.winters.cleanphotos.domain.model.MediaType
+import com.winters.cleanphotos.domain.model.MotionPhotoVideo
 import com.winters.cleanphotos.domain.model.PhotoActionType
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PlaybackTarget
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
 import com.winters.cleanphotos.domain.model.ReviewEffect
@@ -20,7 +23,9 @@ import com.winters.cleanphotos.domain.usecase.BuildDaySummaryUseCase
 import com.winters.cleanphotos.domain.usecase.BuildMonthProgressUseCase
 import com.winters.cleanphotos.domain.usecase.BuildReviewPagesUseCase
 import com.winters.cleanphotos.domain.usecase.BuildSessionDayProgressUseCase
+import com.winters.cleanphotos.domain.repository.MotionPhotoRepository
 import com.winters.cleanphotos.domain.usecase.FavoritePhotoUseCase
+import com.winters.cleanphotos.domain.usecase.LocateMotionPhotoVideoUseCase
 import com.winters.cleanphotos.domain.usecase.FilterPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.MarkPhotoSeenUseCase
 import com.winters.cleanphotos.domain.usecase.MovePhotoToTrashUseCase
@@ -70,6 +75,16 @@ class ReviewViewModelTest {
     private lateinit var preferences: FakeUserPreferencesRepository
     private lateinit var seen: FakeSeenStateRepository
     private var savedState = androidx.lifecycle.SavedStateHandle()
+    private val motionPhotos = FakeMotionPhotos()
+
+    private class FakeMotionPhotos : MotionPhotoRepository {
+        var located: MotionPhotoVideo? = null
+        var error: Exception? = null
+        override suspend fun locate(photo: PhotoItem): MotionPhotoVideo? {
+            error?.let { throw it }
+            return located
+        }
+    }
 
     /** 记录每次实际执行到仓库的操作，用于验证连续快滑不丢操作。 */
     private class CountingReviewRepository(val fake: FakeReviewRepository = FakeReviewRepository()) : ReviewRepository by fake {
@@ -128,6 +143,7 @@ class ReviewViewModelTest {
             observeLibraryDayStateUseCase = ObserveLibraryDayStateUseCase(photoRepository, seen),
             observeShowDirectionHintsUseCase = ObserveShowDirectionHintsUseCase(preferences),
             observeTrashSummaryUseCase = ObserveTrashSummaryUseCase(photoRepository),
+            locateMotionPhotoVideoUseCase = LocateMotionPhotoVideoUseCase(motionPhotos),
             computeDispatcher = testDispatcher,
             savedStateHandle = savedState,
         )
@@ -429,5 +445,51 @@ class ReviewViewModelTest {
         val restored = createViewModel().also { it.initialize(3L, "NewestFirst", "AllPhotos", "AllPhotos") }
         advanceUntilIdle()
         assertEquals("p2", restored.uiState.value.currentKey)
+    }
+
+    @Test
+    fun `当前页是视频时直接给出播放地址，普通照片没有播放目标`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(5).map {
+            if (it.id == 3L) it.copy(mediaType = MediaType.Video) else it
+        }
+        photoRepository.setPhotos(photos)
+        val vm = createViewModel().also { it.initialize(3L, "NewestFirst", "AllPhotos", "AllPhotos") }
+        advanceUntilIdle()
+        val playback = vm.uiState.value.playback
+        assertTrue(playback is PlaybackTarget.Video)
+        assertEquals(photos.first { it.id == 3L }.uri, playback!!.uri)
+
+        vm.onPageSettled("p2")
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.playback)
+    }
+
+    @Test
+    fun `当前页是动态照片时给出内嵌视频范围`() = runTest(testDispatcher) {
+        motionPhotos.located = MotionPhotoVideo(12, 34)
+        val vm = start()
+        advanceUntilIdle()
+        val playback = vm.uiState.value.playback as PlaybackTarget.MotionPhoto
+        assertEquals(12L, playback.video.offset)
+        assertEquals(34L, playback.video.length)
+    }
+
+    @Test
+    fun `动态照片读失败时当成静态图`() = runTest(testDispatcher) {
+        motionPhotos.error = java.io.IOException("read")
+        val vm = start()
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.playback)
+    }
+
+    @Test
+    fun `静音只在这次进入清理页里保持`() = runTest(testDispatcher) {
+        val vm = start()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.playbackMuted)
+        vm.onPlaybackMuted(false)
+        vm.onPageSettled("p2")
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.playbackMuted)
     }
 }

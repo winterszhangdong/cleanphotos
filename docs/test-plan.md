@@ -16,7 +16,7 @@
 ### 0.2 设计系统（P1）单元测试
 
 - `DarkroomColors` 每个值与 HTML `:root` 一致。
-- `Motion`：时长 100/150/280/450/600/40；四条贝塞尔控制点；四档弹簧参数（1.0/1500、0.75/400、0.5/400、0.85/200）。
+- `Motion`：时长 100/150/280/450/600/40，另有开播延迟 `PLAYBACK_START_DELAY` 250；四条贝塞尔控制点；四档弹簧参数（1.0/1500、0.75/400、0.5/400、0.85/200）。
 - `DevelopMatrix`：p=0 时亮度 0.06 / 反差 0.55 / 饱和 0；p=1 时为单位矩阵；三通道时间窗（亮度 0–500ms、反差 80–600ms、饱和 200–600ms）。
 - `ApiTier`：26/30/31/33/34 各档的模糊、颗粒、触感、预测性返回取值。
 - `OdometerText` 逐位差分：增加向上、减少向下，位数变化时正确对齐。
@@ -30,6 +30,7 @@
 - 离场主体位移 ≤ 250ms 基本完成（录屏逐帧核对）。
 - 小结插页触发条件四项（前进、全部看过、≥6 张、本会话首次）各自的正反用例。
 - 清理页进入时只有进度条。单击（过双击超时）后出现返回、日期和文件信息，再单击收回。左右滑动或上下拖动一开始就收回，松手后不自动再出现；进度条仍在。不出现「去垃圾桶 / 回到照片」，也不出现「上滑收藏 / 下滑移走」。
+- 清理页和垃圾桶预览：当前页停稳 250ms 后静音自动播放。视频循环，动态照片播一次后视频层 short 淡出。首帧前不露黑帧。上下或左右拖动定格并跟着页面走；双指和双击不暂停。详情控件可暂停、开关声音、拖进度；动态照片点「动态」从头再播。拖进度不翻页。系统移除动画时不自动播放。网格不画播放图标，也不标动态照片。
 - 相似对比页：上滑留下、下滑移走。方向提示只在按住时跟随。松手后文案停在松手前的方向，266ms 淡出，不跟着回弹换字（`SimilarCompareMotionTest`）。左右滑松手即切到目标张，翻页没停就上下滑，停在目标张，不回到上一张。移走的缩略图保持原色，底部 2dp 退影灰；大图静止全彩，按住下滑亮度收到 0.82，饱和度不变，松手回到全亮。
 
 
@@ -110,6 +111,8 @@ PhotoPager 的轮播过渡参数（pageScale、pageAlpha、zIndex）、切页位
 视频时长格式（DurationFormatter：m:ss / h:mm:ss）
 Android 8–9 DATA → relativePath（relativePathFromData / normalizeRelativePath）
 权限判定（图片可用、13+ 完整访问要图片+视频、请求列表、补请求视频权限、能否读视频）
+动态照片识别（MotionPhotoLocatorTest：Google 属性与元素、Padding 不计入、多项 Length 相加、同一份 XMP 出现两次不把 Length 加两遍、MicroVideo、vivo Exif 0x02BC 与 uuid 越界尾、OPPO VideoLength 截尾、OPPO 长度失败后的 EOI 扫描、三星 SEFT 有 mpv2 头和无 mpv2 头、荣耀 LIVE_、LIVE_ 起点晚 20 字节时就近扫描、HEIC mpvd、华为 Make 扫描、普通 JPEG null、偏移不是 ftyp null、moov 越出文件 null）
+是否自动播放 / 是否循环（PlaybackPolicyTest：视频×动画开 = 自动且循环；视频×动画关 = 不自动仍循环；动态照片×动画开 = 自动不循环；动态照片×动画关 = 不自动不循环）
 ```
 
 ### ViewModel 测试
@@ -120,8 +123,8 @@ Android 8–9 DATA → relativePath（relativePathFromData / normalizeRelativePa
 
 ```text
 AllPhotosViewModel
-ReviewViewModel
-TrashViewModel
+ReviewViewModel（当前页视频 / 动态照片 / 普通照片的 PlaybackTarget；读失败当成静态图；静音在这次进入里保持）
+TrashViewModel（预览视频与动态照片的 PlaybackTarget；切到普通照片后清空；退出预览仍保持静音）
 SimilarViewModel（默认标记、改标记且扫描不覆盖、移走并记下仍留下的、已处理记录、都留下、全部移走、撤回、失败不出胶囊、撤回过期、start 只哈希一次）
 ```
 
@@ -764,6 +767,48 @@ P1
 ***
 
 ## 5 清理页测试用例
+
+### 用例：当前页的播放目标
+
+优先级：
+
+```text
+P0
+```
+
+前置条件：
+
+```text
+会话里有一段视频、一张能识别的动态照片、一张普通图片
+```
+
+操作步骤：
+
+```text
+1. 停在视频上，收集 ReviewUiState.playback
+2. 停在动态照片上
+3. 停在普通图片上
+4. 把动态照片的读取打成 IOException 后再停上去
+5. 默认静音，调用 onPlaybackMuted(false)，再翻到另一张
+```
+
+预期结果：
+
+```text
+视频是 PlaybackTarget.Video，uri 等于该照片
+动态照片是 PlaybackTarget.MotionPhoto，offset / length 等于识别结果
+普通图片 playback 为 null
+读取失败 playback 为 null，页面不崩
+静音从 true 变成 false，翻页后仍是 false
+```
+
+说明：
+
+```text
+开播延迟、定格、首帧透明、控件和垃圾桶预览放在手动验收（0.3）。解析分支见 MotionPhotoLocatorTest。
+```
+
+***
 
 ### 用例：清理页初始化当前照片
 

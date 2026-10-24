@@ -193,6 +193,29 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     var undoFlight: UndoFlight? by mutableStateOf(null)
         private set
 
+    /**
+     * 播放器只在没有拖动、没有翻页弹簧、没有离场占着它、撤回飞回结束之后才算落定。
+     * 这些标记只在手势边界改，不读 dx，避免每帧重组。
+     */
+    var playbackSettled by mutableStateOf(false)
+        private set
+    /** 离场页或左右滑出的那页还拿着播放器时，不把播放器挂到新的当前页。 */
+    var playbackPinnedKey by mutableStateOf<String?>(null)
+        private set
+    /** 横向翻页钉住的，弹簧落定就放开。离场飞行钉住的要等主体飞完。 */
+    private var playbackPinIsHorizontal = false
+    /**
+     * 屏幕每帧写入：没有钉住时，播放器正在画的页。
+     * 横向提交用它判断旧当前页是不是视频宿主。不是状态，写入不触发重组。
+     */
+    var activeVideoHostKey: String? = null
+
+    fun markPlaybackIdle() {
+        if (!dragging && playbackPinnedKey == null && undoFlight == null && pendingCommitKey == null) {
+            playbackSettled = true
+        }
+    }
+
     // 外部回调（由 Screen 每次组合时更新）
     var onSettled: (String) -> Unit = {}
     var onSwipe: (VerticalRelease, Long) -> String? = { _, _ -> null }
@@ -268,7 +291,10 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         override fun onDragStart(axis: DragAxis) {
             this@ReviewStageState.axis = axis
             dragging = true
-            if (axis == DragAxis.Horizontal || axis == DragAxis.Vertical) onDetailsDismiss()
+            if (axis == DragAxis.Horizontal || axis == DragAxis.Vertical) {
+                onDetailsDismiss()
+                playbackSettled = false
+            }
             when (axis) {
                 DragAxis.Vertical -> {
                     // 翻页动画中途按下又改成上下拖：剩下的横向位移弹回 0，而不是一帧跳回中间
@@ -398,6 +424,12 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             settleBack(vx, 0f)
             return
         }
+        playbackSettled = false
+        val leavingKey = currentKey
+        if (playbackPinnedKey == null && activeVideoHostKey != null && activeVideoHostKey == leavingKey) {
+            playbackPinnedKey = leavingKey
+            playbackPinIsHorizontal = true
+        }
         val end = if (dir == -1) -width else width
         pendingCommitKey = target.key
         pendingCommitShift = if (dir == -1) width else -width
@@ -409,7 +441,16 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             dx = 0f
             rawDx = 0f
             axis = DragAxis.None
+            clearHorizontalPlaybackPin()
         }
+    }
+
+    /** 左右滑的弹簧已经落定，旧页在屏外，播放器可以交给新的当前页。 */
+    private fun clearHorizontalPlaybackPin() {
+        if (!playbackPinIsHorizontal) return
+        playbackPinnedKey = null
+        playbackPinIsHorizontal = false
+        markPlaybackIdle()
     }
 
     private fun releaseVertical(vy: Float) {
@@ -455,6 +496,11 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             // 主体到位即撤掉主体层；收藏的两层余影比主体晚 50 / 100ms，同速继续走完各自的路径和淡出再移除
             // （原先在主体结束时整体移除，余影停在 0.4 / 0.18 透明度一帧消失）
             flight.mainDone = true
+            if (playbackPinnedKey == flight.page.key) {
+                playbackPinnedKey = null
+                playbackPinIsHorizontal = false
+                markPlaybackIdle()
+            }
             if (kind == ExitKind.Up) {
                 val tail = ExitPath.TRAIL_TAIL
                 flight.progress.animateTo(1f + tail, tween((MotionDurations.EXIT_MAIN_MAX * tail).roundToInt(), easing = LinearEasing))
@@ -462,6 +508,15 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             flights.remove(flight)
         }
         onExitStarted(kind)
+        if (playbackPinIsHorizontal && playbackPinnedKey != photoPage.key) {
+            playbackPinnedKey = null
+            playbackPinIsHorizontal = false
+        }
+        if (playbackPinnedKey == null) {
+            playbackPinnedKey = photoPage.key
+            playbackPinIsHorizontal = false
+        }
+        playbackSettled = false
         releaseCueUp = kind == ExitKind.Up
         scope.launch {
             releaseCue.snapTo(1f)
@@ -498,6 +553,9 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         pinned = page
         settleJob?.cancel()
         pendingCommitKey = null
+        playbackPinnedKey = null
+        playbackPinIsHorizontal = false
+        playbackSettled = false
         flights.removeAll { it.page.key == key }
         dxSettleJob?.cancel()
         dxSettleJob = null
@@ -516,6 +574,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         scope.launch {
             flight.progress.animateTo(1f, tween(MotionDurations.LONG, easing = LinearEasing))
             if (undoFlight === flight) undoFlight = null
+            markPlaybackIdle()
         }
     }
 
@@ -562,6 +621,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         dxSettleJob = scope.launch {
             val a = Animatable(dx)
             a.animateTo(0f, MotionSprings.Settle.spec()) { dx = value }
+            clearHorizontalPlaybackPin()
         }
     }
 
@@ -578,7 +638,13 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
                 val a = Animatable(dy)
                 a.animateTo(0f, MotionSprings.Settle.spec(), initialVelocity = vy) { dy = value }
             }
-        }.also { job -> job.invokeOnCompletion { if (!dragging) axis = DragAxis.None } }
+        }.also { job ->
+            job.invokeOnCompletion { cause ->
+                if (!dragging) axis = DragAxis.None
+                if (cause == null) clearHorizontalPlaybackPin()
+                markPlaybackIdle()
+            }
+        }
         // 顶栏等的还原不挂在 settleJob 下：回弹中再次按下会取消 settleJob，挂在下面会让它们停在半透明 / 全透明
         restoreChrome()
     }
@@ -588,6 +654,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         resetZoom()
         noteCurrentDay(tick = true)
         onSettled(key)
+        markPlaybackIdle()
     }
 
     /** 上一次作为「当前」的照片所在日期；小结插页不改变它。 */

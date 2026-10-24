@@ -7,6 +7,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -47,7 +49,12 @@ import com.winters.cleanphotos.core.design.PrimaryButton
 import com.winters.cleanphotos.core.design.saturateBrightness
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.core.util.FileSizeFormatter
+import com.winters.cleanphotos.core.media.PlaybackAutoplay
+import com.winters.cleanphotos.core.media.PlaybackControls
+import com.winters.cleanphotos.core.media.PlaybackSurface
+import com.winters.cleanphotos.core.media.rememberPlaybackEngine
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.PlaybackTarget
 import com.winters.cleanphotos.ui.photopager.HorizontalSwipeState
 import com.winters.cleanphotos.ui.photopager.PhotoPager
 import com.winters.cleanphotos.ui.photopager.detectPagerGestures
@@ -74,6 +81,9 @@ fun TrashPreviewOverlay(
     onPhotoChange: (Long) -> Unit,
     onRestore: () -> Unit,
     onExit: () -> Unit,
+    playback: PlaybackTarget?,
+    playbackMuted: Boolean,
+    onPlaybackMuted: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
@@ -86,6 +96,10 @@ fun TrashPreviewOverlay(
     }
 
     val swipeState = remember { HorizontalSwipeState(screenSizePx, density) }
+    val engine = rememberPlaybackEngine()
+    var playbackSettled by remember { mutableStateOf(true) }
+    /** 横向飞出结束前不换片。非空时 TextureView 留在飞出的那张上，角色变成侧页也继续画定格帧。 */
+    var videoPinnedId by remember { mutableStateOf<Long?>(null) }
     val zoomState = rememberPagerZoomState()
     val scope = rememberCoroutineScope()
 
@@ -98,6 +112,25 @@ fun TrashPreviewOverlay(
     var pendingPhotoId by remember { mutableStateOf<Long?>(null) }
     var isHorizontalFlinging by remember { mutableStateOf(false) }
     var settledOffsetXOverride by remember { mutableStateOf<Int?>(null) }
+    val currentPhoto = photos.getOrNull(displayIndex)
+    val pinnedPhoto = videoPinnedId?.let { id -> photos.firstOrNull { it.id == id } }
+    val media = engine.media
+    // 飞出途中不换片。落定后只装和当前照片是同一个目标的媒体，避免旧画面盖到新页。
+    SideEffect {
+        if (videoPinnedId == null) {
+            engine.ensureLoaded(playback?.takeIf { currentPhoto?.uri == it.uri })
+        }
+        engine.ensureMuted(playbackMuted)
+    }
+    val videoHostId = when {
+        videoPinnedId != null && pinnedPhoto?.uri == media?.uri -> videoPinnedId
+        videoPinnedId == null && media != null && media == playback && currentPhoto?.uri == media.uri -> currentPhoto.id
+        else -> null
+    }
+    PlaybackAutoplay(
+        engine,
+        settled = playbackSettled && videoPinnedId == null && videoHostId != null && videoHostId == currentPhoto?.id,
+    )
 
     // 同步外部 currentPhotoId 到本地显示状态
     LaunchedEffect(photos, currentPhotoId) {
@@ -152,7 +185,6 @@ fun TrashPreviewOverlay(
         }
     }
 
-    val currentPhoto = photos.getOrNull(displayIndex)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -190,6 +222,8 @@ fun TrashPreviewOverlay(
             contentScale = ContentScale.Fit,
             colorFilter = previewColorFilter,
             backgroundColor = DarkroomColors.Room,
+            videoHostId = videoHostId,
+            videoOverlay = { PlaybackSurface(engine, Modifier.fillMaxSize()) },
             modifier = Modifier
                 // .pv-photo：状态栏下 144dp，宽 = 屏宽、高 = 宽，contain
                 .statusBarsPadding()
@@ -205,8 +239,9 @@ fun TrashPreviewOverlay(
                         zoomEnabled = true,
                         containerSize = { containerSize },
                         onDrag = { delta ->
-                            // 垃圾桶预览只支持水平滑动，忽略垂直分量
+                            // 垃圾桶预览只支持水平滑动，忽略垂直分量。任一方向的拖动都先停住播放。
                             if (!zoomState.isZoomed) {
+                                if (playbackSettled) playbackSettled = false
                                 scope.launch {
                                     swipeState.onDrag(
                                         delta = delta.x,
@@ -224,7 +259,9 @@ fun TrashPreviewOverlay(
                                         val targetIndex = displayIndex + 1
                                         val targetId = photos[targetIndex].id
                                         isHorizontalFlinging = true
+                                        videoPinnedId = currentPhoto?.takeIf { engine.media?.uri == it.uri }?.id
                                         swipeState.flyHorizontal(targetX)
+                                        videoPinnedId = null
                                         // 先归零视觉偏移，再切 displayIndex，避免一帧闪烁
                                         settledOffsetXOverride = 0
                                         pendingPhotoId = targetId
@@ -232,13 +269,16 @@ fun TrashPreviewOverlay(
                                         displayPhotoId = targetId
                                         swipeState.reset()
                                         onPhotoChange(targetId)
+                                        playbackSettled = true
                                     }
                                     swipeState.isSwipeRightTriggered && canSwipePrevious -> {
                                         val targetX = screenSizePx.width.toFloat()
                                         val targetIndex = displayIndex - 1
                                         val targetId = photos[targetIndex].id
                                         isHorizontalFlinging = true
+                                        videoPinnedId = currentPhoto?.takeIf { engine.media?.uri == it.uri }?.id
                                         swipeState.flyHorizontal(targetX)
+                                        videoPinnedId = null
                                         // 先归零视觉偏移，再切 displayIndex，避免一帧闪烁
                                         settledOffsetXOverride = 0
                                         pendingPhotoId = targetId
@@ -246,9 +286,11 @@ fun TrashPreviewOverlay(
                                         displayPhotoId = targetId
                                         swipeState.reset()
                                         onPhotoChange(targetId)
+                                        playbackSettled = true
                                     }
                                     else -> {
                                         swipeState.springBack()
+                                        playbackSettled = true
                                     }
                                 }
                             }
@@ -256,6 +298,7 @@ fun TrashPreviewOverlay(
                         onDragCancel = {
                             scope.launch {
                                 swipeState.springBack()
+                                playbackSettled = true
                             }
                         },
                         onDoubleTap = { tapOffset ->
@@ -274,18 +317,34 @@ fun TrashPreviewOverlay(
             val movedText = movedAt[currentPhoto.id]?.let { DayDisplay.daysSince(it, System.currentTimeMillis()) }?.let { days ->
                 if (days == 0) stringResource(R.string.trash_moved_today) else pluralStringResource(R.plurals.trash_moved_days, days, days)
             }
-            // .pv-meta：照片下 16dp，两行等宽小字居中
-            Text(
-                text = "${baseName(currentPhoto.displayName)}${currentPhoto.size?.let { " · " + FileSizeFormatter.format(it, locale) } ?: ""}\n" +
-                    listOfNotNull(takenText, movedText).joinToString(" · "),
-                style = DarkroomText.PvMeta,
-                textAlign = TextAlign.Center,
+            // .pv-meta：照片下 16dp。播放控件和文件信息放在同一块，不进照片的 pointerInput。
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = 144.dp + 16.dp)
-                    .offset { IntOffset(0, containerSize.height) },
-            )
+                    .offset { IntOffset(0, containerSize.height) }
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.PreviewSide),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (playback != null && currentPhoto.uri == playback.uri) {
+                    PlaybackControls(
+                        engine = engine,
+                        target = playback,
+                        muted = playbackMuted,
+                        onMutedChange = onPlaybackMuted,
+                        timeStyle = DarkroomText.PvMeta,
+                    )
+                    Spacer(Modifier.height(Dimens.GhostGap))
+                }
+                Text(
+                    text = "${baseName(currentPhoto.displayName)}${currentPhoto.size?.let { " · " + FileSizeFormatter.format(it, locale) } ?: ""}\n" +
+                        listOfNotNull(takenText, movedText).joinToString(" · "),
+                    style = DarkroomText.PvMeta,
+                    textAlign = TextAlign.Center,
+                )
+            }
             Text(
                 text = stringResource(R.string.trash_restore_hint, DayDisplay.photoDate(currentPhoto)?.let { DayDisplay.cleanDate(it, locale) } ?: stringResource(R.string.date_unknown)),
                 style = DarkroomText.PvHint,
