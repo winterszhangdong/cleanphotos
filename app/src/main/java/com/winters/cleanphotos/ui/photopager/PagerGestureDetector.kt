@@ -9,7 +9,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -159,9 +161,13 @@ suspend fun PointerInputScope.detectPagerGestures(
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit = {},
-    onDoubleTap: (Offset) -> Unit = {}
+    onSingleTap: () -> Unit = {},
+    onDoubleTap: (Offset) -> Unit = {},
 ) {
-    // 双击检测状态
+    val doubleTapTimeout = viewConfiguration.doubleTapTimeoutMillis
+    coroutineScope {
+    val scope = this
+    var pendingTap: Job? = null
     var lastTapTime = 0L
     var lastTapPosition = Offset.Zero
 
@@ -172,8 +178,9 @@ suspend fun PointerInputScope.detectPagerGestures(
             val firstDown = downEvent.changes.firstOrNull { it.pressed } ?: continue
             firstDown.consume()
 
-            val downTime = firstDown.uptimeMillis
             val downPosition = firstDown.position
+            pendingTap?.cancel()
+            pendingTap = null
 
             // 手势模式
             var mode = GestureMode.Undecided
@@ -317,15 +324,17 @@ suspend fun PointerInputScope.detectPagerGestures(
                         val tapDistance = (downPosition - lastTapPosition).getDistance()
                         val timeSinceLastTap = tapTime - lastTapTime
 
-                        if (timeSinceLastTap < DOUBLE_TAP_TIMEOUT_MS && tapDistance < touchSlop * 3) {
-                            // 双击
+                        if (timeSinceLastTap < doubleTapTimeout && tapDistance < touchSlop * 3) {
                             onDoubleTap(downPosition)
                             lastTapTime = 0L
                             lastTapPosition = Offset.Zero
                         } else {
-                            // 记录为第一次 tap，等待可能的第二次
                             lastTapTime = tapTime
                             lastTapPosition = downPosition
+                            pendingTap = scope.launch {
+                                delay(doubleTapTimeout)
+                                onSingleTap()
+                            }
                         }
                     }
                 }
@@ -335,9 +344,8 @@ suspend fun PointerInputScope.detectPagerGestures(
             }
         }
     }
+    }
 }
-
-private const val DOUBLE_TAP_TIMEOUT_MS = 300L
 
 private enum class GestureMode {
     Undecided,

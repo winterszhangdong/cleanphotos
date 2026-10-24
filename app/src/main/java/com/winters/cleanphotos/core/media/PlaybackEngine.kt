@@ -34,6 +34,8 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.winters.cleanphotos.domain.model.PlaybackTarget
+import com.winters.cleanphotos.domain.model.poseAfterUserSeek
+import com.winters.cleanphotos.domain.model.videoEndedPose
 
 /** 进度条轮询间隔。不是动效 token，不放进 Motion.kt。 */
 internal const val PLAYBACK_POSITION_POLL_MS = 200L
@@ -60,6 +62,9 @@ class PlaybackEngine(context: Context) {
     var ended by mutableStateOf(false)
         private set
     var userPaused by mutableStateOf(false)
+        private set
+    /** 自动播放、用户点播放或动态照片重播之后为 true。手势暂停不清它。 */
+    var started by mutableStateOf(false)
         private set
     var playing by mutableStateOf(false)
         private set
@@ -99,11 +104,25 @@ class PlaybackEngine(context: Context) {
         }
 
         override fun onPlaybackStateChanged(state: Int) {
-            if (state == Player.STATE_ENDED && media is PlaybackTarget.MotionPhoto) {
+            val current = media
+            if (state == Player.STATE_ENDED && current is PlaybackTarget.Video && !ended) {
+                // 先暂停再 seek，避免 seek 回到 0 时 playWhenReady 仍为 true 被看成循环。
+                // ended 保持到下一次真正开播，READY 不清它。
+                val pose = videoEndedPose()
                 ended = true
                 playing = false
+                player.pause()
+                player.seekTo(pose.positionMs)
+                positionMs = pose.positionMs
+                val duration = player.duration
+                if (duration > 0L) durationMs = duration
+            } else if (state == Player.STATE_ENDED && current is PlaybackTarget.MotionPhoto) {
+                ended = true
+                playing = false
+                refreshPosition(allowPosition = true)
+            } else {
+                refreshPosition(allowPosition = true)
             }
-            refreshPosition(allowPosition = true)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -125,6 +144,8 @@ class PlaybackEngine(context: Context) {
         firstFrame = false
         ended = false
         userPaused = false
+        started = false
+        playing = false
         fadeNow = 1f
         videoAspect = Float.NaN
         positionMs = 0L
@@ -136,7 +157,7 @@ class PlaybackEngine(context: Context) {
         when (target) {
             null -> Unit
             is PlaybackTarget.Video -> {
-                player.repeatMode = Player.REPEAT_MODE_ONE
+                player.repeatMode = Player.REPEAT_MODE_OFF
                 player.setMediaItem(MediaItem.fromUri(target.uri))
                 player.prepare()
             }
@@ -154,13 +175,15 @@ class PlaybackEngine(context: Context) {
     }
 
     fun ensureMuted(muted: Boolean) {
-        if (released || appliedMute == muted) return
-        appliedMute = muted
+        // 动态照片恒静音，但不改调用方记住的静音开关，切回视频时仍用用户的选择。
+        val effective = muted || media is PlaybackTarget.MotionPhoto
+        if (released || appliedMute == effective) return
+        appliedMute = effective
         val attrs = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
-        if (muted) {
+        if (effective) {
             player.volume = 0f
             player.setAudioAttributes(attrs, false)
         } else {
@@ -184,6 +207,7 @@ class PlaybackEngine(context: Context) {
 
     fun playFromAutoplay() {
         if (released || userPaused || ended) return
+        started = true
         player.play()
     }
 
@@ -194,6 +218,7 @@ class PlaybackEngine(context: Context) {
             player.pause()
         } else {
             userPaused = false
+            started = true
             if (ended) {
                 ended = false
                 fadeNow = 1f
@@ -203,10 +228,11 @@ class PlaybackEngine(context: Context) {
         }
     }
 
-    /** 动态照片标签：从头再播，视频层立刻回来。 */
+    /** 动态照片胶囊：从头再播，视频层立刻回来。 */
     fun replayMotion() {
         if (released) return
         userPaused = false
+        started = true
         ended = false
         fadeNow = 1f
         generation += 1
@@ -218,6 +244,11 @@ class PlaybackEngine(context: Context) {
         if (released) return
         val duration = player.duration
         if (duration <= 0L) return
+        // 先改态再 seek。播完后拖到结尾若再次 STATE_ENDED，仍由监听器回到第 0 帧。
+        val pose = poseAfterUserSeek(ended, userPaused, started)
+        ended = pose.ended
+        userPaused = pose.userPaused
+        started = pose.started
         val at = (duration * fraction.coerceIn(0f, 1f)).toLong()
         player.seekTo(at)
         positionMs = at

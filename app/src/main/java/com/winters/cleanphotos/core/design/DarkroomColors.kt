@@ -55,8 +55,8 @@ object DarkroomColors {
     val ScrimTop = Color(0xFF0A0908).copy(alpha = 0.62f)
     /** 进度条：未处理虚线 rgba(238,233,226,0.34)、看过保留 0.78、当前发光 rgba(255,246,232,0.8)。 */
     val SegPending = Paper.copy(alpha = 0.34f)
-    /** 播放进度条未播放轨道：相纸白 35%。已播放和圆点用 [Paper]。 */
-    val PlaybackTrack = Paper.copy(alpha = 0.35f)
+    /** 播放进度条未播放轨道：相纸白 24%。已播放和拇指用 [Paper]。 */
+    val PlaybackTrack = Paper.copy(alpha = 0.24f)
     val SegKept = Paper.copy(alpha = 0.78f)
     val SegCurrentGlow = Color(0xFFFFF6E8).copy(alpha = 0.8f)
 

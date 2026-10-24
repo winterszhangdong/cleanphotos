@@ -76,17 +76,27 @@ import com.winters.cleanphotos.core.navigation.rememberPredictiveBack
 import com.winters.cleanphotos.core.navigation.navChrome
 import com.winters.cleanphotos.core.navigation.sharedPhoto
 import com.winters.cleanphotos.core.design.Haptics
+import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.SystemBarIcons
 import com.winters.cleanphotos.core.design.glassBackdropSource
+import com.winters.cleanphotos.core.media.MotionReplayPill
 import com.winters.cleanphotos.core.media.PlaybackAutoplay
-import com.winters.cleanphotos.core.media.PlaybackControls
+import com.winters.cleanphotos.core.media.PlaybackCenterButton
+import com.winters.cleanphotos.core.media.PlaybackProgressRow
 import com.winters.cleanphotos.core.media.PlaybackSurface
 import com.winters.cleanphotos.core.media.rememberPlaybackEngine
+import com.winters.cleanphotos.domain.model.DetailsMode
 import com.winters.cleanphotos.domain.model.PhotoActionType
+import com.winters.cleanphotos.domain.model.PlaybackTarget
 import com.winters.cleanphotos.domain.model.ReviewPage
+import com.winters.cleanphotos.domain.model.ReviewPhotoTap
 import com.winters.cleanphotos.domain.model.ReviewScope
+import com.winters.cleanphotos.domain.model.awaitingAutoplay
+import com.winters.cleanphotos.domain.model.playbackChrome
+import com.winters.cleanphotos.domain.model.playbackPhase
+import com.winters.cleanphotos.domain.model.reviewPhotoTap
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -120,7 +130,7 @@ fun ReviewScreen(
     val scope = rememberCoroutineScope()
     val stage = remember { ReviewStageState(scope) }
     val engine = rememberPlaybackEngine()
-    var showDetails by remember { mutableStateOf(false) }
+    var manualDetails by remember { mutableStateOf(false) }
     val back = rememberPredictiveBack(enabled = true, onBack = onNavigateBack)
 
     val statusTop = if (landscape) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -225,8 +235,47 @@ fun ReviewScreen(
     val currentPhoto = (current as? ReviewPage.Photo)?.photo
     val onSummary = current is ReviewPage.Summary
     val tutorial = uiState.showTutorial && !onSummary
-    stage.onPhotoTap = { if (!tutorial) showDetails = !showDetails }
-    stage.onDetailsDismiss = { showDetails = false }
+    val pageIsVideo = playback is PlaybackTarget.Video && currentPhoto?.uri == playback.uri
+    val pageIsMotion = playback is PlaybackTarget.MotionPhoto && currentPhoto?.uri == playback.uri
+    // 拖动在 onDragEnd 里先清掉，playbackSettled 要等弹簧结束才回来，中心键盖住整段回弹。
+    val gestureActive = stage.dragging || !stage.playbackSettled
+    val phase = playbackPhase(engine.started, engine.userPaused, engine.ended, engine.playing)
+    val chrome = playbackChrome(
+        isVideo = pageIsVideo,
+        phase = phase,
+        gestureActive = gestureActive,
+        pinnedOrExiting = stage.playbackPinnedKey != null,
+        awaitingAutoplay = awaitingAutoplay(
+            animationsEnabled = LocalAnimationsEnabled.current,
+            settled = stage.playbackSettled && playbackPinned == null && playbackOnHost != null,
+            resumed = engine.resumed,
+            started = engine.started,
+            userPaused = engine.userPaused,
+            ended = engine.ended,
+        ),
+    )
+    LaunchedEffect(engine.playing, pageIsVideo) {
+        if (pageIsVideo && engine.playing) manualDetails = false
+    }
+    // 视频的详情跟阶段走：播放中收起，用户暂停展开，未开始 / 播完保持手动开关。
+    // 手势取消回弹后，用户暂停会把详情带回来；静态图仍只靠手动开关，取消不自动恢复。
+    val showDetails = when {
+        !pageIsVideo -> manualDetails
+        chrome.details == DetailsMode.Shown -> true
+        chrome.details == DetailsMode.Hidden -> false
+        else -> manualDetails
+    }
+    stage.onPhotoTap = {
+        if (!tutorial) when (val tap = reviewPhotoTap(pageIsVideo, engine.playing, manualDetails)) {
+            is ReviewPhotoTap.TogglePlay -> {
+                engine.togglePlay()
+                manualDetails = tap.showDetails
+            }
+            is ReviewPhotoTap.ToggleDetails -> manualDetails = tap.showDetails
+        }
+    }
+    stage.onDetailsDismiss = { manualDetails = false }
+    val videoTapLabel = if (pageIsVideo && !tutorial) stringResource(R.string.cd_playback_toggle) else null
     // 只在「是否竖向拖动 / 方向」翻转时重组整屏；直接读 stage.dy 会让拖动的每一帧都重组 ReviewScreen（P4 卡顿剖析）
     val vertical by remember { derivedStateOf { stage.isVerticalDrag } }
     val upDrag by remember { derivedStateOf { stage.dy < 0f } }
@@ -285,6 +334,13 @@ fun ReviewScreen(
                 accessibilityActions = a11yActions,
                 videoHostKey = playbackHostKey.takeIf { playbackOnHost != null },
                 videoOverlay = { PlaybackSurface(engine, Modifier.fillMaxSize()) },
+                videoTapLabel = videoTapLabel,
+                onVideoTap = { stage.onPhotoTap() },
+            )
+
+            PlaybackCenterButton(
+                visible = !tutorial && pageIsVideo && playbackOnHost is PlaybackTarget.Video && chrome.showCenter,
+                modifier = Modifier.align(Alignment.Center).zIndex(6f),
             )
 
             // 会话加载中（还没有当前页）：直接取内存里的网格缩略图铺满，进入那几帧不空屏
@@ -376,7 +432,20 @@ fun ReviewScreen(
                     )
                     .graphicsLayer { alpha = stage.chromeAlpha.value },
             ) {
-                ReviewTopBar(photo = currentPhoto, onBack = onNavigateBack)
+                ReviewTopBar(
+                    photo = currentPhoto,
+                    onBack = onNavigateBack,
+                    end = if (pageIsMotion && showDetails && !tutorial) {
+                        {
+                            MotionReplayPill(onClick = {
+                                engine.replayMotion()
+                                manualDetails = false
+                            })
+                        }
+                    } else {
+                        null
+                    },
+                )
             }
 
             // 松手后提示圆钮保持满强度，随离场 266ms 淡出（不再在松手那一帧消失）
@@ -433,17 +502,16 @@ fun ReviewScreen(
                         .graphicsLayer { alpha = stage.chromeAlpha.value },
                 ) {
                     Column {
-                        val playback = uiState.playback
-                        if (playback != null && stage.playbackPinnedKey == null && currentPhoto.uri == playback.uri) {
-                            PlaybackControls(
+                        val progressVisible = pageIsVideo && stage.playbackPinnedKey == null
+                        if (progressVisible) {
+                            PlaybackProgressRow(
                                 engine = engine,
-                                target = playback,
                                 muted = uiState.playbackMuted,
                                 onMutedChange = onPlaybackMuted,
                                 timeStyle = DarkroomText.RvFile,
                             )
                         }
-                        ReviewMeta(currentPhoto)
+                        ReviewMeta(currentPhoto, includeDuration = !progressVisible)
                     }
                 }
             }

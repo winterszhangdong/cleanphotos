@@ -80,9 +80,9 @@ fun DarkroomMenu(visible: Boolean, sections: List<MenuSection>, modifier: Modifi
             visible = visible,
             modifier = Modifier.padding(top = top, end = Dimens.ScreenSide),
             enter = fadeIn(tween(MotionDurations.MENU, easing = MotionEasings.Standard)) +
-                scaleIn(tween(MotionDurations.MENU, easing = MotionEasings.Standard), initialScale = 0.92f, transformOrigin = TransformOrigin(1f, 0f)),
+                scaleIn(tween(MotionDurations.MENU, easing = MotionEasings.Standard), initialScale = MotionScales.REVEAL, transformOrigin = TransformOrigin(1f, 0f)),
             exit = fadeOut(tween(MotionDurations.SHORT, easing = MotionEasings.Standard)) +
-                scaleOut(tween(MotionDurations.SHORT, easing = MotionEasings.Standard), targetScale = 0.92f, transformOrigin = TransformOrigin(1f, 0f)),
+                scaleOut(tween(MotionDurations.SHORT, easing = MotionEasings.Standard), targetScale = MotionScales.REVEAL, transformOrigin = TransformOrigin(1f, 0f)),
         ) {
             val shape = RoundedCornerShape(Dimens.MenuCorner)
             Column(

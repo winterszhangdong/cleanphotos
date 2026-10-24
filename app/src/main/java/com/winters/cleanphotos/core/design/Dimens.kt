@@ -36,10 +36,28 @@ object Dimens {
 
     // 进度条
     val SegHeight = 2.dp
-    /** 播放进度条可拖区域高度。线宽复用 [SegHeight]，圆点半径复用 [NavItemGap]。 */
-    val PlaybackScrubHeight = 20.dp
-    /** 「动态」标签上下内边距。左右复用 [GhostGap]。 */
-    val PlaybackTagPadV = 6.dp
+    /** 中心播放键直径。实色玻璃，不模糊：视频是 TextureView，采不到背景。 */
+    val PlaybackCenter = 64.dp
+    /**
+     * 中心播放键里的三角布局框。
+     * 路径在 24 视口里宽 16、高 19.2，36dp 时视觉宽约 24dp、高约 29dp。
+     */
+    val PlaybackCenterIcon = 36.dp
+    /** 进度行热区高度。轨道线宽是 [PlaybackTrackHeight]，不复用 [SegHeight]。 */
+    val PlaybackRowHeight = 48.dp
+    val PlaybackTrackHeight = 3.dp
+    /** 进度拇指直径。拖动时用 [PlaybackThumbDrag]。 */
+    val PlaybackThumb = 12.dp
+    val PlaybackThumbDrag = 16.dp
+    /** 「动态」胶囊左右内边距。图标和文字间距是 [PlaybackPillGap]。 */
+    val PlaybackPillPadH = 14.dp
+    val PlaybackPillGap = 6.dp
+    /** 胶囊里的动态图标。 */
+    val PlaybackMotionIcon = 18.dp
+    /** 胶囊文字。 */
+    val PlaybackPillText = 13.sp
+    /** 声音钮图标，同返回钮。 */
+    val PlaybackSoundIcon = 20.dp
     val SegGap = 3.dp
     val SegSideInset = 16.dp
     val SegDash = 3.dp

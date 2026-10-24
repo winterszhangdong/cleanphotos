@@ -204,9 +204,9 @@ com.example.photocleaner
 
 * `PlaybackEngine`：清理页一个、垃圾桶预览一个。Composable `remember` 创建，`DisposableEffect` 释放。`Lifecycle.Event.ON_STOP` 暂停，`ON_START` 只把「已回到前台」标回来，不立刻 `play()`。
 * 视频：`MediaItem.fromUri`。动态照片：`ProgressiveMediaSource` + `ResolvingDataSource`，把读取范围收成 `MotionPhotoVideo` 的 offset / length。各厂商同一条路，不用 Media3 自带的 JPEG/HEIC 动态照片 extractor。
-* `PlaybackSurface`：`AndroidView(TextureView)`，`isOpaque = false`。监听 `onVideoSizeChanged`（宽高 × 像素比；Media3 1.11 已在解码端转正），在叠层里按视频自己的比例 Fit 居中；尺寸未到或 `onRenderedFirstFrame` 之前 `graphicsLayer` alpha 为 0。不用 SurfaceView，否则去色、圆角、离场飞行带不走画面。未引入 `media3-ui-compose`，避免和 Compose BOM 2026.02.01 冲突。控件图标是 `DarkroomIcons` 的 Play / Pause / SoundOn / SoundOff。
-* `PlaybackControls` / `PlaybackAutoplay`：停稳后延迟 `PLAYBACK_START_DELAY` 再播；进度条在 chrome 层。静音是 `volume = 0f` 且不申请音频焦点；取消静音才 `handleAudioFocus = true`。
-* 是否自动播放、是否循环由 `playbackPolicy(kind, animationsEnabled)` 决定：自动播放跟着系统动画开关，循环只跟类型（视频循环，动态照片不循环）。
+* `PlaybackSurface`：`AndroidView(TextureView)`，`isOpaque = false`。监听 `onVideoSizeChanged`（宽高 × 像素比；Media3 1.11 已在解码端转正），在叠层里按视频自己的比例 Fit 居中；尺寸未到或 `onRenderedFirstFrame` 之前 `graphicsLayer` alpha 为 0。不用 SurfaceView，否则去色、圆角、离场飞行带不走画面。未引入 `media3-ui-compose`，避免和 Compose BOM 2026.02.01 冲突。控件图标是 `DarkroomIcons` 的 Play（实心三角）/ Motion / SoundOn / SoundOff。没有 Pause。
+* `PlaybackCenterButton` / `PlaybackProgressRow` / `MotionReplayPill` / `PlaybackAutoplay`：停稳后延迟 `PLAYBACK_START_DELAY` 再播。这段延迟里中心键不出现；系统关闭动画时不自动播，未开始直接显示。中心键只是视觉，不接收点击。播完后拖进度改为用户暂停，再单击从拖到的位置继续。底是实色 `DarkroomColors.Glass` 加 `GlassRim`，不走 `glassBlur`：TextureView 采不到背景。进度行在 chrome 层，自己的 pointerInput 里同时处理点按和拖动。进度行显示时，清理页文件信息行不再追加时长。静音是 `volume = 0f` 且不申请音频焦点；取消静音才 `handleAudioFocus = true`。动态照片 `ensureMuted` 恒为静音，不改 ViewModel 记住的开关。
+* 是否自动播放由 `playbackPolicy(kind, animationsEnabled)` 决定，跟着系统动画开关。视频和动态照片都是 `REPEAT_MODE_OFF`。视频 `STATE_ENDED` 时先 `pause` 再 `seekTo(0)`，`ended` 保持到下一次真正开播或用户拖进度。`started` 用来区分「还没开始」和「手势暂停」。
 
 ### core/navigation
 
@@ -361,7 +361,7 @@ AppTrashEntry（App 内垃圾桶条目：photoId + movedToTrashAt + wasFavorited
 TrashReminderRules（只留 AGE_THRESHOLD_MS = 30 天，给垃圾桶页用）
 MotionPhotoVideo（offset、length）
 PlaybackTarget（Video(uri) / MotionPhoto(uri, MotionPhotoVideo)）
-PlaybackPolicy（autoplay、loop；纯函数 playbackPolicy）
+PlaybackPolicy（autoplay；纯函数 playbackPolicy。不循环）
 AppFavoriteEntry（App 内收藏条目：photoId + favoritedAt）
 TrashScreenMode（枚举：Grid / Selection / Preview）
 ```
@@ -487,7 +487,7 @@ TrashScreenMode
 说明：
 
 * `TrashPreviewOverlay` 使用与 `ReviewScreen` 一致的本地切页缓冲策略：`displayPhotoId`、`displayIndex`、`pendingPhotoId`、`isHorizontalFlinging`、`settledOffsetXOverride`，实现无缝 fling 切页。复用共享 `PhotoPager` 组件渲染全屏预览。横向飞出开始时若当前张正在播，用 `videoPinnedId` 把 TextureView 留在飞出的那张（侧页也画），飞出结束、索引换掉之后才 `ensureLoaded` 下一张。只在 `engine.media == playback` 且地址就是当前照片时才挂到新页。`MotionPhotoRepositoryImpl` 不再包一层 `Dispatchers.IO`，识别的 IO 只在 `MotionPhotoDataSource`。
-* `TrashViewModel` 用同一个 `LocateMotionPhotoVideoUseCase` 给当前预览算出 `PlaybackTarget?`。静音跟着这个 ViewModel，退出预览不重置。播放器和控件复用 `core/media`，叠在 `PhotoPager` 当前页上。
+* `TrashViewModel` 用同一个 `LocateMotionPhotoVideoUseCase` 给当前预览算出 `PlaybackTarget?`。静音跟着这个 ViewModel，退出预览不重置。播放器复用 `core/media`，叠在 `PhotoPager` 当前页上。单击走 `detectPagerGestures` 的 `onSingleTap`（双击超时后）：视频切换播放，动态照片不做事。中心键对准照片方框，进度行在 meta 上方，胶囊在顶栏右侧。
 
 ---
 

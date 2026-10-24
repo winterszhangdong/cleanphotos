@@ -2,6 +2,7 @@ package com.winters.cleanphotos.feature.review
 
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -83,6 +84,8 @@ internal fun ReviewStage(
     /** 播放器当前画在哪一页。离场或左右滑出未结束时是离开的那页，不是新的当前页。 */
     videoHostKey: String? = null,
     videoOverlay: @Composable () -> Unit = {},
+    videoTapLabel: String? = null,
+    onVideoTap: () -> Unit = {},
 ) {
     val entries = buildList {
         val current = state.currentPage
@@ -106,8 +109,17 @@ internal fun ReviewStage(
             .fillMaxSize()
             .background(DarkroomColors.Room)
             .pointerInput(state) { detectReviewGestures(state.handler) }
-            // 读屏用户没法做上下滑 / 左右翻页手势：同样的操作以自定义操作提供
-            .semantics { customActions = accessibilityActions },
+            // 读屏用户没法做上下滑 / 左右翻页手势：同样的操作以自定义操作提供。
+            // 视频页的单击语义走和照片单击同一条路径，中心键本身不可点。
+            .semantics {
+                customActions = accessibilityActions
+                if (videoTapLabel != null) {
+                    onClick(label = videoTapLabel) {
+                        onVideoTap()
+                        true
+                    }
+                }
+            },
     ) {
         // 上滑琥珀显影光 / 下滑中性暗角：在当前页之下、垫底页之上
         SwipeGlow(state, Modifier.zIndex(1f))

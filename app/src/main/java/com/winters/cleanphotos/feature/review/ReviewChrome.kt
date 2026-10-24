@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
+import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.GlassIconButton
 import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
 import com.winters.cleanphotos.core.design.MotionDurations
@@ -218,10 +219,15 @@ private fun DrawScope.drawContinuous(cells: List<DayCellState>, radius: CornerRa
 
 // ---------------------------------------------------------------- 顶栏
 
-/** .rv-top：40dp 玻璃返回 + 日期（里程表）+ mono 星期·时间。没有右上角更多。 */
+/** .rv-top：40dp 玻璃返回 + 日期（里程表）+ mono 星期·时间。右上角只在动态照片详情打开时放重播胶囊。 */
 @Composable
-internal fun ReviewTopBar(photo: PhotoItem?, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().height(40.dp)) {
+internal fun ReviewTopBar(
+    photo: PhotoItem?,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    end: (@Composable () -> Unit)? = null,
+) {
+    Box(modifier.fillMaxWidth().height(Dimens.GlassButton)) {
         GlassIconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(DarkroomIcons.Back, contentDescription = stringResource(R.string.cd_back), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
         }
@@ -238,16 +244,30 @@ internal fun ReviewTopBar(photo: PhotoItem?, onBack: () -> Unit, modifier: Modif
                 Text(DayDisplay.reviewMeta(photo, locale), style = DarkroomText.RvDateMeta.merge(shadow))
             }
         }
+        if (end != null) {
+            Box(Modifier.align(Alignment.CenterEnd)) { end() }
+        }
     }
 }
 
-/** .rv-meta：文件名 · 大小（视频再加时长）。点照片后才出现，不带方向提示。 */
+/**
+ * .rv-meta：文件名 · 大小。点照片后才出现，不带方向提示。
+ * [includeDuration] 为 false 时不再追加时长：进度行右端已经是总时长。
+ */
 @Composable
-internal fun ReviewMeta(photo: PhotoItem, modifier: Modifier = Modifier) {
+internal fun ReviewMeta(
+    photo: PhotoItem,
+    modifier: Modifier = Modifier,
+    includeDuration: Boolean = true,
+) {
     val name = photo.displayName?.substringBeforeLast('.') ?: "—"
     val locale = currentLocale()
     val size = photo.size?.let { " · " + FileSizeFormatter.format(it, locale) }.orEmpty()
-    val duration = photo.durationMs?.let { " · " + DurationFormatter.format(it) }.orEmpty()
+    val duration = if (includeDuration) {
+        photo.durationMs?.let { " · " + DurationFormatter.format(it) }.orEmpty()
+    } else {
+        ""
+    }
     Text(name + size + duration, style = DarkroomText.RvFile, maxLines = 1, modifier = modifier.fillMaxWidth())
 }
 

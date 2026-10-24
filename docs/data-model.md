@@ -90,16 +90,18 @@ enum class PlaybackKind { Video, MotionPhoto }
 
 data class PlaybackPolicy(
     val autoplay: Boolean,
-    val loop: Boolean,
 )
 
-fun playbackPolicy(kind: PlaybackKind, animationsEnabled: Boolean): PlaybackPolicy
+fun playbackPolicy(kind: PlaybackKind, animationsEnabled: Boolean): PlaybackPolicy =
+    when (kind) {
+        PlaybackKind.Video, PlaybackKind.MotionPhoto -> PlaybackPolicy(autoplay = animationsEnabled)
+    }
 ```
 
 ```text
 autoplay = animationsEnabled
-loop = kind == Video
-系统关闭动画只关掉自动播放，不改变循环
+视频和动态照片都不循环。系统关闭动画只关掉自动播放。
+视频播完由播放器 seekTo(0) 并暂停，不靠循环策略。
 ```
 
 ## 动态照片识别

@@ -212,8 +212,10 @@
         <item quantity="other">移走 %1$d 张</item>
     </plurals>
     <string name="cd_playback_play">播放</string>
-    <string name="cd_playback_pause">暂停</string>
+    <string name="cd_playback_toggle">播放 / 暂停</string>
     <string name="cd_playback_sound_on">打开声音</string>
-    <string name="cd_playback_sound_off">静音</string>
+    <string name="cd_playback_sound_off">关闭声音</string>
+    <string name="cd_playback_motion">播放动态照片</string>
+    <string name="cd_playback_progress">播放进度</string>
     <string name="playback_motion">动态</string>
 </resources>

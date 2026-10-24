@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.winters.cleanphotos.core.design.DarkroomColors
+import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
 import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
@@ -49,12 +50,19 @@ import com.winters.cleanphotos.core.design.PrimaryButton
 import com.winters.cleanphotos.core.design.saturateBrightness
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.core.util.FileSizeFormatter
+import com.winters.cleanphotos.core.media.MotionReplayPill
 import com.winters.cleanphotos.core.media.PlaybackAutoplay
-import com.winters.cleanphotos.core.media.PlaybackControls
+import com.winters.cleanphotos.core.media.PlaybackCenterButton
+import com.winters.cleanphotos.core.media.PlaybackProgressRow
 import com.winters.cleanphotos.core.media.PlaybackSurface
 import com.winters.cleanphotos.core.media.rememberPlaybackEngine
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PlaybackTarget
+import com.winters.cleanphotos.domain.model.awaitingAutoplay
+import com.winters.cleanphotos.domain.model.playbackChrome
+import com.winters.cleanphotos.domain.model.playbackPhase
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import com.winters.cleanphotos.ui.photopager.HorizontalSwipeState
 import com.winters.cleanphotos.ui.photopager.PhotoPager
 import com.winters.cleanphotos.ui.photopager.detectPagerGestures
@@ -131,6 +139,24 @@ fun TrashPreviewOverlay(
         engine,
         settled = playbackSettled && videoPinnedId == null && videoHostId != null && videoHostId == currentPhoto?.id,
     )
+    val pageIsVideo = playback is PlaybackTarget.Video && currentPhoto?.uri == playback.uri
+    val pageIsMotion = playback is PlaybackTarget.MotionPhoto && currentPhoto?.uri == playback.uri
+    val videoOnThisPage = videoHostId != null && videoHostId == currentPhoto?.id
+    val trashChrome = playbackChrome(
+        isVideo = pageIsVideo,
+        phase = playbackPhase(engine.started, engine.userPaused, engine.ended, engine.playing),
+        gestureActive = !playbackSettled,
+        pinnedOrExiting = videoPinnedId != null,
+        awaitingAutoplay = awaitingAutoplay(
+            animationsEnabled = LocalAnimationsEnabled.current,
+            settled = playbackSettled && videoPinnedId == null && videoOnThisPage,
+            resumed = engine.resumed,
+            started = engine.started,
+            userPaused = engine.userPaused,
+            ended = engine.ended,
+        ),
+    )
+    val videoTapLabel = if (pageIsVideo) stringResource(R.string.cd_playback_toggle) else null
 
     // 同步外部 currentPhotoId 到本地显示状态
     LaunchedEffect(photos, currentPhotoId) {
@@ -202,6 +228,12 @@ fun TrashPreviewOverlay(
         ) {
             GlassIconButton(onClick = onExit, modifier = Modifier.align(Alignment.CenterStart)) {
                 Icon(DarkroomIcons.Back, contentDescription = stringResource(R.string.cd_back), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
+            }
+            if (pageIsMotion && videoPinnedId == null) {
+                MotionReplayPill(
+                    onClick = { engine.replayMotion() },
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
             }
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.tab_trash), style = DarkroomText.PvTitle)
@@ -305,10 +337,44 @@ fun TrashPreviewOverlay(
                             scope.launch {
                                 zoomState.toggleDoubleTapZoom(tapOffset, containerSize)
                             }
-                        }
+                        },
+                        onSingleTap = {
+                            val photo = photos.getOrNull(displayIndex)
+                            val playing = engine.media
+                            if (photo != null && playing is PlaybackTarget.Video && playing.uri == photo.uri && videoPinnedId == null) {
+                                engine.togglePlay()
+                            }
+                        },
                     )
                 }
+                .then(
+                    if (videoTapLabel != null) {
+                        Modifier.semantics {
+                            onClick(label = videoTapLabel) {
+                                engine.togglePlay()
+                                true
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
         )
+
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 144.dp)
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .zIndex(3f),
+        ) {
+            PlaybackCenterButton(
+                visible = pageIsVideo && videoOnThisPage && trashChrome.showCenter,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
 
         if (currentPhoto != null) {
             val locale = currentLocale()
@@ -328,13 +394,12 @@ fun TrashPreviewOverlay(
                     .padding(horizontal = Dimens.PreviewSide),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (playback != null && currentPhoto.uri == playback.uri) {
-                    PlaybackControls(
+                if (pageIsVideo && videoPinnedId == null) {
+                    PlaybackProgressRow(
                         engine = engine,
-                        target = playback,
                         muted = playbackMuted,
                         onMutedChange = onPlaybackMuted,
-                        timeStyle = DarkroomText.PvMeta,
+                        timeStyle = DarkroomText.RvFile,
                     )
                     Spacer(Modifier.height(Dimens.GhostGap))
                 }

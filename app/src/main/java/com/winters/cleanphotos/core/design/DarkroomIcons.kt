@@ -31,8 +31,13 @@ object DarkroomIcons {
     val Up = icon("up", "M12 19V5M6 11l6-6 6 6")
     val Down = icon("down", "M12 5v14M6 13l6 6 6-6")
     val LeftRight = icon("lr", "M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4")
-    val Play = icon("play", "M9 7.2l8.2 4.8L9 16.8z")
-    val Pause = icon("pause", "M8.5 6.5v11M15.5 6.5v11")
+    /**
+     * 实心三角。24 视口里宽 16、高 19.2，重心比中心右移约 1。
+     * 配 [Dimens.PlaybackCenterIcon] 36dp 时，画面上大约宽 24dp、高 29dp。
+     */
+    val Play = icon("play", "M7.7 2.4l16 9.6-16 9.6z", strokeWidth = 0f, fill = true)
+    /** 同心圆 + 外圈虚线。ImageVector 没有虚线，外圈用八段弧近似。 */
+    val Motion = motionIcon()
     val SoundOn = icon("sound-on", "M4.5 9.5v5h3.2l3.8 3V6.5l-3.8 3zM14.6 9.2a3.2 3.2 0 010 5.6M17 7a6 6 0 010 10")
     val SoundOff = icon("sound-off", "M4.5 9.5v5h3.2l3.8 3V6.5l-3.8 3zM16 9.2l4.2 5.6M20.2 9.2L16 14.8")
 
@@ -47,10 +52,41 @@ object DarkroomIcons {
             addPath(
                 pathData = PathParser().parsePathString(path).toNodes(),
                 fill = if (fill) SolidColor(Color.Black) else null,
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = strokeWidth,
+                stroke = if (strokeWidth > 0f) SolidColor(Color.Black) else null,
+                strokeLineWidth = if (strokeWidth > 0f) strokeWidth else 0f,
                 strokeLineCap = StrokeCap.Round,
                 strokeLineJoin = StrokeJoin.Round,
             )
         }.build()
+
+    private fun motionIcon(): ImageVector {
+        val stroke = SolidColor(Color.Black)
+        val builder = ImageVector.Builder(
+            name = "motion",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        )
+        fun add(path: String) {
+            builder.addPath(
+                pathData = PathParser().parsePathString(path).toNodes(),
+                stroke = stroke,
+                strokeLineWidth = 1.6f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }
+        add("M12 8.6A3.4 3.4 0 1 0 12 15.4")
+        add("M12 15.4A3.4 3.4 0 1 0 12 8.6")
+        add("M12.00 3.80A8.2 8.2 0 0 1 15.07 4.40")
+        add("M17.80 6.20A8.2 8.2 0 0 1 19.55 8.80")
+        add("M20.20 12.00A8.2 8.2 0 0 1 19.60 15.07")
+        add("M17.80 17.80A8.2 8.2 0 0 1 15.20 19.55")
+        add("M12.00 20.20A8.2 8.2 0 0 1 8.93 19.60")
+        add("M6.20 17.80A8.2 8.2 0 0 1 4.45 15.20")
+        add("M3.80 12.00A8.2 8.2 0 0 1 4.40 8.93")
+        add("M6.20 6.20A8.2 8.2 0 0 1 8.80 4.45")
+        return builder.build()
+    }
 }

@@ -98,6 +98,11 @@ object MotionEasings {
     val CountDecelerate: Easing = Easing { t -> 1f - (1f - t) * (1f - t) * (1f - t) }
 }
 
+object MotionScales {
+    /** 菜单和中心播放键出现时的起始缩放。 */
+    const val REVEAL = 0.92f
+}
+
 /** 弹簧参数，mass = 1。 */
 /** 弹簧「收住」的判定：剩余幅度 0.1%。 */
 private const val SETTLE_EPSILON = 0.001f
