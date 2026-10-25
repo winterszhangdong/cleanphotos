@@ -7,6 +7,38 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-25
+
+### Added
+
+- 新增官网 https://cleanphotos.winters.click ，可以直接下载最新的 APK。
+
+### Changed
+
+- 安卓：照片页的大文件、截图、聊天按各自用途排列。大文件不分天，固定从大到小平铺，格子左下角显示文件大小，⋯ 菜单里不显示排序；从大文件进入清理页，翻页顺序和网格一致，也不再插入「这一天整理完了」小结。截图和聊天改为按月分组、不再截断，月份标题右侧显示「已看 / 总数」，点它从这个月第一张开始清理。全部和那年今天仍按天分组。
+- 安卓：带大小或时长角标的缩略图底部加了一层淡渐变，亮色照片上也看得清角标。
+- 安卓：拖动或点按视频进度后，从该位置直接开始播放，之前暂停或已播完也一样；拖到结尾仍回到开头并暂停。
+
+### Fixed
+
+- 安卓：多选时全选一天原来只选中露出的前 8 张，现在选中这一天的全部照片，批量操作和撤回也作用于全部。
+
+---
+
+### Added
+
+- New website at https://cleanphotos.winters.click, where you can download the latest APK directly.
+
+### Changed
+
+- Android: Large files, Screenshots and Chat on the Photos page are laid out for what they are. Large files form one flat grid from largest to smallest, with no days, and each thumbnail shows its file size in the bottom-left corner; the ⋯ menu hides sorting there. Reviewing from Large files follows the grid order and no longer inserts the end-of-day summary. Screenshots and Chat are grouped by month without truncation; each month title shows "seen / total", and tapping it starts review from that month's first photo. All and On this day still group by day.
+- Android: thumbnails with a size or duration badge get a faint gradient along the bottom, so the badge stays readable on bright photos.
+- Android: after dragging or tapping the video progress, playback starts right there, even if the video was paused or had finished; dragging to the very end still returns to the start and pauses.
+
+### Fixed
+
+- Android: in multi-select, selecting a whole day picked only the first 8 photos shown; it now selects every photo of that day, and batch actions and undo cover all of them.
+
 ## [1.5.0] - 2026-10-24
 
 ### Added
@@ -283,7 +315,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.2.2...v1.3.0
