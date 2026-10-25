@@ -152,18 +152,10 @@ class PlaybackChromeTest {
     }
 
     @Test
-    fun `播完后拖进度改为停在拖到的位置`() {
-        assertEquals(
-            UserSeekPose(ended = false, userPaused = true, started = true),
-            poseAfterUserSeek(ended = true, userPaused = false, started = true),
-        )
-        assertEquals(
-            UserSeekPose(ended = false, userPaused = true, started = true),
-            poseAfterUserSeek(ended = false, userPaused = true, started = true),
-        )
+    fun `拖进度后从该位置开始播放`() {
         assertEquals(
             UserSeekPose(ended = false, userPaused = false, started = true),
-            poseAfterUserSeek(ended = false, userPaused = false, started = true),
+            poseAfterUserSeek(),
         )
     }
 

@@ -244,14 +244,16 @@ class PlaybackEngine(context: Context) {
         if (released) return
         val duration = player.duration
         if (duration <= 0L) return
-        // 先改态再 seek。播完后拖到结尾若再次 STATE_ENDED，仍由监听器回到第 0 帧。
-        val pose = poseAfterUserSeek(ended, userPaused, started)
+        // 先改成播放态再 seek。拖到结尾若同步进入 STATE_ENDED，监听器会暂停并回到第 0 帧，这时不再 play。
+        val pose = poseAfterUserSeek()
         ended = pose.ended
         userPaused = pose.userPaused
         started = pose.started
         val at = (duration * fraction.coerceIn(0f, 1f)).toLong()
         player.seekTo(at)
+        if (ended) return
         positionMs = at
+        player.play()
     }
 
     fun refreshPosition(allowPosition: Boolean) {

@@ -91,7 +91,7 @@ fun videoEndedPose(): VideoEndedPose = VideoEndedPose(positionMs = 0L, showCente
 
 /**
  * 用户拖动或点按进度之后的播放态。
- * 播完态改记成停在拖到的位置，下一次单击从这里继续，不再跳回第 0 帧。
+ * 不论之前是暂停、播完还是播放中，都从该位置开始播放。
  */
 data class UserSeekPose(
     val ended: Boolean,
@@ -99,9 +99,5 @@ data class UserSeekPose(
     val started: Boolean,
 )
 
-fun poseAfterUserSeek(ended: Boolean, userPaused: Boolean, started: Boolean): UserSeekPose =
-    if (ended) {
-        UserSeekPose(ended = false, userPaused = true, started = true)
-    } else {
-        UserSeekPose(ended = ended, userPaused = userPaused, started = started)
-    }
+fun poseAfterUserSeek(): UserSeekPose =
+    UserSeekPose(ended = false, userPaused = false, started = true)
