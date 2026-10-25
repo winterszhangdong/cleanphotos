@@ -1,0 +1,14 @@
+{
+  "name": "cleanphotos-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "../scripts/site-sync-release.sh",
+    "build": "node build.mjs",
+    "dev": "node build.mjs && wrangler dev",
+    "deploy": "node build.mjs && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.152.0"
+  }
+}

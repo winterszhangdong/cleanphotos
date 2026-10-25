@@ -1,0 +1,19 @@
+{
+  // 理照官网：Cloudflare Workers + 静态资源。构建：node build.mjs → dist/
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cleanphotos-site",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-07-15",
+  "account_id": "7b6d1ba7fb164a228c33fd9768b0fe65",
+  "routes": [{ "pattern": "cleanphotos.winters.click", "custom_domain": true }],
+  "workers_dev": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash",
+    // 下载、接口、首页（按语言跳转）先过 Worker，其余直接走静态资源
+    "run_worker_first": ["/", "/download/*", "/api/*", "/apk/*"]
+  },
+  "observability": { "enabled": false }
+}
