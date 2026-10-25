@@ -32,7 +32,12 @@ class FilterPhotosUseCase @Inject constructor(
         unseenOnly: Boolean = false,
         today: LocalDate,
     ): List<PhotoItem> {
-        val ranged = photos.filter { PhotoFilterRules.matches(it, filterMode, today) }
+        // AllPhotos 每张都命中。filter 会把整表再复制一遍；照片页留在返回栈里时，清理页每次滑动都重算这里。
+        val ranged = if (filterMode == PhotoFilterMode.AllPhotos) {
+            photos
+        } else {
+            photos.filter { PhotoFilterRules.matches(it, filterMode, today) }
+        }
         return if (unseenOnly) ranged.filter { it.id !in seenIds } else ranged
     }
 }

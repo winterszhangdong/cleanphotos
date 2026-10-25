@@ -12,8 +12,8 @@ import javax.inject.Inject
  * 启动清理会话。
  *
  * 根据 scope 决定候选队列来源：
- * - AllPhotos：observeAllPhotos() → 排序 → 过滤 → 定位
- * - Favorites：observeFavoritedPhotos() → 排序 → 定位（跳过过滤）
+ * - AllPhotos：observeAllPhotos() → 按范围筛（不叠「只看没看过」）→ 排序 → 需要时再叠「只看没看过」→ 定位
+ * - Favorites：observeFavoritedPhotos() → 排序 → 定位（不筛，也不吃「只看没看过」）
  */
 class StartReviewSessionUseCase @Inject constructor(
     private val photoRepository: PhotoRepository,

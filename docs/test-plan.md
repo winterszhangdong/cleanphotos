@@ -3874,7 +3874,7 @@ TrashPreviewOverlay 与 ReviewScreen 横滑行为不一致
 - 截图 / 聊天：按 `yyyy-MM` 分组，超过 8 张不截断。跨年出现年份分隔。已看 / 总数用未叠「只看没看过」的这一月。全选作用于这一月叠上开关之后的全部 id。
 - 那年今天：仍按天，每年一组，每天最多露出 8 张，全选含没露出的。
 - `FilterPhotosUseCase` 纯函数使用调用方传入的 `today`，不取 `LocalDate.now()`。`PhotoFilterRules.matches` 对 `AllPhotos` 一律命中。
-- 从大文件进入的清理会话顺序与网格一致（size 降序）。`ShouldInsertDaySummaryUseCase` 在 `sortOrder == LargestFirst` 时不插小结，即使原来的四条件都满足。
+- 从网格进入清理页时，会话照片顺序与各组 `selectableIds` 拼起来的顺序一致。按天被收起的也算在内，不只是露出的 8 张。大文件用 `reviewSortOrder`（`LargestFirst`），不用菜单里留着的排序。`ShouldInsertDaySummaryUseCase` 在 `sortOrder == LargestFirst` 时不插小结，即使原来的四条件都满足。
 
 ### 空状态
 

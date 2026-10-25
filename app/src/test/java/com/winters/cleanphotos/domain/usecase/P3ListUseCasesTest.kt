@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
@@ -100,7 +101,7 @@ class P3ListUseCasesTest {
         val f = FilterPhotosUseCase(FakeSeenStateRepository())
         val today = LocalDate.of(2020, 1, 1)
         assertEquals(listOf(2L, 3L), f(photos, PhotoFilterMode.AllPhotos, setOf(1L), unseenOnly = true, today = today).map { it.id })
-        assertEquals(3, f(photos, PhotoFilterMode.AllPhotos, setOf(1L), today = today).size)
+        assertSame(photos, f(photos, PhotoFilterMode.AllPhotos, setOf(1L), today = today))
     }
 
     @Test

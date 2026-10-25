@@ -12,6 +12,7 @@ import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
 import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
+import com.winters.cleanphotos.domain.model.ReviewScope
 import com.winters.cleanphotos.domain.model.SectionHeader
 import com.winters.cleanphotos.domain.model.SmartFilterRules
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
@@ -21,6 +22,7 @@ import com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase
 import com.winters.cleanphotos.domain.usecase.FilterPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.SortPhotosUseCase
+import com.winters.cleanphotos.domain.usecase.StartReviewSessionUseCase
 import com.winters.cleanphotos.fake.FakePhotoRepository
 import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
@@ -566,6 +568,75 @@ class AllPhotosViewModelTest {
         assertEquals((10L downTo 1L).toList(), section.selectableIds)
         vm.onToggleDay(section.dayKey)
         assertEquals(10, vm.selection.value.count)
+    }
+
+    @Test
+    fun `网格顺序与清理页顺序一致`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createMultiDateTestPhotos())
+        val vm = createViewModel(); advanceUntilIdle()
+        val newest = vm.uiState.value
+        val shown = newest.sections.flatMap { it.photos }.map { it.id }
+        val full = newest.sections.flatMap { it.selectableIds }
+        assertEquals((14L downTo 1L).toList(), full)
+        assertTrue(shown.size < full.size)
+        assertReviewMatchesGrid(vm)
+
+        vm.onSortOrderChanged(PhotoSortOrder.OldestFirst)
+        advanceUntilIdle()
+        assertEquals((1L..14L).toList(), vm.uiState.value.sections.flatMap { it.selectableIds })
+        assertReviewMatchesGrid(vm)
+
+        mockSeenDataSource.seenIds.value = setOf(14L, 10L, 1L)
+        vm.onShowUnseenChanged(true)
+        advanceUntilIdle()
+        assertReviewMatchesGrid(vm)
+
+        val min = SmartFilterRules.LARGE_FILE_MIN_BYTES
+        fakePhotoRepository.setPhotos(
+            listOf(
+                TestPhotoData.createTestPhoto(1).copy(size = min + 100, dateTaken = 1_000, dateGroup = "2024-05-18"),
+                TestPhotoData.createTestPhoto(2).copy(size = min + 500, dateTaken = 9_000, dateGroup = "2024-05-20"),
+                TestPhotoData.createTestPhoto(3).copy(size = 100, dateTaken = 5_000, dateGroup = "2024-05-19"),
+            ),
+        )
+        vm.onShowUnseenChanged(false)
+        vm.onScopeChanged(LibraryScope.LargeFiles)
+        advanceUntilIdle()
+        val large = vm.uiState.value
+        assertEquals(PhotoSortOrder.OldestFirst, large.sortOrder)
+        assertEquals(PhotoSortOrder.LargestFirst, large.reviewSortOrder)
+        assertEquals(listOf(2L, 1L), large.sections.flatMap { it.selectableIds })
+        assertReviewMatchesGrid(vm)
+
+        fakePhotoRepository.setPhotos(
+            listOf(
+                TestPhotoData.createTestPhoto(1, "2026-10-02").copy(relativePath = "Pictures/Screenshots/", dateTaken = 3_000),
+                TestPhotoData.createTestPhoto(2, "2025-09-02").copy(relativePath = "Pictures/Screenshots/", dateTaken = 1_000),
+                TestPhotoData.createTestPhoto(3, "2026-10-03").copy(relativePath = "DCIM/Camera/", dateTaken = 9_000),
+            ),
+        )
+        vm.onSortOrderChanged(PhotoSortOrder.NewestFirst)
+        vm.onScopeChanged(LibraryScope.Screenshots)
+        advanceUntilIdle()
+        assertEquals(listOf(1L, 2L), vm.uiState.value.sections.flatMap { it.selectableIds })
+        assertReviewMatchesGrid(vm)
+    }
+
+    private suspend fun assertReviewMatchesGrid(vm: AllPhotosViewModel) {
+        val state = vm.uiState.value
+        val gridOrder = state.sections.flatMap { it.selectableIds }
+        val session = StartReviewSessionUseCase(
+            fakePhotoRepository,
+            SortPhotosUseCase(),
+            FilterPhotosUseCase(mockSeenDataSource),
+        ).invoke(
+            startPhotoId = gridOrder.first(),
+            sortOrder = state.reviewSortOrder,
+            filterMode = state.scope.toFilterMode(),
+            scope = ReviewScope.AllPhotos,
+            unseenOnly = state.unseenOnly,
+        )
+        assertEquals(gridOrder, session.photos.map { it.id })
     }
 }
 
