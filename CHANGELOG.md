@@ -7,6 +7,34 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-10-25
+
+### Fixed
+
+- 安卓：照片页排序还在滑动时，点到的是屏幕上看到的那张，不再打开旁边那张。
+- 安卓：从垃圾桶切回收藏时，收藏页保持原来的滚动位置。
+- 安卓：清理页放大后快速拖动，松手那一下不再被当成点按。
+- 安卓：垃圾桶预览放大后快速拖动，最后一段也会跟着移动，不会被当成单击。
+- 安卓：垃圾桶预览里当前这张已经不在列表中时，左右滑不再闪退；单击视频作用在还在的那一张上。外面把这张删掉后，停在原位置的下一张；原来是最后一张就停在新的最后一张；一张不剩就回到网格。
+- 安卓：从垃圾桶预览往回滑时，背后能看到刚才的网格。
+- 安卓：相似照片里，同一张被裁剪或旋转后会重新计算，不再沿用改之前的结果。
+- 安卓：第一次把系统收藏迁入时，当时在系统垃圾桶里的收藏也会一起写入。已经迁过的安装不会再迁一次。
+- iOS：照片页拖选只选中屏幕上画出来的照片，不再把每天 8 张以后没显示的也选上。
+
+---
+
+### Fixed
+
+- Android: while photos are still sliding into place after a sort, a tap opens the photo you see, not the one beside it.
+- Android: switching from Trash back to Favorites keeps the Favorites scroll position.
+- Android: on the review screen, a fast drag while zoomed in is no longer treated as a tap when you lift your finger.
+- Android: in the trash preview, the last bit of a fast zoomed pan moves with your finger instead of counting as a tap.
+- Android: swiping in the trash preview no longer crashes when the current photo has left the list, and tapping a video acts on the photo still shown. If that photo disappears, the preview stays on the next photo at the same position, or the new last photo, or returns to the grid when none remain.
+- Android: swiping back from the trash preview shows the grid behind it.
+- Android: after a photo is cropped or rotated, similar-photo comparison uses a new result instead of the one from before the edit.
+- Android: the one-time import of system favorites also includes photos that were in the system trash at that moment. Installs that already imported do not import again.
+- iOS: drag-select on the photo grid only selects photos drawn on screen, not the ones hidden past the eight-per-day cap.
+
 ## [1.5.4] - 2026-10-25
 
 ### Changed
@@ -373,7 +401,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.4...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.5...HEAD
+[1.5.5]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.1...v1.5.2
