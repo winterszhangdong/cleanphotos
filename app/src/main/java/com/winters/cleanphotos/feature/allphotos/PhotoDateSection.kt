@@ -111,14 +111,15 @@ fun LazyGridItemScope.reorderModifier(index: Int, reorderAnchor: Int, place: Boo
 }
 
 /**
- * 排序切换那一刻的首个可见项下标（不观察滚动，避免每次滚动都重组列表）。
- * 收藏页只有排序会改顺序，所以一直做位移。
+ * 列表最近一次变化（排序切换、照片移走）那一刻的首个可见项下标（不观察滚动，避免每次滚动都重组列表）。
+ * 收藏页一直做位移。[ordering] 按实例比较，传分组列表即可：排序变了它也跟着换。
+ * 只在排序时记的话，滚到很深再移走一张，下面每格要等「下标 × 14ms」才动，能停好几秒。
  */
 @Composable
 fun rememberReorderAnchor(state: LazyGridState, ordering: Any): () -> Int {
     val holder = remember { IntArray(1) }
     val last = remember { arrayOf(ordering) }
-    if (last[0] != ordering) {
+    if (last[0] !== ordering) {
         last[0] = ordering
         holder[0] = Snapshot.withoutReadObservation { state.firstVisibleItemIndex }
     }
@@ -129,14 +130,14 @@ fun rememberReorderAnchor(state: LazyGridState, ordering: Any): () -> Int {
 class PhotoReorder(val anchor: () -> Int, val place: () -> Boolean)
 
 @Composable
-fun rememberPhotoReorder(state: LazyGridState, sortOrder: Any, membership: Any): PhotoReorder {
+fun rememberPhotoReorder(state: LazyGridState, sortOrder: Any, membership: Any, items: Any): PhotoReorder {
     val motion = remember { ReorderMotion(sortOrder, membership) }
-    val index = if (motion.membership != membership || motion.sort != sortOrder) {
+    val index = if (motion.membership != membership || motion.sort != sortOrder || motion.items !== items) {
         Snapshot.withoutReadObservation { state.firstVisibleItemIndex }
     } else {
         motion.anchor
     }
-    motion.advance(sortOrder, membership, index)
+    motion.advance(sortOrder, membership, index, items)
     return remember(motion) { PhotoReorder({ motion.anchor }, { motion.place }) }
 }
 
@@ -145,9 +146,17 @@ internal data class ReorderMotion(
     var membership: Any,
     var anchor: Int = 0,
     var place: Boolean = false,
+    /** 上一次的分组列表（按实例比较）。 */
+    var items: Any? = null,
 )
 
-internal fun ReorderMotion.advance(sort: Any, membership: Any, firstVisibleItemIndex: Int) {
+/**
+ * [items] 是分组列表：同一排序、同一范围里列表变了（移走、收藏），错开仍从此刻的首个可见项算起，
+ * 否则锚点停在上次排序那一刻，滚远后每格要等「下标差 × 14ms」才动。
+ */
+internal fun ReorderMotion.advance(sort: Any, membership: Any, firstVisibleItemIndex: Int, items: Any? = null) {
+    val itemsChanged = this.items !== items
+    this.items = items
     when {
         this.membership != membership -> {
             this.membership = membership
@@ -159,6 +168,7 @@ internal fun ReorderMotion.advance(sort: Any, membership: Any, firstVisibleItemI
             anchor = firstVisibleItemIndex
             place = true
         }
+        itemsChanged -> anchor = firstVisibleItemIndex
     }
 }
 

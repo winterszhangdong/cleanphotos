@@ -263,7 +263,8 @@ fun TrashPreviewOverlay(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .onSizeChanged { containerSize = it }
-                .pointerInput(isGestureBlocked, displayPhotoId) {
+                // photos 也做 key：恢复后列表缩短、当前 id 不变时，手势里捕获的旧列表和 canSwipe* 会越界取 photos[-1]
+                .pointerInput(isGestureBlocked, displayPhotoId, photos) {
                     if (isGestureBlocked) return@pointerInput
 
                     detectPagerGestures(

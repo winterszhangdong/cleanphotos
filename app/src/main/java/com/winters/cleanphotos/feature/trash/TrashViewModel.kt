@@ -505,6 +505,8 @@ class TrashViewModel @Inject constructor(
             actionMessage = UiText.Res(R.string.msg_restored),
             justFreedBytes = null,
         )
+        // 补进来的这张不经过 onPreviewPhotoChange：不发布的话视频不播、点也没反应
+        publishPlayback(targetPhoto)
         refreshPhotoLists()
     }
 

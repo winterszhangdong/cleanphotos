@@ -235,6 +235,15 @@ class ReviewStageStateTest {
         assertEquals("p2", s.playbackPinnedKey)
     }
 
+    @Test fun `翻页目标在落定前从序列里消失_留在原页不停在空白`() {
+        val s = bounceStage(three, "p2")
+        s.goPrevious()   // 目标 p1，按旧序列选的
+        s.pages = listOf(photo(2), photo(3))   // 新序列到了：p1 已被移走
+        s.handler.onDown()
+        assertEquals("p2", s.currentKey)
+        assertEquals("p2", s.currentPage?.key)
+    }
+
     @Test fun `不是视频宿主的横向翻页不钉播放器`() {
         val s = bounceStage(three, "p2")
         s.goNext()

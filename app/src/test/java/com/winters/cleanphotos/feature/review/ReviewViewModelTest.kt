@@ -198,6 +198,19 @@ class ReviewViewModelTest {
     }
 
     @Test
+    fun `按旧序列翻回刚滑走的照片_不认它当当前页`() = runTest(testDispatcher) {
+        val vm = start()
+        advanceUntilIdle()
+        assertEquals("p2", vm.onSwipeDown(3L))
+        // 新序列到达前，清理页按旧序列把刚移走的 p3 当成上一页翻过去
+        vm.onPageSettled("p3")
+        advanceUntilIdle()
+        val s = vm.uiState.value
+        assertEquals("p2", s.currentKey)
+        assertTrue(s.pages.any { it.key == s.currentKey })
+    }
+
+    @Test
     fun `连续快滑_每次都立即切页且全部按顺序执行不丢`() = runTest(testDispatcher) {
         val vm = start(count = 5, startId = 5L)
         advanceUntilIdle()

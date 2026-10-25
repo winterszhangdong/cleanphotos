@@ -95,16 +95,13 @@ fun PhotoPagerPhoto(
             .fillMaxSize()
             .clipToBounds()
             .graphicsLayer {
-                // 垂直手势偏移 + zoom 平移（在缩放坐标系内生效）
-                translationY = verticalOffsetPx.toFloat()
+                // 平移和缩放放在同一层：平移按屏幕像素生效。分两层时内层平移会被外层缩放再乘一次，
+                // 2× 时手指拖 100px 图走 200px，边界也跟着翻倍，能拖出半屏黑边（PagerZoomState 按屏幕像素算边界）
+                translationX = zoomOffsetX
+                translationY = verticalOffsetPx + zoomOffsetY
                 // 缩放（外部垂直缩小 * zoom 缩放的合成值）
                 scaleX = scale
                 scaleY = scale
-            }
-            .graphicsLayer {
-                // zoom 平移（在缩放后的坐标系内生效）
-                translationX = zoomOffsetX
-                translationY = zoomOffsetY
             },
         contentAlignment = Alignment.Center
     ) {

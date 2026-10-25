@@ -716,4 +716,24 @@ class TrashViewModelTest {
         assertEquals(8L, playback.video.offset)
         assertEquals(16L, playback.video.length)
     }
+
+    @Test
+    fun `预览中恢复一张后补进来的视频有播放目标`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(2).map { it.copy(isTrashed = true) }.let { list ->
+            listOf(list[0], list[1].copy(mediaType = MediaType.Video))
+        }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onPhotoClick(photos[0])
+        advanceUntilIdle()
+        viewModel.onRestorePreviewPhoto()
+        advanceUntilIdle()
+
+        assertEquals(photos[1].id, viewModel.uiState.value.previewPhotoId)
+        val playback = viewModel.uiState.value.playback
+        assertTrue(playback is PlaybackTarget.Video)
+        assertEquals(photos[1].uri, playback!!.uri)
+    }
 }

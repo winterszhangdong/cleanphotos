@@ -36,4 +36,16 @@ class ReorderPlacementTest {
         motion.advance("oldest", "chat", firstVisibleItemIndex = 1)
         assertFalse(motion.place)
     }
+
+    @Test fun `排序之后列表又变了_锚点跟到此刻的首个可见项_位移照常`() {
+        val motion = ReorderMotion(sort = "newest", membership = "all")
+        val sorted = listOf("a")
+        motion.advance("oldest", "all", firstVisibleItemIndex = 6, items = sorted)
+        assertEquals(6, motion.anchor)
+        motion.advance("oldest", "all", firstVisibleItemIndex = 300, items = sorted)
+        assertEquals(6, motion.anchor)
+        motion.advance("oldest", "all", firstVisibleItemIndex = 300, items = listOf("a"))
+        assertTrue(motion.place)
+        assertEquals(300, motion.anchor)
+    }
 }

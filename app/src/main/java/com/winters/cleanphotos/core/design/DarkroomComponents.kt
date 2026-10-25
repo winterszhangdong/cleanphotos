@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import com.winters.cleanphotos.core.util.NumberFormatter
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
@@ -74,6 +75,14 @@ fun Modifier.plainClickable(enabled: Boolean = true, role: Role = Role.Button, o
         role = role,
         onClick = onClick,
     )
+
+/**
+ * 叠在列表上的实色层（顶栏、导航底带）：Compose 不会因为有底色就拦触摸，空白处的点按会落到底下被盖住的格子上。
+ * 挂一个空的 pointerInput 让命中停在这一层。
+ */
+fun Modifier.blockTouchesBelow(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope { while (true) awaitPointerEvent() }
+}
 
 /**
  * .bar：状态栏下 56dp，内边距 0 16 8，底对齐。左边计数行，右边按钮组（间距 8）。

@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.trash
 
+import com.winters.cleanphotos.core.design.blockTouchesBelow
 import com.winters.cleanphotos.core.design.FontScaleCaps
 import com.winters.cleanphotos.core.design.CappedFontScale
 import com.winters.cleanphotos.core.text.asString
@@ -282,6 +283,7 @@ fun TrashScreen(
                             .navigationBarsPadding()
                             .height(Dimens.NavHeight + Dimens.NavBottom)
                             .background(DarkroomColors.Room)
+                            .blockTouchesBelow()
                             .glassBackdropSource(),
                     )
                 }

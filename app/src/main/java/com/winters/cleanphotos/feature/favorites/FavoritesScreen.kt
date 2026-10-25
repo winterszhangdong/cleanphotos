@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import com.winters.cleanphotos.core.design.blockTouchesBelow
 import com.winters.cleanphotos.core.design.rememberPhotoGridState
 import com.winters.cleanphotos.feature.allphotos.PHOTO_GRID_COLUMNS
 import com.winters.cleanphotos.feature.allphotos.rememberReorderAnchor
@@ -83,7 +84,7 @@ fun FavoritesScreen(
                 if (!empty) {
                     val develop = remember { tileDevelopFor(initialLoad = false) }
                     val gridState = rememberPhotoGridState()
-                    val anchor = rememberReorderAnchor(gridState, uiState.sortOrder)
+                    val anchor = rememberReorderAnchor(gridState, uiState.sections)
                     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "favorites")
                     val tapsSettled = rememberScrollSettled(gridState)
                     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
@@ -124,6 +125,7 @@ fun FavoritesScreen(
                         .navigationBarsPadding()
                         .height(Dimens.NavHeight + Dimens.NavBottom)
                         .background(DarkroomColors.Room)
+                        .blockTouchesBelow()
                         .glassBackdropSource(),
                 )
             }

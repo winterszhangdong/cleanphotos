@@ -275,6 +275,8 @@ class ReviewViewModel @Inject constructor(
         val c = core.value
         val ledger = c.ledger ?: return
         if (key == c.currentKey) return
+        // 清理页按旧序列翻到了刚滑走的照片（新序列还没到）：不认它当当前页，界面随后回到 ViewModel 的当前页
+        if (photoIdOf(key)?.let { it in c.removed } == true) return
         var newLedger = ledger
         photoIdOf(c.currentKey)?.let { prev -> if (prev !in c.removed) newLedger = newLedger.markViewed(prev) }
         val summaryDay = summaryDayOf(key)

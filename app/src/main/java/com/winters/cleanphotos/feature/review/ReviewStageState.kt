@@ -18,6 +18,7 @@ import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.MotionSprings
 import com.winters.cleanphotos.domain.model.ReviewPage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -282,8 +283,10 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             pendingCommitKey?.let { key ->
                 // 翻页动画还没落定就按下：直接落定到目标页，位移连续接上
                 pendingCommitKey = null
-                commit(key)
-                dx += pendingCommitShift
+                if (isListed(key)) {
+                    commit(key)
+                    dx += pendingCommitShift
+                }
             }
             rawDx = dx
         }
@@ -304,7 +307,10 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
                     bounceJob?.cancel()
                     bounceBase = summaryBounce
                     rawBounce = 0f
-                    scope.launch { chromeAlpha.animateTo(0f, tween(MotionDurations.CHROME_FADE_ON_DRAG, easing = LinearEasing)) }
+                    // 立即开始：同一批输入里就松手回弹时，restoreChrome 要能看到目标已是 0，否则淡出排在还原之后、停在全透明
+                    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                        chromeAlpha.animateTo(0f, tween(MotionDurations.CHROME_FADE_ON_DRAG, easing = LinearEasing))
+                    }
                 }
                 DragAxis.Horizontal -> {
                     dy = 0f
@@ -388,6 +394,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         }
 
         override fun onPinchEnd() {
+            // 打断翻页 / 回弹后直接捏合：不经过 onUpWithoutDrag，残留位移和横滑钉住的视频要在这里收回
+            if (dx != 0f || dy != 0f) settleBack(0f, 0f)
             if (zoom < GestureTokens.ZOOM_REST_MIN) {
                 animateZoom(1f, Offset.Zero, MotionSprings.Bouncy)
             } else {
@@ -437,7 +445,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             val a = Animatable(dx)
             a.animateTo(end, MotionSprings.Snappy.spec(), initialVelocity = vx) { dx = value }
             pendingCommitKey = null
-            commit(target.key)
+            // 目标是在新序列到达前选的：刚滑走的照片在旧序列里仍是邻页。它已不在序列里就留在原页，否则会停在一页空白上
+            if (isListed(target.key)) commit(target.key)
             dx = 0f
             rawDx = 0f
             axis = DragAxis.None
@@ -648,6 +657,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         // 顶栏等的还原不挂在 settleJob 下：回弹中再次按下会取消 settleJob，挂在下面会让它们停在半透明 / 全透明
         restoreChrome()
     }
+
+    private fun isListed(key: String): Boolean = pages.any { it.key == key }
 
     private fun commit(key: String) {
         currentKey = key

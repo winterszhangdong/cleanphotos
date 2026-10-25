@@ -8,6 +8,7 @@ import com.winters.cleanphotos.core.locale.labelRes
 import com.winters.cleanphotos.core.locale.LanguageSheet
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import com.winters.cleanphotos.core.design.blockTouchesBelow
 import com.winters.cleanphotos.core.design.skeletonFill
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
@@ -275,6 +276,7 @@ fun AllPhotosScreen(
                     .navigationBarsPadding()
                     .height(Dimens.NavHeight + Dimens.NavBottom)
                     .background(DarkroomColors.Room)
+                    .blockTouchesBelow()
                     .glassBackdropSource(),
             )
 
@@ -284,7 +286,8 @@ fun AllPhotosScreen(
             Column(
                 Modifier
                     .graphicsLayer { translationY = collapse.offsetPx }
-                    .background(DarkroomColors.Room),
+                    .background(DarkroomColors.Room)
+                    .blockTouchesBelow(),
             ) {
                 ScreenHeader(
                     leftAlpha = if (menuOpen) 0.5f else 1f,
@@ -346,7 +349,8 @@ fun AllPhotosScreen(
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .windowInsetsTopHeight(WindowInsets.statusBars)
-                    .background(DarkroomColors.Room),
+                    .background(DarkroomColors.Room)
+                    .blockTouchesBelow(),
             )
 
             SelectionActionBar(
@@ -463,7 +467,7 @@ private fun PhotoList(
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
-    val reorder = rememberPhotoReorder(gridState, uiState.reviewSortOrder, uiState.scope to uiState.unseenOnly)
+    val reorder = rememberPhotoReorder(gridState, uiState.reviewSortOrder, uiState.scope to uiState.unseenOnly, uiState.sections)
     val locale = currentLocale()
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
