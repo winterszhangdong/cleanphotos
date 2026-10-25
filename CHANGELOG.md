@@ -7,6 +7,28 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-25
+
+### Fixed
+
+- 安卓：垃圾桶预览放大后，拖动和双击定位不再走两倍距离，也不会拖出半屏黑边。
+- 安卓：垃圾桶预览里恢复照片后再左右滑，偶尔会闪退；恢复后补上来的那张是视频时，现在能正常播放。
+- 安卓：清理页上下滑后立刻左右翻回，偶尔会停在一页空白上、怎么滑都没反应，现在会回到正常的那一页。
+- 安卓：清理页翻页途中按下再双指缩放，照片不再停在偏到一边的位置；很短的上下轻拨之后，顶部进度条不会再消失。
+- 安卓：点照片页顶栏、导航条两侧的空白处，不会再打开或选中被挡在下面的照片。
+- 安卓：照片页和收藏页滚到很深处再移走照片，后面的照片不再要等好几秒才归位。
+
+---
+
+### Fixed
+
+- Android: when zoomed in the trash preview, dragging and double-tap no longer move twice as far, and you can no longer drag the photo half off the screen.
+- Android: swiping left or right after restoring a photo in the trash preview could occasionally crash; a video that moves in after a restore now plays.
+- Android: flicking back right after a swipe up or down on the review screen could occasionally leave a blank page that ignored every gesture; it now returns to the right photo.
+- Android: pinching after interrupting a page turn no longer leaves the photo shifted to one side, and the top progress bar no longer disappears after a very short vertical flick.
+- Android: tapping empty space in the Photos header or beside the navigation bar no longer opens or selects a photo hidden underneath.
+- Android: after removing photos deep in a long Photos or Favorites list, the remaining photos no longer take several seconds to settle.
+
 ## [1.5.1] - 2026-10-25
 
 ### Added
@@ -315,7 +337,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.3.0...v1.4.0
