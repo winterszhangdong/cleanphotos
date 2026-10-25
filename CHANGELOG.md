@@ -7,6 +7,18 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-10-25
+
+### Changed
+
+- 安卓：相似照片里，留下的缩略图不再打勾。标成移走的改为右上角一枚相纸白圆，里面是垃圾桶图标，没有黑边，照片底部也不再画灰线。
+
+---
+
+### Changed
+
+- Android: in similar photos, kept thumbnails no longer show a check. Photos marked for removal get a paper-white circle in the top-right with a trash icon and no black ring, and the gray line under the photo is gone.
+
 ## [1.5.2] - 2026-10-25
 
 ### Fixed
@@ -337,7 +349,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.3...HEAD
+[1.5.3]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.4.0...v1.5.0
