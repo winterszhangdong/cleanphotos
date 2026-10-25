@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
  * 视频在右下角用 [DarkroomText.TileSize] 标时长，不画播放图标。
  * 有大小或时长角标时，在照片之上、文字之下铺一条底部淡渐变（[tileBadgeScrim]），没有角标的格子不画。
  * 首次从磁盘解码才按 [developProfile] 显影（决定 7），命中内存缓存直接显示。显影不拦截点击。
+ * [developCached] 为 true 时命中缓存也显影，并从第一帧压暗（相似列表首次出组：出现的是列表，不是这次解码）。
  */
 @Composable
 fun PhotoTile(
@@ -55,6 +56,7 @@ fun PhotoTile(
     overlayBadge: Boolean = false,
     developProfile: DevelopProfile? = DevelopProfiles.GridFirstScreen,
     developDelayMs: Int = 0,
+    developCached: Boolean = false,
     colorFilter: ColorFilter? = null,
     imageModifier: Modifier = Modifier,
     /** 共享元素等需要作用在「已定好正方形尺寸」之后的修饰。放在 [modifier] 里会先于 aspectRatio，
@@ -64,9 +66,9 @@ fun PhotoTile(
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    val develop = developProfile?.let { rememberDevelopState(it, developed = true) }
+    val develop = developProfile?.let { rememberDevelopState(it, developed = !developCached) }
     // 只在真正显影时挂 graphicsLayer：静止态不留离屏合成层，滚动更顺
-    var developing by remember { mutableStateOf(false) }
+    var developing by remember { mutableStateOf(developCached) }
     val durationLabel = durationMs?.let { DurationFormatter.format(it) }
     val hasBadge = sizeLabel != null || durationLabel != null || overlayBadge
     val spoken = when {
@@ -95,7 +97,7 @@ fun PhotoTile(
             contentScale = ContentScale.Crop,
             colorFilter = colorFilter,
             onSuccess = { success ->
-                if (develop != null && success.result.dataSource.requiresDevelop()) {
+                if (develop != null && (developCached || success.result.dataSource.requiresDevelop())) {
                     // UNDISPATCHED：同一帧先挂层并把进度压到 0，避免「先亮一帧再变暗」。
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
                         developing = true

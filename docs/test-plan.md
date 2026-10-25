@@ -125,7 +125,7 @@ Android 8–9 DATA → relativePath（relativePathFromData / normalizeRelativePa
 AllPhotosViewModel
 ReviewViewModel（当前页视频 / 动态照片 / 普通照片的 PlaybackTarget；读失败当成静态图；静音在这次进入里保持）
 TrashViewModel（预览视频与动态照片的 PlaybackTarget；切到普通照片后清空；退出预览仍保持静音）
-SimilarViewModel（默认标记、改标记且扫描不覆盖、移走并记下仍留下的、已处理记录、都留下、全部移走、撤回、失败不出胶囊、撤回过期、start 只哈希一次）
+SimilarViewModel（默认标记、改标记且扫描不覆盖、移走并记下仍留下的、已处理记录、都留下、全部移走、撤回、失败不出胶囊、撤回过期、start 只哈希一次、出过结果后后台重跑不回到比对中）
 ```
 
 ### UseCase 测试

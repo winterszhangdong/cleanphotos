@@ -115,6 +115,7 @@ import com.winters.cleanphotos.core.util.NumberFormatter
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ScopeLayout
 import com.winters.cleanphotos.feature.similar.SimilarList
+import com.winters.cleanphotos.feature.similar.SimilarPhase
 import com.winters.cleanphotos.feature.similar.SimilarUiState
 import com.winters.cleanphotos.feature.similar.SimilarUndoBar
 import kotlinx.coroutines.delay
@@ -305,6 +306,16 @@ fun AllPhotosScreen(
                                     style = DarkroomText.CountSub,
                                     modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
                                 )
+                            }
+                            showingSimilar && similarState.phase != SimilarPhase.Ready -> {
+                                SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
+                                if (similarState.compareTotal > 0) {
+                                    Text(
+                                        stringResource(R.string.similar_comparing, similarState.compared, similarState.compareTotal),
+                                        style = DarkroomText.CountSub,
+                                        modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
+                                    )
+                                }
                             }
                             showingSimilar -> HeaderCount(
                                 similarState.groups.size,

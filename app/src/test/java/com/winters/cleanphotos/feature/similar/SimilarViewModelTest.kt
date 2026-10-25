@@ -22,7 +22,9 @@ import com.winters.cleanphotos.fake.FakeSimilarResolvedRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -190,6 +192,22 @@ class SimilarViewModelTest {
         assertEquals(1, vm.uiState.value.groups.size)
     }
 
+    @Test
+    fun `出过结果后图库再变，后台重跑不回到比对中`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000), shot(2, 2_000)))
+        val vm = viewModel()
+        val phases = mutableListOf<SimilarPhase>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect { phases += it.phase } }
+        vm.start()
+        advanceUntilIdle()
+        assertTrue(SimilarPhase.Comparing in phases)
+        phases.clear()
+        photos.setPhotos(listOf(shot(1, 1_000), shot(2, 2_000), shot(3, 3_000)))
+        advanceUntilIdle()
+        assertTrue(phases.all { it == SimilarPhase.Ready })
+        assertEquals(3, vm.uiState.value.groups.single().photos.size)
+    }
+
     private fun calls(kind: String): List<Long> =
         review.batchCalls.filter { it.first == kind }.map { it.second }.flatten()
 
@@ -199,6 +217,7 @@ class SimilarViewModelTest {
             object : SimilarPhotoRepository {
                 override fun hashPhotos(photos: List<PhotoItem>): Flow<SimilarHashProgress> = flow {
                     onHash()
+                    emit(SimilarHashProgress(0, photos.size, emptyMap(), finished = false))
                     emit(SimilarHashProgress(photos.size, photos.size, photos.associate { it.id to 0L }, finished = true))
                 }
 

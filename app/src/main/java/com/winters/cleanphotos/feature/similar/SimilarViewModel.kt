@@ -52,8 +52,10 @@ class SimilarViewModel @Inject constructor(
         viewModelScope.launch {
             observeSimilarGroupsUseCase().collect { scan ->
                 when (scan) {
+                    // 出过一次结果后，图库或垃圾桶变了会整轮重跑：不再回到比对中，算完静默换掉
                     is SimilarScan.Comparing -> _uiState.update {
-                        it.copy(phase = SimilarPhase.Comparing, compared = scan.done, compareTotal = scan.total)
+                        if (it.phase == SimilarPhase.Ready) it
+                        else it.copy(phase = SimilarPhase.Comparing, compared = scan.done, compareTotal = scan.total)
                     }
                     is SimilarScan.Ready -> publish(scan.groups)
                 }

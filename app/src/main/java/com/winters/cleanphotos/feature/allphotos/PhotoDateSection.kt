@@ -71,7 +71,7 @@ fun tileDevelopFor(initialLoad: Boolean): TileDevelop =
         TileDevelop(DevelopProfiles.GridFirstScreen, byDiagonal = true, DevelopProfiles.GRID_STAGGER, DevelopProfiles.GRID_MAX_STEPS)
     }
 
-/** 进程内已经播过首屏显影的网格（照片 / 收藏各一次）；切 Tab、进清理页再回来都不重播。 */
+/** 进程内已经播过首屏显影的列表（照片 / 收藏 / 相似各一次）；切 Tab、进清理页再回来都不重播。 */
 internal object GridFirstScreenSession {
     private val played = mutableSetOf<String>()
 
@@ -84,11 +84,16 @@ internal object GridFirstScreenSession {
  * 首屏格子走错开显影；之后（或再次回到这个网格时）绑定的格子不再显影，命中内存缓存则直接显示。
  */
 @Composable
-fun rememberGridFirstScreen(state: LazyGridState, sessionKey: String): () -> Boolean {
+fun rememberGridFirstScreen(state: LazyGridState, sessionKey: String): () -> Boolean =
+    rememberFirstScreen(state, sessionKey) { state.isScrollInProgress || state.firstVisibleItemIndex > 0 }
+
+/** 同 [rememberGridFirstScreen]，[scrolled] 第一次为 true 时首屏结束。 */
+@Composable
+fun rememberFirstScreen(state: Any, sessionKey: String, scrolled: () -> Boolean): () -> Boolean {
     val first = remember(state) { mutableStateOf(GridFirstScreenSession.claim(sessionKey)) }
     LaunchedEffect(state) {
         if (!first.value) return@LaunchedEffect
-        snapshotFlow { state.isScrollInProgress || state.firstVisibleItemIndex > 0 }.first { it }
+        snapshotFlow(scrolled).first { it }
         first.value = false
     }
     return remember(first) { { first.value } }
