@@ -7,6 +7,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-10-25
+
+### Changed
+
+- 安卓：相似照片比对期间，顶栏和列表改成骨架，不再只跳一行进度，顶栏也不再写「0 组」。
+- 安卓：第一次比对出结果时，首屏缩略图像洗照片一样显出来；这次打开里滚走再回来不再重播。
+- 安卓：一组出现或消失时，旁边的卡片让开；新的一组插到最前面，并且列表停在顶部时，跟着回到顶上。
+
+### Fixed
+
+- 安卓：已经出过结果之后，相册有变化而重新比对时，不再闪回「正在比对」，算完直接换上新结果。
+
+---
+
+### Changed
+
+- Android: while similar photos are being compared, the header and the list show skeletons instead of a single ticking progress line, and the header no longer reads "0 groups".
+- Android: the first time results appear, the thumbnails on screen develop in like a print. Scrolling away and back during the same visit does not play that again.
+- Android: when a group appears or disappears, the cards beside it move aside. A new group inserted at the front brings the list back to the top when it was already there.
+
+### Fixed
+
+- Android: after results have appeared once, a later comparison caused by library changes no longer flashes back to "Comparing". The new results replace the old ones when they are ready.
+
 ## [1.5.3] - 2026-10-25
 
 ### Changed
@@ -349,7 +373,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.3...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.4...HEAD
+[1.5.4]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.0...v1.5.1
