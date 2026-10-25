@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberUpdatedState
@@ -33,6 +34,7 @@ fun Modifier.photoGridGestures(
     onTap: (Long) -> Unit,
     onLongPress: (Long) -> Boolean,
     onDrag: (anchorId: Long, currentId: Long) -> Unit,
+    hitRects: PhotoHitRects? = null,
 ): Modifier {
     val tap = rememberUpdatedState(onTap)
     val long = rememberUpdatedState(onLongPress)
@@ -44,7 +46,7 @@ fun Modifier.photoGridGestures(
             val scope = this
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
-                val hitId = photoAt(state, down.position)
+                val hitId = photoAt(state, down.position, hitRects)
                 val indexAtDown = state.firstVisibleItemIndex
                 val offsetAtDown = state.firstVisibleItemScrollOffset
                 // 长按超时前：抬起 = 点按；移出阈值或被滚动消费 = 放弃
@@ -78,7 +80,7 @@ fun Modifier.photoGridGestures(
                 var pointer = down.position
                 var lastId = anchor
                 fun reselect() {
-                    val id = photoAt(state, pointer) ?: return
+                    val id = photoAt(state, pointer, hitRects) ?: return
                     if (id != lastId) {
                         lastId = id
                         drag.value(anchor, id)
@@ -138,8 +140,54 @@ internal fun pointerHitsGridCell(
         contentY >= cellTop && contentY < cellTop + cellHeight
 }
 
+/**
+ * 照片格在根坐标系里的实际边界。
+ * 不放进 snapshot state：滚动和排序位移每帧改表，不能因此重组。
+ * 表还是空的（第一帧还没摆好）时退回 [photoAt] 的 layoutInfo。
+ * 表里已经有格子时，没命中就返回 null，不再用 layoutInfo：那份 offset 不含 animateItem 的位移。
+ */
+class PhotoHitRects {
+    private val rects = HashMap<Long, Rect>()
+    var originX: Float = 0f
+    var originY: Float = 0f
+
+    fun isNotEmpty(): Boolean = rects.isNotEmpty()
+
+    fun put(id: Long, rect: Rect) {
+        rects[id] = rect
+    }
+
+    fun remove(id: Long) {
+        rects.remove(id)
+    }
+
+    /** [local] 是网格 pointerInput 里的坐标，加上网格自身在根坐标系的原点。 */
+    fun hit(local: Offset): Long? = hitPhotoId(local.x + originX, local.y + originY, rects)
+}
+
+/**
+ * 根坐标落在哪一张上。重叠时取中心更近的那张（排序位移中两格会叠在一起）。
+ * 没有包含这个点的矩形时返回 null。
+ */
+internal fun hitPhotoId(rootX: Float, rootY: Float, rects: Map<Long, Rect>): Long? {
+    var bestId: Long? = null
+    var bestDist = Float.POSITIVE_INFINITY
+    for ((id, rect) in rects) {
+        if (rootX < rect.left || rootX >= rect.right || rootY < rect.top || rootY >= rect.bottom) continue
+        val dx = rootX - (rect.left + rect.right) * 0.5f
+        val dy = rootY - (rect.top + rect.bottom) * 0.5f
+        val dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+            bestDist = dist
+            bestId = id
+        }
+    }
+    return bestId
+}
+
 /** 手指下的照片格（key 为 Long 的项）；天标题、年份分隔、空白处返回 null。 */
-private fun photoAt(state: LazyGridState, position: Offset): Long? {
+private fun photoAt(state: LazyGridState, position: Offset, hits: PhotoHitRects?): Long? {
+    if (hits != null && hits.isNotEmpty()) return hits.hit(position)
     val layout = state.layoutInfo
     val info = layout.visibleItemsInfo.firstOrNull { item ->
         pointerHitsGridCell(

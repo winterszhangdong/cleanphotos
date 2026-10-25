@@ -96,11 +96,19 @@ class ReviewGestureMathTest {
         assertEquals(0f, up.delta.x, 0.001f)
     }
 
-    @Test fun `抬起位移_为零或不足 slop 或放大中或方向不明时不处理`() {
+    @Test fun `抬起位移_为零或不足 slop 或方向不明时不处理`() {
         assertNull(ReviewGestureMath.upEventDrag(DragAxis.Vertical, Offset(0f, 300f), Offset.Zero, 8f, false))
         assertNull(ReviewGestureMath.upEventDrag(DragAxis.None, Offset(0f, 5f), Offset(0f, 5f), 8f, false))
-        assertNull(ReviewGestureMath.upEventDrag(DragAxis.None, Offset(0f, 300f), Offset(0f, 300f), 8f, zoomed = true))
+        assertNull(ReviewGestureMath.upEventDrag(DragAxis.None, Offset(0f, 5f), Offset(0f, 5f), 8f, zoomed = true))
         assertNull(ReviewGestureMath.upEventDrag(DragAxis.None, Offset(100f, 100f), Offset(100f, 100f), 8f, false))
+    }
+
+    @Test fun `抬起位移_放大后尚未定方向时整段按平移`() {
+        val up = ReviewGestureMath.upEventDrag(DragAxis.None, Offset(0f, 300f), Offset(0f, 300f), 8f, zoomed = true)!!
+        assertEquals(DragAxis.Pan, up.axis)
+        assertTrue(up.startAxis)
+        assertEquals(0f, up.delta.x, 0.001f)
+        assertEquals(300f, up.delta.y, 0.001f)
     }
 
     @Test fun `抬起位移_横向同样计入`() {

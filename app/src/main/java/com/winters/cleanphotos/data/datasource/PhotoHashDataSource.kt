@@ -21,12 +21,18 @@ import kotlinx.coroutines.CancellationException
 class PhotoHashDataSource @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
-    // shortcut: hash 只存进程内存，进程重启要重算；相册大到首次比对明显慢时改成持久化缓存
-    private val cache = ConcurrentHashMap<Long, Long>()
+    // shortcut: hash 只存进程内存，进程重启要重算；相册大到首次比对明显慢时改成持久化缓存。
+    // 键带上体积和宽高：同一 MediaStore id 被外部改过（裁剪、旋转）后不能继续用旧哈希分组。
+    private val cache = ConcurrentHashMap<Long, Stamp>()
 
     /** 取图或解码失败返回 null，调用方跳过这张。 */
     fun dHash(photo: PhotoItem): Long? {
-        cache[photo.id]?.let { return it }
+        val size = photo.size ?: Long.MIN_VALUE
+        val width = photo.width ?: Int.MIN_VALUE
+        val height = photo.height ?: Int.MIN_VALUE
+        cache[photo.id]?.let { hit ->
+            if (hit.size == size && hit.width == width && hit.height == height) return hit.value
+        }
         val hash = try {
             val decoded = loadSmall(photo.uri) ?: return null
             try {
@@ -40,7 +46,7 @@ class PhotoHashDataSource @Inject constructor(
             Log.w(TAG, "dHash 失败 id=${photo.id}", e)
             null
         } ?: return null
-        cache[photo.id] = hash
+        cache[photo.id] = Stamp(size, width, height, hash)
         return hash
     }
 
@@ -68,6 +74,8 @@ class PhotoHashDataSource @Inject constructor(
             if (scaled !== bitmap) scaled.recycle()
         }
     }
+
+    private class Stamp(val size: Long, val width: Int, val height: Int, val value: Long)
 
     private companion object {
         const val TAG = "PhotoHash"

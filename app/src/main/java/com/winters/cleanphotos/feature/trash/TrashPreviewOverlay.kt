@@ -120,7 +120,9 @@ fun TrashPreviewOverlay(
     var pendingPhotoId by remember { mutableStateOf<Long?>(null) }
     var isHorizontalFlinging by remember { mutableStateOf(false) }
     var settledOffsetXOverride by remember { mutableStateOf<Int?>(null) }
-    val currentPhoto = photos.getOrNull(displayIndex)
+    // 列表变短时 displayIndex 要等 LaunchedEffect 才改。这一帧用 id 对上还在的那张，避免画错或下标越界。
+    val shownIndex = trashPreviewShownIndex(photos, displayPhotoId, currentPhotoId, displayIndex)
+    val currentPhoto = photos.getOrNull(shownIndex)
     val pinnedPhoto = videoPinnedId?.let { id -> photos.firstOrNull { it.id == id } }
     val media = engine.media
     // 飞出途中不换片。落定后只装和当前照片是同一个目标的媒体，避免旧画面盖到新页。
@@ -169,7 +171,8 @@ fun TrashPreviewOverlay(
             return@LaunchedEffect
         }
 
-        val targetIndex = photos.indexOfFirst { it.id == currentPhotoId }.coerceAtLeast(0)
+        val targetIndex = photos.indexOfFirst { it.id == currentPhotoId }
+        if (targetIndex < 0) return@LaunchedEffect
         when {
             pendingPhotoId == null -> {
                 displayIndex = targetIndex
@@ -196,8 +199,6 @@ fun TrashPreviewOverlay(
         zoomState.reset()
     }
 
-    val canSwipePrevious = displayIndex > 0
-    val canSwipeNext = displayIndex < photos.size - 1
     val isGestureBlocked = isProcessingAction ||
         isHorizontalFlinging ||
         pendingPhotoId != null
@@ -237,14 +238,14 @@ fun TrashPreviewOverlay(
             }
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.tab_trash), style = DarkroomText.PvTitle)
-                Text("${displayIndex + 1} / ${photos.size}", style = DarkroomText.PvSub)
+                Text("${shownIndex + 1} / ${photos.size}", style = DarkroomText.PvSub)
             }
         }
 
         // 共享横向预览组件 + 统一手势检测器
         PhotoPager(
             photos = photos,
-            currentIndex = displayIndex,
+            currentIndex = shownIndex,
             offsetX = settledOffsetXOverride ?: swipeState.currentOffsetX.roundToInt(),
             offsetY = 0,
             scale = 1f,
@@ -263,7 +264,7 @@ fun TrashPreviewOverlay(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .onSizeChanged { containerSize = it }
-                // photos 也做 key：恢复后列表缩短、当前 id 不变时，手势里捕获的旧列表和 canSwipe* 会越界取 photos[-1]
+                // photos 做 key：列表变了就重建手势。翻页目标按当时的 id 现算，不用组合时捕获的下标。
                 .pointerInput(isGestureBlocked, displayPhotoId, photos) {
                     if (isGestureBlocked) return@pointerInput
 
@@ -275,57 +276,47 @@ fun TrashPreviewOverlay(
                             // 垃圾桶预览只支持水平滑动，忽略垂直分量。任一方向的拖动都先停住播放。
                             if (!zoomState.isZoomed) {
                                 if (playbackSettled) playbackSettled = false
+                                val index = photos.indexOfFirst { it.id == displayPhotoId }
                                 scope.launch {
                                     swipeState.onDrag(
                                         delta = delta.x,
-                                        canSwipePrevious = canSwipePrevious,
-                                        canSwipeNext = canSwipeNext
+                                        canSwipePrevious = index > 0,
+                                        canSwipeNext = index >= 0 && index < photos.lastIndex,
                                     )
                                 }
                             }
                         },
                         onDragEnd = {
                             scope.launch {
-                                when {
-                                    swipeState.isSwipeLeftTriggered && canSwipeNext -> {
-                                        val targetX = -screenSizePx.width.toFloat()
-                                        val targetIndex = displayIndex + 1
-                                        val targetId = photos[targetIndex].id
-                                        isHorizontalFlinging = true
-                                        videoPinnedId = currentPhoto?.takeIf { engine.media?.uri == it.uri }?.id
-                                        swipeState.flyHorizontal(targetX)
-                                        videoPinnedId = null
-                                        // 先归零视觉偏移，再切 displayIndex，避免一帧闪烁
-                                        settledOffsetXOverride = 0
-                                        pendingPhotoId = targetId
-                                        displayIndex = targetIndex
-                                        displayPhotoId = targetId
-                                        swipeState.reset()
-                                        onPhotoChange(targetId)
-                                        playbackSettled = true
-                                    }
-                                    swipeState.isSwipeRightTriggered && canSwipePrevious -> {
-                                        val targetX = screenSizePx.width.toFloat()
-                                        val targetIndex = displayIndex - 1
-                                        val targetId = photos[targetIndex].id
-                                        isHorizontalFlinging = true
-                                        videoPinnedId = currentPhoto?.takeIf { engine.media?.uri == it.uri }?.id
-                                        swipeState.flyHorizontal(targetX)
-                                        videoPinnedId = null
-                                        // 先归零视觉偏移，再切 displayIndex，避免一帧闪烁
-                                        settledOffsetXOverride = 0
-                                        pendingPhotoId = targetId
-                                        displayIndex = targetIndex
-                                        displayPhotoId = targetId
-                                        swipeState.reset()
-                                        onPhotoChange(targetId)
-                                        playbackSettled = true
-                                    }
-                                    else -> {
-                                        swipeState.springBack()
-                                        playbackSettled = true
-                                    }
+                                val targetIndex = trashPreviewSwipeTarget(
+                                    photos,
+                                    displayPhotoId,
+                                    swipeLeft = swipeState.isSwipeLeftTriggered,
+                                    swipeRight = swipeState.isSwipeRightTriggered,
+                                )
+                                val targetId = targetIndex?.let { photos.getOrNull(it)?.id }
+                                if (targetIndex == null || targetId == null) {
+                                    swipeState.springBack()
+                                    playbackSettled = true
+                                    return@launch
                                 }
+                                val targetX = if (swipeState.isSwipeLeftTriggered) {
+                                    -screenSizePx.width.toFloat()
+                                } else {
+                                    screenSizePx.width.toFloat()
+                                }
+                                isHorizontalFlinging = true
+                                videoPinnedId = currentPhoto?.takeIf { engine.media?.uri == it.uri }?.id
+                                swipeState.flyHorizontal(targetX)
+                                videoPinnedId = null
+                                // 先归零视觉偏移，再切 displayIndex，避免一帧闪烁
+                                settledOffsetXOverride = 0
+                                pendingPhotoId = targetId
+                                displayIndex = targetIndex
+                                displayPhotoId = targetId
+                                swipeState.reset()
+                                onPhotoChange(targetId)
+                                playbackSettled = true
                             }
                         },
                         onDragCancel = {
@@ -340,7 +331,7 @@ fun TrashPreviewOverlay(
                             }
                         },
                         onSingleTap = {
-                            val photo = photos.getOrNull(displayIndex)
+                            val photo = photos.getOrNull(shownIndex)
                             val playing = engine.media
                             if (photo != null && playing is PlaybackTarget.Video && playing.uri == photo.uri && videoPinnedId == null) {
                                 engine.togglePlay()
@@ -436,6 +427,37 @@ fun TrashPreviewOverlay(
 
 /** 「IMG_1987.jpg」→「IMG_1987」。 */
 private fun baseName(name: String?): String = name?.substringBeforeLast('.') ?: ""
+
+/** 画面上这一张在列表里的下标。本地 id 还在就用它；已经不在就用 ViewModel 的 id。 */
+internal fun trashPreviewShownIndex(
+    photos: List<PhotoItem>,
+    displayPhotoId: Long,
+    currentPhotoId: Long,
+    displayIndex: Int,
+): Int {
+    if (photos.isEmpty()) return 0
+    val byDisplay = photos.indexOfFirst { it.id == displayPhotoId }
+    if (byDisplay >= 0) return byDisplay
+    val byCurrent = photos.indexOfFirst { it.id == currentPhotoId }
+    if (byCurrent >= 0) return byCurrent
+    return displayIndex.coerceIn(0, photos.lastIndex)
+}
+
+/** 左右滑要去的下标。null = 回弹，不能拿这个下标去取照片。 */
+internal fun trashPreviewSwipeTarget(
+    photos: List<PhotoItem>,
+    photoId: Long,
+    swipeLeft: Boolean,
+    swipeRight: Boolean,
+): Int? {
+    val index = photos.indexOfFirst { it.id == photoId }
+    if (index < 0) return null
+    return when {
+        swipeLeft && index < photos.lastIndex -> index + 1
+        swipeRight && index > 0 -> index - 1
+        else -> null
+    }
+}
 
 /** 预览同网格：saturate(0.7) brightness(0.86)。 */
 private val previewColorFilter = saturateBrightness(0.7f, 0.86f)

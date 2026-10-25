@@ -102,4 +102,40 @@ class PhotoRepositoryRefreshTest {
         assertEquals(1, queries.get())
         assertEquals(listOf(7L), repo.observeAllPhotos().first().map(PhotoItem::id))
     }
+
+    @Test
+    fun `首次迁移写入当时在系统垃圾桶里的收藏`() = runBlocking {
+        every { mediaStore.queryAllPhotos() } returns listOf(createTestPhoto(1, isFavorite = false))
+        every { mediaStore.queryTrashedPhotos() } returns listOf(createTestPhoto(2, isFavorite = true))
+        repo.refreshPhotos()
+
+        every { mediaStore.queryAllPhotos() } returns listOf(
+            createTestPhoto(1, isFavorite = false),
+            createTestPhoto(2, isFavorite = false),
+        )
+        every { mediaStore.queryTrashedPhotos() } returns emptyList()
+        repo.refreshPhotos()
+
+        assertEquals(listOf(2L), repo.observeFavoritedPhotos().first().map(PhotoItem::id))
+    }
+
+    @Test
+    fun `系统垃圾桶查询失败时不标记迁移完成_下次刷新重试`() = runBlocking {
+        every { mediaStore.queryAllPhotos() } returns listOf(createTestPhoto(1, isFavorite = false))
+        every { mediaStore.queryTrashedPhotos() } throws RuntimeException("trash query")
+        repo.refreshPhotos()
+        assertEquals(emptyList<Long>(), repo.observeFavoritedPhotos().first().map(PhotoItem::id))
+
+        every { mediaStore.queryTrashedPhotos() } returns listOf(createTestPhoto(2, isFavorite = true))
+        repo.refreshPhotos()
+
+        every { mediaStore.queryAllPhotos() } returns listOf(
+            createTestPhoto(1, isFavorite = false),
+            createTestPhoto(2, isFavorite = false),
+        )
+        every { mediaStore.queryTrashedPhotos() } returns emptyList()
+        repo.refreshPhotos()
+
+        assertEquals(listOf(2L), repo.observeFavoritedPhotos().first().map(PhotoItem::id))
+    }
 }

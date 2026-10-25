@@ -238,8 +238,12 @@ class PhotoRepositoryImpl @Inject constructor(
             return
         }
 
-        // 查询 MediaStore 中 IS_FAVORITE == true 的照片
-        val systemFavorites = mediaStorePhotos.filter { it.isFavorite }
+        // 普通查询不含系统垃圾桶。当时躺在系统垃圾桶里的收藏也要写入，否则标记完成后恢复回来就丢了。
+        // 查询失败不标记完成，下次刷新重试。
+        val trashedFavorites = withContext(Dispatchers.IO) {
+            mediaStoreDataSource.queryTrashedPhotos()
+        }.filter { it.isFavorite }
+        val systemFavorites = (mediaStorePhotos.filter { it.isFavorite } + trashedFavorites).distinctBy { it.id }
         val now = System.currentTimeMillis()
         // 一次写完；失败直接抛给 refreshPhotos，不标记完成，下次刷新重试
         appFavoriteStateDataSource.upsertEntries(systemFavorites.associate { it.id to now })

@@ -240,7 +240,8 @@ struct PhotosView: View {
     private func moveDrag(to point: CGPoint) {
         guard let anchor = dragAnchor, let id = registry.id(at: point), id != dragLast else { return }
         dragLast = id
-        let order = library.visiblePhotos
+        // visiblePhotos 含每天 8 张以后没画出来的照片。用它做闭区间会把手指没经过的也选上。
+        let order = library.sections.flatMap { $0.days.flatMap(\.items) }
         guard let from = order.firstIndex(where: { $0.id == anchor }),
               let to = order.firstIndex(where: { $0.id == id }) else { return }
         let range = order[min(from, to)...max(from, to)].map(\.id)

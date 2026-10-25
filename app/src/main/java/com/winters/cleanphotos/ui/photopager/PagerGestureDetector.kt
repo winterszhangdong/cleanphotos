@@ -196,17 +196,29 @@ suspend fun PointerInputScope.detectPagerGestures(
                 val allUp = pressedChanges.isEmpty()
 
                 if (allUp) {
-                    // 所有手指抬起。抬起事件自带的最后一段位移也要计入，否则快甩会被判成点按（lessons 2026-10-11）
+                    // 所有手指抬起。抬起事件自带的最后一段位移也要计入，否则快甩会被判成点按（lessons 2026-10-11）。
+                    // 放大后的平移同样要算上这一段，不能丢掉，也不能把过了 slop 的一下当成点按。
                     event.changes.firstOrNull { it.id == firstDown.id }?.let { up ->
                         val delta = up.position - up.previousPosition
-                        if (mode == GestureMode.Drag && delta != Offset.Zero) {
-                            onDrag(delta)
-                        } else if (mode == GestureMode.Undecided && (totalDrag + delta).getDistance() > touchSlop) {
-                            wasTap = false
-                            if (!(zoomEnabled && zoomState.isZoomed)) {
-                                mode = GestureMode.Drag
-                                onDrag(totalDrag + delta)
+                        when (mode) {
+                            GestureMode.Drag -> if (delta != Offset.Zero) onDrag(delta)
+                            GestureMode.ZoomedPan -> if (delta != Offset.Zero) {
+                                zoomState.onZoomedPan(delta, containerSize())
                             }
+                            GestureMode.Undecided -> {
+                                val total = totalDrag + delta
+                                if (total.getDistance() > touchSlop) {
+                                    wasTap = false
+                                    if (zoomEnabled && zoomState.isZoomed) {
+                                        mode = GestureMode.ZoomedPan
+                                        zoomState.onZoomedPan(total, containerSize())
+                                    } else {
+                                        mode = GestureMode.Drag
+                                        onDrag(total)
+                                    }
+                                }
+                            }
+                            GestureMode.Pinch -> Unit
                         }
                     }
                     event.changes.forEach { it.consume() }

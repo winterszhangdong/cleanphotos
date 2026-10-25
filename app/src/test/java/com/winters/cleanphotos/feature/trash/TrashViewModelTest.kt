@@ -321,6 +321,52 @@ class TrashViewModelTest {
         }
     }
 
+    @Test
+    fun `预览中的照片被外部移出后停在原位置的下一张`() = runTest(testDispatcher) {
+        val trashedPhotos = TestPhotoData.createTestPhotos(3).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(trashedPhotos)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onPhotoClick(trashedPhotos[1])
+        fakePhotoRepository.setTrashedPhotos(listOf(trashedPhotos[0], trashedPhotos[2]))
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(TrashScreenMode.Preview, state.screenMode)
+        assertEquals(trashedPhotos[2].id, state.previewPhotoId)
+    }
+
+    @Test
+    fun `预览最后一张被外部移出后停在新的最后一张`() = runTest(testDispatcher) {
+        val trashedPhotos = TestPhotoData.createTestPhotos(3).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(trashedPhotos)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onPhotoClick(trashedPhotos[2])
+        fakePhotoRepository.setTrashedPhotos(listOf(trashedPhotos[0], trashedPhotos[1]))
+        advanceUntilIdle()
+
+        assertEquals(trashedPhotos[1].id, viewModel.uiState.value.previewPhotoId)
+    }
+
+    @Test
+    fun `预览中的照片全部消失后退出预览`() = runTest(testDispatcher) {
+        val trashedPhotos = TestPhotoData.createTestPhotos(2).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(trashedPhotos)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onPhotoClick(trashedPhotos[0])
+        fakePhotoRepository.setTrashedPhotos(emptyList())
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(TrashScreenMode.Grid, state.screenMode)
+        assertNull(state.previewPhotoId)
+    }
+
     // ====== 多选模式测试 ======
 
     @Test

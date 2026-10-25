@@ -126,6 +126,8 @@ fun TrashScreen(
     BackHandler(enabled = isPreview && !predictiveBackAvailable()) { onExitPreview() }
     val gridRecorder = rememberBackdropRecorder()
     var captureGrid by remember { mutableStateOf(false) }
+    // 先录网格再进预览。同一帧切走的话，录制节点已经离场，预测性返回背后没有这张网格。
+    var pendingPreview by remember { mutableStateOf<PhotoItem?>(null) }
     // 网格滚动位置提到这里：进入单张预览时网格离开组合，回来不能跳回顶部；清空溶解也从同一位置开始
     val gridState = rememberSaveable(saver = LazyGridState.Saver) { LazyGridState() }
     // 清空溶解播完后，下次网格出现时从顶部开始（而不是停在清空前的位置）
@@ -179,7 +181,13 @@ fun TrashScreen(
                 Column(
                     Modifier
                         .fillMaxSize()
-                        .captureBackdropOnce(gridRecorder, captureGrid) { captureGrid = false },
+                        .captureBackdropOnce(gridRecorder, captureGrid) {
+                            captureGrid = false
+                            pendingPreview?.let { photo ->
+                                pendingPreview = null
+                                onPhotoClick(photo)
+                            }
+                        },
                 ) {
                     if (isSelection) {
                         SelectionBar(
@@ -228,8 +236,12 @@ fun TrashScreen(
                                     selectedPhotoIds = uiState.selectedPhotoIds,
                                     isSelectionMode = isSelection,
                                     onPhotoClick = { photo ->
-                                        if (!isSelection) captureGrid = true
-                                        onPhotoClick(photo)
+                                        if (isSelection) {
+                                            onPhotoClick(photo)
+                                        } else if (pendingPreview == null) {
+                                            pendingPreview = photo
+                                            captureGrid = true
+                                        }
                                     },
                                     onToggleSelection = onToggleSelection,
                                     state = gridState,

@@ -49,7 +49,9 @@ internal object ReviewGestureMath {
     fun upEventDrag(axis: DragAxis, total: Offset, upDelta: Offset, slop: Float, zoomed: Boolean): UpDrag? {
         if (upDelta == Offset.Zero) return null
         if (axis != DragAxis.None) return UpDrag(axis, startAxis = false, delta = upDelta)
-        if (zoomed || total.getDistance() <= slop) return null
+        if (total.getDistance() <= slop) return null
+        // 放大后整段位移只出现在抬起事件里时，按平移处理，不能当成点按或双击。
+        if (zoomed) return UpDrag(DragAxis.Pan, startAxis = true, delta = slopTrimmedStart(DragAxis.Pan, total, slop))
         val decided = axisOf(total.x, total.y)
         if (decided == DragAxis.None) return null
         return UpDrag(decided, startAxis = true, delta = slopTrimmedStart(decided, total, slop))

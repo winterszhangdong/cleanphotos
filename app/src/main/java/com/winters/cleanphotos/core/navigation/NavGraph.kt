@@ -79,10 +79,13 @@ fun NavGraph(
             BottomTab.AllPhotos -> if (route != NavRoutes.ALL_PHOTOS) navController.popBackStack(NavRoutes.ALL_PHOTOS, inclusive = false)
             BottomTab.Favorites -> when (route) {
                 NavRoutes.FAVORITES -> Unit
-                // 垃圾桶上切到收藏：避免在 Trash 之上无限堆 Favorites
-                NavRoutes.TRASH -> navController.navigate(NavRoutes.FAVORITES) {
-                    popUpTo(NavRoutes.ALL_PHOTOS) { inclusive = false }
-                    launchSingleTop = true
+                // 收藏已经在栈里时弹回去，保留滚动和 ViewModel。
+                // popUpTo(AllPhotos) 再 navigate 会先拆掉原来的收藏页，再压一个新的。
+                NavRoutes.TRASH -> if (!navController.popBackStack(NavRoutes.FAVORITES, inclusive = false)) {
+                    navController.navigate(NavRoutes.FAVORITES) {
+                        popUpTo(NavRoutes.ALL_PHOTOS) { inclusive = false }
+                        launchSingleTop = true
+                    }
                 }
                 else -> navController.navigate(NavRoutes.FAVORITES)
             }

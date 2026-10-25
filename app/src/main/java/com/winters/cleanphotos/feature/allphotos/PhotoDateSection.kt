@@ -16,8 +16,11 @@ import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
@@ -208,6 +211,8 @@ fun LazyGridScope.photoDaySections(
     showChevron: Boolean = true,
     /** 平铺格子左下角的文件大小。不传则不画。 */
     sizeLabel: ((PhotoItem) -> String)? = null,
+    /** 照片页点按按格子的实际位置命中。收藏页用格子自己的点击，不传。 */
+    hitRects: PhotoHitRects? = null,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -258,6 +263,11 @@ fun LazyGridScope.photoDaySections(
             val row = i / PHOTO_GRID_COLUMNS
             val col = i % PHOTO_GRID_COLUMNS
             item(key = photo.id, contentType = "photo") {
+                if (hitRects != null) {
+                    DisposableEffect(photo.id) {
+                        onDispose { hitRects.remove(photo.id) }
+                    }
+                }
                 val context = LocalContext.current
                 // 系统缩略图（GridThumb）+ 固定内存键（清理页占位）+ RGB_565；显影已负责过渡，关掉 Crossfade
                 val model = remember(photo.id, photo.uri) {
@@ -283,7 +293,8 @@ fun LazyGridScope.photoDaySections(
                     durationMs = photo.durationMs,
                     sizeLabel = sizeLabel?.invoke(photo),
                     // 同一天第二行起上方 2dp 间隔（.grid4 gap 2px）；天与天之间没有额外间隔
-                    modifier = reorderModifier(tileIndex, reorderAnchor(), reorderPlace())
+                    modifier = hitRectModifier(hitRects, photo.id)
+                        .then(reorderModifier(tileIndex, reorderAnchor(), reorderPlace()))
                         .padding(top = if (row == 0) 0.dp else Dimens.GridGap)
                         .then(
                             if (selection == null) Modifier
@@ -307,4 +318,10 @@ fun LazyGridScope.photoDaySections(
         }
         rowOffset += (section.photos.size + PHOTO_GRID_COLUMNS - 1) / PHOTO_GRID_COLUMNS
     }
+}
+
+/** 最外层记下整格边界（含行距），这样点在缝上仍算这一格。 */
+private fun hitRectModifier(hitRects: PhotoHitRects?, id: Long): Modifier {
+    if (hitRects == null) return Modifier
+    return Modifier.onGloballyPositioned { hitRects.put(id, it.boundsInRoot()) }
 }

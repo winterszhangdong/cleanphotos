@@ -62,6 +62,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -482,12 +484,19 @@ private fun PhotoList(
     val locale = currentLocale()
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
+    // 和 photoGridGestures 挂在同一条修饰链上：手指的本地坐标加上这里的原点，才对得上格子的根坐标。
+    val hitRects = remember { PhotoHitRects() }
     LazyVerticalGrid(
         columns = GridCells.Fixed(PHOTO_GRID_COLUMNS),
         state = gridState,
         modifier = Modifier
             .fillMaxSize()
             .gridScrollTapGuard()
+            .onGloballyPositioned { coordinates ->
+                val origin = coordinates.positionInRoot()
+                hitRects.originX = origin.x
+                hitRects.originY = origin.y
+            }
             .photoGridGestures(
                 state = gridState,
                 onTap = tapsSettled.whenSettled { id -> if (selecting) actions.onToggle(id) else onPhotoClick(id) },
@@ -497,6 +506,7 @@ private fun PhotoList(
                     started
                 },
                 onDrag = actions.onDrag,
+                hitRects = hitRects,
             ),
         horizontalArrangement = Arrangement.spacedBy(Dimens.GridGap),
         contentPadding = PaddingValues(top = topPadding, bottom = dockListBottomPadding()),
@@ -527,6 +537,7 @@ private fun PhotoList(
             } else {
                 null
             },
+            hitRects = hitRects,
         )
     }
 }

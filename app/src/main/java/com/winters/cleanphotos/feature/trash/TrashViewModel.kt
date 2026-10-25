@@ -138,17 +138,31 @@ class TrashViewModel @Inject constructor(
             observeTrashedPhotosUseCase().flowOn(computeDispatcher).collect { photos ->
                 // isLoading 由刷新流程维护：首次刷新完成前照片表还是空的，不能先闪「垃圾桶是空的」
                 val ids = photos.mapTo(HashSet()) { it.id }
+                var retarget: PhotoItem? = null
                 _uiState.update { now ->
-                    // 预览中垃圾桶被外部清空（回到前台刷新、系统相册里删掉）：退出预览，不留一块没有照片的全屏黑底
-                    val previewGone = now.screenMode == TrashScreenMode.Preview && photos.isEmpty()
+                    val previewing = now.screenMode == TrashScreenMode.Preview
+                    val currentId = now.previewPhotoId
+                    // 预览中的这张已经不在列表里（系统相册删掉、或外部清空）：空了就退出；还有别的就停在原位置的下一张
+                    val missing = previewing && currentId != null && currentId !in ids
+                    val previewGone = previewing && photos.isEmpty()
+                    val next = if (missing && !previewGone) {
+                        previewPhotoAfterRemoval(now.photos, currentId, photos).also { retarget = it }
+                    } else {
+                        null
+                    }
                     now.copy(
                         photos = photos,
                         selectedPhotoIds = now.selectedPhotoIds.filterTo(HashSet()) { it in ids },
                         screenMode = if (previewGone) TrashScreenMode.Grid else now.screenMode,
-                        previewPhotoId = if (previewGone) null else now.previewPhotoId,
-                        playback = if (previewGone) null else now.playback,
+                        previewPhotoId = when {
+                            previewGone -> null
+                            next != null -> next.id
+                            else -> now.previewPhotoId
+                        },
+                        playback = if (previewGone || next != null) null else now.playback,
                     )
                 }
+                retarget?.let { publishPlayback(it) }
             }
         }
     }
@@ -638,5 +652,23 @@ class TrashViewModel @Inject constructor(
             PhotoOperationFailureReason.MediaStoreFailed -> UiText.Res(R.string.fail_generic)
             PhotoOperationFailureReason.WritePermissionRequired -> UiText.Res(R.string.fail_write_permission)
         }
+    }
+}
+
+/**
+ * 预览中的照片从列表消失后，还要停在哪一张。
+ * 原位置后面还有照片就显示那一张（删掉后它滑到原下标）；原来是最后一张就显示新的最后一张。
+ */
+internal fun previewPhotoAfterRemoval(
+    previous: List<PhotoItem>,
+    removedId: Long,
+    remaining: List<PhotoItem>,
+): PhotoItem? {
+    if (remaining.isEmpty()) return null
+    val oldIndex = previous.indexOfFirst { it.id == removedId }
+    return when {
+        oldIndex < 0 -> remaining.first()
+        oldIndex <= remaining.lastIndex -> remaining[oldIndex]
+        else -> remaining.last()
     }
 }

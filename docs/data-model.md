@@ -781,7 +781,7 @@ has_seen_review_tutorial：是否已经完成清理页首次清理滑动教学
 app_trash_entries：App 内垃圾桶条目集合（Set<String>，格式 "photoId,movedToTrashAt,wasFavorited,favoritedAt"）
 app_favorite_entries：App 内收藏条目集合（Set<String>，格式 "photoId,favoritedAt"）
 app_seen_entries：已看过的照片 ID 集合（Set<String>，每条为 photoId 字符串）
-has_migrated_favorites：是否已完成系统 IS_FAVORITE 到 AppFavoriteStore 的一次性迁移
+has_migrated_favorites：是否已完成系统 IS_FAVORITE 到 AppFavoriteStore 的一次性迁移（含迁移当时在系统垃圾桶里的收藏）
 review_swipe_action_count：累计成功的上滑 / 下滑处理次数（Int）。2026-10-23 起清理页不再根据它显示方向提示
 total_freed_bytes：累计已确认从垃圾桶永久删除的字节（Long）。只增不减。只计刷新后确认已从图库消失的照片（size 未知按 0）；进程重建后没有删除前快照的那一次不计入
 ```

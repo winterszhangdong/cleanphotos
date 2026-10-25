@@ -288,8 +288,8 @@ MotionPhotoDataSource
 职责：
 
 * 查询系统照片和视频：图片表、视频表分别查询后按拍摄时间合并，没有视频权限时只查图片；填充 mediaType / durationMs / relativePath / bucketName（含 IS_FAVORITE，仅用于首次迁移系统收藏）。
-* `PhotoHashDataSource`：取小图算 64 位 dHash，结果只缓存在进程内存，供相似照片分组。
-* `PhotoSharpnessDataSource`：只给已经成组的照片取约 512px 长边，算拉普拉斯方差，同样只缓存在进程内存。
+* `PhotoHashDataSource`：取小图算 64 位 dHash，结果只缓存在进程内存，供相似照片分组。同一 id 的体积或宽高变了就重算。
+* `PhotoSharpnessDataSource`：只给已经成组的照片取约 512px 长边，算拉普拉斯方差，同样只缓存在进程内存。同一 id 的体积或宽高变了就重算。
 * `AppSimilarResolvedDataSource`：DataStore 字符串集合，一条记录是一组已处理照片的 id。格式非法直接抛错。
 * 永久删除照片（移入 / 移出垃圾桶是 App 内语义，只写 DataStore）。
 * `AppTrashStateDataSource`：使用 DataStore 管理 App 内垃圾桶的软删除记录（upsertEntry / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
@@ -657,7 +657,7 @@ SystemMediaActionRequest(
 * 收藏/取消收藏使用 `AppFavoriteStateDataSource` 管理，仅写入 DataStore，直接返回 Success，不触发系统授权。
 * 照片页隐藏已收藏照片（`observeAllPhotos` 排除 App 收藏中的照片）。
 * 收藏页专门展示已收藏照片（`observeFavoritedPhotos`）。
-* 首次启动时将系统 `IS_FAVORITE` 一次性迁移到 `AppFavoriteStore`，后续不再读取系统收藏状态。
+* 首次启动时将系统 `IS_FAVORITE` 一次性迁移到 `AppFavoriteStore`（含当时在系统垃圾桶里的收藏），后续不再读取系统收藏状态。
 * 移入垃圾桶时快照当前收藏状态（`wasFavorited`、`favoritedAt`），恢复时自动还原。
 * `PhotoItem.isFavorite` 来源改为 `AppFavoriteStore`，不再来自 MediaStore IS_FAVORITE。
 * Favorites scope 的清理页上滑 = 取消收藏（移除 AppFavoriteStore 条目）。

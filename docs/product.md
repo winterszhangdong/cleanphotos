@@ -186,7 +186,7 @@ App 包含五个主要页面和若干状态页：
 
 *   "收藏" = 写入 App 内 DataStore（AppFavoriteStore），不触发系统授权。
 *   "取消收藏" = 从 App 内 DataStore 移除收藏条目，不触发系统授权。
-*   首次启动时将系统 IS_FAVORITE 一次性迁移到 App DataStore。
+*   首次启动时将系统 IS_FAVORITE 一次性迁移到 App DataStore，包括当时在系统垃圾桶里的收藏。
 *   照片页自动隐藏已收藏照片。
 
 ### 用户可见规则
