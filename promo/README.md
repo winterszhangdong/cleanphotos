@@ -6,11 +6,11 @@
 
 依赖：Node、本机 Google Chrome、ffmpeg（带 libx264）。配乐 `promo/music/ethernight-club.mp3` 随仓库提交（CC BY，见下方授权）。
 
-渲染产物不入库：`promo/out/`（成片、静帧、srt）和网页预览用的 `site/assets/promo.mp4`。发版时把 `out/cleanphotos-promo.clean.mp4` 和三份 srt 挂到 GitHub Release，同时上传 B 站 / YouTube。主页和根 README 链到这两个地址。
+渲染产物不入库：`promo/out/`（成片、静帧、srt、海报和网页压缩版 `promo.mp4`）。发版时把 `out/cleanphotos-promo.clean.mp4` 和三份 srt 挂到 GitHub Release，同时上传 B 站 / YouTube。主页和根 README 链到这两个地址。
 
 ```bash
 cd promo && npm install
-node video/render.mjs                    # 成片 → out/cleanphotos-promo.mp4，网页版 → site/assets/promo.mp4，海报，字幕
+node video/render.mjs                    # 成片 → out/cleanphotos-promo.mp4，网页版 → out/promo.mp4，海报 → out/promo-poster.jpg，字幕
 node video/render.mjs --clean            # 不烧录字幕的版本 → out/cleanphotos-promo.clean.mp4（上传 B 站 / YouTube 时配 srt）
 node video/render.mjs --still 12,35.5    # 只截几帧 PNG 检查画面
 node video/render.mjs --from 30 --to 40  # 只渲染一段（无配乐）
@@ -22,9 +22,7 @@ node video/render.mjs --from 30 --to 40  # 只渲染一段（无配乐）
 
 ## 主页（`site/`）
 
-纯静态页面，用 Cloudflare Pages 发布：构建命令留空，构建输出目录设为 `site`。中英双语，首屏的手机可以直接上下拖动体验清理页。仓库地址只在 `site/index.html` 脚本开头的 `REPO` 常量里改一处。
-
-页内播放不要把 `site/assets/promo.mp4` 提交进仓库。本地渲染会写出这份文件，方便预览。公开站点发布前，把 GitHub Release 上的成片放到 `site/assets/promo.mp4`，或改成视频站嵌入。海报 `site/assets/promo-poster.jpg` 留在仓库里当封面。
+官网 https://cleanphotos.winters.click 部署在 Cloudflare Workers 上，构建、预览和部署见 [`site/README.md`](../site/README.md)。官网首屏用的是 `promo/product/` 的产品宣传片（压缩版在 `site/static/media/`，由 `site/tools/make-media.py` 生成）。
 
 ## 素材授权
 
@@ -32,5 +30,5 @@ node video/render.mjs --from 30 --to 40  # 只渲染一段（无配乐）
   Licensed under Creative Commons: By Attribution 4.0 License
   http://creativecommons.org/licenses/by/4.0/
   发布视频时需在简介里保留这段署名（片尾和主页页脚已带）。
-- 照片：见 `site/assets/photos/CREDITS.md`（`p*.jpg` 为 Unsplash License；`a–g.jpg`、`hero.jpg` 为 AI 生成图片，无版权，可自由使用）。
-- 图标：`site/assets/icon.svg` 由 `app/src/main/res/drawable/ic_launcher_*.xml` 转换。
+- 照片：见 `promo/assets/photos/CREDITS.md`（`p*.jpg` 为 Unsplash License；`a–g.jpg`、`hero.jpg` 为 AI 生成图片，无版权，可自由使用）。
+- 图标：`site/static/img/icon.svg` 由 `app/src/main/res/drawable/ic_launcher_*.xml` 转换。

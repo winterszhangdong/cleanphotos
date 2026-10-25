@@ -312,7 +312,7 @@
   <div class="layer" id="safelight"><div class="abs" id="bulb"></div></div>
 
   <div class="abs title" id="title">
-    <div class="icon"><img src="../../site/assets/icon.svg" alt=""></div>
+    <div class="icon"><img src="../../site/static/img/icon.svg" alt=""></div>
     <div class="reveal"><h1>理照</h1></div>
     <div class="reveal"><div class="en">CleanPhotos</div></div>
     <div class="reveal"><div class="tag">开源 · 安卓相册清理 &nbsp;/&nbsp; OPEN-SOURCE PHOTO CLEANER</div></div>
@@ -363,7 +363,7 @@
     <div class="abs" id="line"></div>
     <div id="prints"></div>
     <div class="abs" id="outro">
-      <div class="icon"><img src="../../site/assets/icon.svg" alt=""></div>
+      <div class="icon"><img src="../../site/static/img/icon.svg" alt=""></div>
       <h1>理照<span>CleanPhotos</span></h1>
       <div class="tag">像冲洗照片一样，整理你的相册 &nbsp;·&nbsp; ANDROID 8.0+</div>
     </div>
@@ -409,7 +409,7 @@ function rand(seed) { let s = seed; return () => (s = (s * 16807) % 2147483647) 
 
 const $ = s => document.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const PH = '../../site/assets/photos/';
+const PH = '../assets/photos/';
 const css = (el, props) => { for (const k in props) el.style[k] = props[k]; };
 const show = (el, o) => { el.style.opacity = o; el.style.visibility = o <= 0.001 ? 'hidden' : 'visible'; };
 

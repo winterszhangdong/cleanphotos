@@ -28,7 +28,7 @@ Schibsted Grotesk
 照片
 ----
 
-site/assets/photos/ 里的 a.jpg–g.jpg、hero.jpg 是 AI 生成图片，无版权，可自由使用。
+promo/assets/photos/ 里的 a.jpg–g.jpg、hero.jpg 是 AI 生成图片，无版权，可自由使用。
 
 app/src/main/res/drawable-nodpi/perm_print_left.jpg、perm_print_center.jpg、
 perm_print_right.jpg 是授权页的示意图，版权归本项目，打进 APK。

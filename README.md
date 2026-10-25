@@ -11,7 +11,7 @@ Swipe up to favorite, swipe down to trash, one photo at a time. CleanPhotos is a
 
 > **The UI is available in Simplified Chinese and English and follows your system language (Chinese systems, including Traditional Chinese, show Chinese; all others show English). You can also switch it from the ⋯ menu on the Photos tab. Translations for other languages are welcome — add a `res/values-<lang>/strings.xml`.**
 
-![CleanPhotos](site/assets/promo-poster.jpg)
+[![CleanPhotos](site/static/media/poster.jpg)](https://cleanphotos.winters.click/en/)
 
 <p align="center">
   <img src="docs/screenshots/1-grid.jpg" width="15%" alt="Photo grid">

@@ -4,7 +4,7 @@
 
 上滑收藏，下滑移走，一次只看一张。开源的安卓相册清理 App。不联网、无广告、无账号。
 
-![理照 CleanPhotos](site/assets/promo-poster.jpg)
+[![理照 CleanPhotos](site/static/media/poster.jpg)](https://cleanphotos.winters.click/)
 
 <p align="center">
   <img src="docs/screenshots/1-grid.jpg" width="15%" alt="照片网格">

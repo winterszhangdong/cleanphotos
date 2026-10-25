@@ -14,7 +14,8 @@ import { CUES, DURATION } from './cues.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
 const OUT = resolve(HERE, '../out');
-const SITE = resolve(ROOT, 'site/assets');
+// 海报和网页压缩版也写进 out/（不入库）
+const SITE = OUT;
 const FPS = 30;
 
 const args = process.argv.slice(2);
