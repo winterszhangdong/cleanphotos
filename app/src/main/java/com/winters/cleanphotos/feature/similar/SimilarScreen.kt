@@ -34,7 +34,7 @@ import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.GlassSpecs
 import com.winters.cleanphotos.core.design.PhotoTile
-import com.winters.cleanphotos.core.design.SelectionCheck
+import com.winters.cleanphotos.core.design.SimilarRemoveStamp
 import com.winters.cleanphotos.core.design.UndoBar
 import com.winters.cleanphotos.core.design.UndoCapsuleContent
 import com.winters.cleanphotos.core.design.glassBlur
@@ -192,23 +192,13 @@ internal fun SimilarThumb(
             developProfile = null,
             onClick = onClick,
         ) {
-            if (mark == SimilarMark.Keep) SelectionCheck(visible = true)
+            if (mark == SimilarMark.Remove) SimilarRemoveStamp(visible = true)
         }
         if (framed) {
             Box(
                 Modifier
                     .matchParentSize()
                     .border(Dimens.SimilarFilmStroke, DarkroomColors.Paper, RoundedCornerShape(Dimens.SimilarFilmStroke)),
-            )
-        }
-        if (mark == SimilarMark.Remove) {
-            // 描边之后再画，底边的相纸白描边不会盖住这条线。
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(Dimens.SimilarRemoveBar)
-                    .background(DarkroomColors.Fade),
             )
         }
     }

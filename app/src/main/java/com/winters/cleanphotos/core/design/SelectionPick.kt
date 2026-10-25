@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 
@@ -57,6 +58,42 @@ fun Modifier.selectedShrink(pick: () -> Float): Modifier = graphicsLayer {
 /** 右上角选中勾：22dp 相纸白圆 + 2dp 暗室色外环 + 0 2 8 投影，淡入 + 0.6→1 缩放 160ms。 */
 @Composable
 fun BoxScope.SelectionCheck(visible: Boolean) {
+    CornerStamp(visible, DarkroomIcons.CheckBold, stringResource(R.string.cd_selected))
+}
+
+/**
+ * 相似缩略图标成移走：22dp 相纸白圆，没有暗色外环。
+ * 图标是 Phosphor Regular 的垃圾桶。读屏不另念，格子说明里已经带了「移走」。
+ */
+@Composable
+fun BoxScope.SimilarRemoveStamp(visible: Boolean) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.TopEnd).offset(x = -Dimens.CheckInset, y = Dimens.CheckInset),
+        enter = fadeIn(tween(MotionDurations.SELECT_POP, easing = MotionEasings.Standard)) +
+            scaleIn(tween(MotionDurations.SELECT_POP, easing = MotionEasings.Standard), initialScale = 0.6f),
+        exit = fadeOut(tween(MotionDurations.SELECT_POP, easing = MotionEasings.Standard)) +
+            scaleOut(tween(MotionDurations.SELECT_POP, easing = MotionEasings.Standard), targetScale = 0.6f),
+    ) {
+        Box(
+            Modifier
+                .size(Dimens.CheckBadge)
+                .clip(CircleShape)
+                .background(DarkroomColors.Paper),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                DarkroomIcons.TrashMark,
+                contentDescription = null,
+                tint = DarkroomColors.Room,
+                modifier = Modifier.size(Dimens.CheckIcon),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.CornerStamp(visible: Boolean, icon: ImageVector, contentDescription: String?) {
     AnimatedVisibility(
         visible = visible,
         modifier = Modifier.align(Alignment.TopEnd).offset(x = -Dimens.CheckInset, y = Dimens.CheckInset),
@@ -77,7 +114,7 @@ fun BoxScope.SelectionCheck(visible: Boolean) {
                 .background(DarkroomColors.Paper),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(DarkroomIcons.CheckBold, contentDescription = stringResource(R.string.cd_selected), tint = DarkroomColors.Room, modifier = Modifier.size(Dimens.CheckIcon))
+            Icon(icon, contentDescription = contentDescription, tint = DarkroomColors.Room, modifier = Modifier.size(Dimens.CheckIcon))
         }
     }
 }

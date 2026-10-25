@@ -20,6 +20,17 @@ object DarkroomIcons {
     val Star = icon("star", "M12 3.6l2.55 5.3 5.8.75-4.25 4.02 1.07 5.75L12 16.6l-5.17 2.82 1.07-5.75L3.65 9.65l5.8-.75z")
     val StarSolid = icon("star-solid", "M12 3.6l2.55 5.3 5.8.75-4.25 4.02 1.07 5.75L12 16.6l-5.17 2.82 1.07-5.75L3.65 9.65l5.8-.75z", fill = true)
     val Trash = icon("trash", "M4.5 7h15M10 11v6M14 11v6M6.5 7l.8 11.2A2 2 0 009.3 20h5.4a2 2 0 002-1.8L17.5 7M9.5 7V4.5h5V7")
+    /**
+     * 相似页移走圆标。Phosphor Regular 的 trash，256 视口，实心，未改路径。
+     * 版权见 NOTICE。
+     */
+    val TrashMark = icon(
+        "trash-mark",
+        "M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z",
+        strokeWidth = 0f,
+        fill = true,
+        viewport = 256f,
+    )
     val Arrow = icon("arrow", "M5 12h14M13 6l6 6-6 6")
     val Undo = icon("undo", "M9 14L4.5 9.5 9 5M4.5 9.5H14a5.5 5.5 0 010 11h-3")
     val More = icon("more", "M6 12h.01M12 12h.01M18 12h.01", strokeWidth = 2.6f)
@@ -41,13 +52,19 @@ object DarkroomIcons {
     val SoundOn = icon("sound-on", "M4.5 9.5v5h3.2l3.8 3V6.5l-3.8 3zM14.6 9.2a3.2 3.2 0 010 5.6M17 7a6 6 0 010 10")
     val SoundOff = icon("sound-off", "M4.5 9.5v5h3.2l3.8 3V6.5l-3.8 3zM16 9.2l4.2 5.6M20.2 9.2L16 14.8")
 
-    private fun icon(name: String, path: String, strokeWidth: Float = 1.6f, fill: Boolean = false): ImageVector =
+    private fun icon(
+        name: String,
+        path: String,
+        strokeWidth: Float = 1.6f,
+        fill: Boolean = false,
+        viewport: Float = 24f,
+    ): ImageVector =
         ImageVector.Builder(
             name = name,
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
+            defaultWidth = viewport.dp,
+            defaultHeight = viewport.dp,
+            viewportWidth = viewport,
+            viewportHeight = viewport,
         ).apply {
             addPath(
                 pathData = PathParser().parsePathString(path).toNodes(),
