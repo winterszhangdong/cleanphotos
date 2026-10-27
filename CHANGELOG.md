@@ -7,6 +7,26 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- 安卓：整理收藏时相册很多也好找。托盘只露最近用的 8 只袋子，最右「还有 N 个」打开相册面板，列出全部相册和最后放进去的时间，可以按名字或路径搜索（不分大小写和全 / 半角）；搜不到时直接「新建」这个名字。点它、把照片叠拖到上面停一下，或在上面松手都能打开面板；松在面板空白处，照片叠先停在标题旁，再点一个相册。
+- 安卓：拖着照片叠时，手指下的袋子上方弹出名签写着相册名，照片叠移到手指左上方，不再挡住袋子；拖到托盘左右边缘（或面板列表上下边缘）会自动滚动，越靠边越快；换了袋子轻震一下。
+
+### Changed
+
+- 安卓：托盘按最后放进去的时间排序，没放过的按张数从多到少。整理一天时袋子位置不变，下次打开再按最近使用重排；从面板放进去的相册临时排到最前面。
+
+---
+
+### Added
+
+- Android: albums are easier to find when sorting Favorites. The tray shows your 8 most recently used envelopes, and a "N more" card at the end opens an album sheet. The sheet lists every album with when you last filed into it, and you can search by name or path (case and full-/half-width insensitive). If nothing matches, you can create an album with that name. Tap the card, or drag the stack onto it and hover or release, to open the sheet. If you release over an empty part of the sheet, the stack waits next to the title until you tap an album.
+- Android: while dragging the stack, the envelope under your finger shows a name tag above it, and the stack sits up and to the left of your finger so it no longer hides the envelope. Dragging to the left or right edge of the tray (or the top or bottom of the sheet list) scrolls it automatically, faster the closer you get to the edge. A light tick plays when you move onto a different envelope.
+
+### Changed
+
+- Android: the tray is ordered by when you last filed into each album, then by photo count. Envelopes keep their places while you sort a day and are re-sorted the next time you open it. An album you pick from the sheet moves to the front.
+
 ## [1.6.1] - 2026-10-27
 
 ### Changed
