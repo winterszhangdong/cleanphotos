@@ -7,6 +7,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-27
+
 ### Changed
 
 - 安卓：整理收藏时长按拿起圈中的照片，照片会从各自的格子里被抓起来、飞到手指下叠好，原来的格子空着；在袋子外松手（或拒绝授权），照片各自落回原位。拖到袋子上时不再显示「松手放进……」，袋子打开的动作已经够清楚。
@@ -427,7 +429,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.5...v1.6.0
 [1.5.5]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.3...v1.5.4
