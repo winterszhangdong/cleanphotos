@@ -53,7 +53,6 @@ import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
-import com.winters.cleanphotos.core.design.FilingMotion
 import com.winters.cleanphotos.core.design.GlassIconButton
 import com.winters.cleanphotos.core.design.Haptics
 import com.winters.cleanphotos.core.design.MotionDurations
@@ -126,10 +125,21 @@ internal fun ContactSheetScreen(
     // ViewModel 忙（上一袋还在等授权 / 移动）时它会忽略这次装袋；起飞点也不能被这次覆盖
     fun canFile() = !state.busy && launch == null
 
+    fun circledRects(): Map<Long, Rect> =
+        state.photos.filter { it.id in state.circled }.mapNotNull { p -> hits[p.id]?.let { p.id to it } }.toMap()
+
+    /** 没放进袋子：照片叠散开，每张落回自己的格子，落定后格子里的原图回来。 */
+    fun putBack(drag: DragStack) {
+        if (drag.returning) return
+        scope.launch {
+            drag.putBack(drag.photos.mapNotNull { p -> hits[p.id]?.let { p.id to it } }.toMap())
+            if (visuals.drag === drag) visuals.drag = null
+        }
+    }
+
     fun fileFromFrames(album: PhotoAlbum) {
         if (!canFile()) return
-        val rects = state.photos.filter { it.id in state.circled }.mapNotNull { p -> hits[p.id]?.let { p.id to it } }.toMap()
-        launch = Launch.Frames(rects, album.count, album.recent.firstOrNull())
+        launch = Launch.Frames(circledRects(), album.count, album.recent.firstOrNull())
         onFile(SheetTarget.Existing(album))
     }
 
@@ -165,11 +175,14 @@ internal fun ContactSheetScreen(
                 stripWidth = stripWidth,
                 hits = hits,
                 entering = entering,
+                slotAlpha = visuals::slotAlpha,
                 gestures = SheetGestureCallbacks(
                     onTap = onToggle,
                     onCircle = onCircle,
                     onPickUp = { p ->
-                        visuals.drag = DragStack(state.photos.filter { it.id in state.circled }, p)
+                        val drag = DragStack(state.photos.filter { it.id in state.circled }, p, circledRects())
+                        visuals.drag = drag
+                        scope.launch { drag.pickUp() }
                     },
                     onDragMove = { p ->
                         visuals.drag?.pointer = p
@@ -189,13 +202,13 @@ internal fun ContactSheetScreen(
                             target != null -> {
                                 val album = albumBefore(target)
                                 if (album == null || !canFile()) {
-                                    visuals.drag = null
+                                    putBack(drag)
                                 } else {
                                     launch = Launch.Stack(stackCenter(drag.pointer, trayTop, screenW, stackLift) - origin, album.count, album.recent.firstOrNull())
                                     onFile(SheetTarget.Existing(album))
                                 }
                             }
-                            else -> visuals.drag = null
+                            else -> putBack(drag)
                         }
                     },
                     onPreview = { id -> visuals.preview = state.photos.firstOrNull { it.id == id } },
@@ -291,22 +304,6 @@ internal fun ContactSheetScreen(
 
         visuals.drag?.let { drag ->
             DragStackLayer(drag, origin, frameSize, stackLift)
-            val target = visuals.hovered
-            val name = when (target) {
-                null -> null
-                NEW_ENVELOPE_KEY -> stringResource(R.string.envelope_new)
-                else -> albumBefore(target)?.name
-            }
-            if (name != null) {
-                DropChip(
-                    stringResource(R.string.drop_hint, name),
-                    Modifier.graphicsLayer {
-                        val c = stackCenter(drag.pointer, 0f, 0f, stackLift) - origin
-                        translationX = c.x - 60.dp.toPx()
-                        translationY = c.y - frameSize.second.toPx() * FilingMotion.STACK_SCALE / 2f - 44.dp.toPx()
-                    },
-                )
-            }
         }
 
         visuals.flight?.let { run ->
@@ -370,8 +367,7 @@ internal fun ContactSheetScreen(
                         return@NewAlbumSheet
                     }
                     launch = naming?.let { Launch.Stack(it - origin, 0, null) } ?: run {
-                        val rects = state.photos.filter { it.id in state.circled }.mapNotNull { p -> hits[p.id]?.let { p.id to it } }.toMap()
-                        Launch.Frames(rects, 0, null)
+                        Launch.Frames(circledRects(), 0, null)
                     }
                     naming = null
                     onFile(SheetTarget.New(name))
@@ -411,7 +407,7 @@ internal fun ContactSheetScreen(
                 }
                 ContactSheetEffect.Bounce -> {
                     launch = null
-                    visuals.drag = null
+                    visuals.drag?.let(::putBack)
                 }
                 else -> error("页面只处理飞入和收起：$e")
             }

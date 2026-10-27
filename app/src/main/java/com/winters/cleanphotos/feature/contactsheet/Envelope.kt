@@ -383,7 +383,7 @@ private fun NewEnvelope(dim: () -> Float, onClick: () -> Unit, modifier: Modifie
 
 /** 白边小相片（露角 / 扇形滑出的照片）。 */
 @Composable
-internal fun Print(photo: PhotoItem, modifier: Modifier = Modifier, size: Dp = EnvelopeGeometry.Print) {
+internal fun Print(photo: PhotoItem, modifier: Modifier = Modifier, size: Dp = EnvelopeGeometry.Print, lift: () -> Float = { 0f }) {
     val context = LocalContext.current
     val model = remember(photo.id) {
         ImageRequest.Builder(context)
@@ -398,7 +398,7 @@ internal fun Print(photo: PhotoItem, modifier: Modifier = Modifier, size: Dp = E
         modifier
             .size(size)
             .graphicsLayer {
-                shadowElevation = 4.dp.toPx()
+                shadowElevation = 4.dp.toPx() + FilingMotion.LiftShadow.toPx() * lift()
                 shape = androidx.compose.ui.graphics.RectangleShape
             }
             .background(DarkroomColors.PrintBorder)

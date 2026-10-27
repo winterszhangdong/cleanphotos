@@ -284,6 +284,18 @@ object FilingMotion {
     const val STACK_HOLD = 80
     /** 授权通过到封口合上、计数开始滚：GATHER + STACK_HOLD + MEDIUM（入袋）+ SHORT（合盖）+ 收尾。 */
     const val TOTAL = 1100
+    /** 拿起：圈中的照片从各自格子浮起（放大一点、影子变深）收到手指下成一叠，减速进入。 */
+    const val PICK_UP = 240
+    /** 在袋子外松手（或授权被拒）：照片叠散开，每张落回自己的格子，标准曲线。 */
+    const val PUT_BACK = MotionDurations.MEDIUM
+    /** 拿起 / 落回途中每张错开的步长和最多步数（多于这些张的同时走）。 */
+    const val LIFT_STAGGER = 20
+    const val LIFT_STAGGER_STEPS = 4
+    /** 拿起途中浮起的最大放大量（sin 曲线，起止都是 0）和额外影子。 */
+    const val LIFT_POP = 0.08f
+    val LiftShadow = 10.dp
+    /** 落回最后这一段，格子里的原图和飞回的小相片交叉淡入。 */
+    const val LAND_HANDOFF = 0.2f
     /** 封口合上后停一下再翻开，露角换成装完之后这个相册按拍摄时间最新的一张。 */
     const val FLAP_REOPEN_DELAY = 300
 

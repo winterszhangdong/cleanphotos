@@ -68,6 +68,16 @@ internal class FilingVisuals {
     val envelopeRects = HashMap<String, Rect>()
     private var dwellJob: Job? = null
 
+    /**
+     * 格子里的原图显示多少：被拿起的空着（落回时淡回来）；从手指下的叠入袋时也空着，
+     * 直到照片离开列表（点袋子起飞的不管，其余圈中的照片随格子一起淡出）。
+     */
+    fun slotAlpha(id: Long): Float {
+        drag?.let { if (id in it.ids) return it.slotAlpha(id) }
+        flight?.let { if (it.stackAt != null && id in it.ids) return 0f }
+        return 1f
+    }
+
     fun stateFor(path: String): EnvelopeState = EnvelopeState(
         lean = { if (hovered == path) leanIn.value else 0f },
         lift = { if (peek?.relativePath == path) peekFan.value.coerceAtMost(1f) else 0f },
@@ -114,9 +124,54 @@ internal class FilingVisuals {
     }
 }
 
-/** 拖动中的照片叠：[pointer] 是手指根坐标。 */
-internal class DragStack(val photos: List<PhotoItem>, pointer: Offset) {
+/**
+ * 拖动中的照片叠：[pointer] 是手指根坐标，[starts] 是拿起那一刻圈中照片在胶片上的根坐标边界（屏幕外的没有）。
+ * [lift] 0 = 还在格子里，1 = 收成手指下的一叠：拿起 0→1，松手落回 1→0（[returning]）。
+ * 拿起后原来的格子空着（只留一圈细框），落回最后一段原图交叉淡入。
+ */
+internal class DragStack(val photos: List<PhotoItem>, pointer: Offset, val starts: Map<Long, Rect> = emptyMap()) {
     var pointer by mutableStateOf(pointer)
+    val lift = Animatable(0f)
+    var returning by mutableStateOf(false)
+        private set
+    /** 落回的格子：松手那一刻重新量（列表没动时和 [starts] 一样）。 */
+    var homes: Map<Long, Rect> = starts
+        private set
+    private val index: Map<Long, Int> = photos.withIndex().associate { (i, p) -> p.id to i }
+    val ids: Set<Long> get() = index.keys
+
+    /** 第 [i] 张这一刻走到哪（0 = 格子，1 = 叠里）。 */
+    fun progress(i: Int): Float = liftProgress(lift.value, i, if (returning) FilingMotion.PUT_BACK else FilingMotion.PICK_UP)
+
+    suspend fun pickUp() {
+        lift.animateTo(1f, tween(FilingMotion.PICK_UP, easing = MotionEasings.Decelerate))
+    }
+
+    suspend fun putBack(homes: Map<Long, Rect>) {
+        this.homes = homes
+        returning = true
+        lift.animateTo(0f, tween(FilingMotion.PUT_BACK, easing = MotionEasings.Standard))
+    }
+
+    fun slotAlpha(id: Long): Float = slotAlphaFor(returning, progress(index[id] ?: 0))
+}
+
+/**
+ * 圈中格子里的原图显示多少（[t] 是这一张的 [liftProgress]）：拿起后 0（空格）；
+ * 落回时这一张走到最后 [FilingMotion.LAND_HANDOFF] 这段从 0 淡到 1，和飞回的小相片交叉淡入。
+ */
+internal fun slotAlphaFor(returning: Boolean, t: Float): Float =
+    if (!returning) 0f else (1f - t / FilingMotion.LAND_HANDOFF).coerceIn(0f, 1f)
+
+/**
+ * 第 [index] 张在拿起 / 落回里走到哪（0 = 格子，1 = 叠里）。前几张按 [FilingMotion.LIFT_STAGGER] 错开：
+ * 拿起时后面的晚一点起飞，落回时同样的错开让叠先散开、各自落位，两头都正好在 0 和 1 收住。
+ */
+internal fun liftProgress(lift: Float, index: Int, duration: Int): Float {
+    val step = FilingMotion.LIFT_STAGGER.toFloat() / duration
+    val span = 1f - FilingMotion.LIFT_STAGGER_STEPS * step
+    val k = index.coerceAtMost(FilingMotion.LIFT_STAGGER_STEPS)
+    return ((lift - k * step) / span).coerceIn(0f, 1f)
 }
 
 /**
@@ -134,6 +189,7 @@ internal class FlightRun(
     val heldCount: Int,
     val heldCover: PhotoItem?,
 ) {
+    val ids: Set<Long> = photos.mapTo(HashSet()) { it.id }
     val gather = Animatable(if (stackAt != null) 1f else 0f)
     val insert = Animatable(0f)
     val flap = Animatable(0f)
@@ -237,15 +293,22 @@ internal fun FlightLayer(
     }
 }
 
-/** 拖动中的照片叠：跟着手指（在手指上方），右上角是张数。 */
+/**
+ * 拖动中的照片叠：跟着手指（在手指上方），右上角是张数。
+ * 拿起时屏幕上能看到的圈中照片都从自己的格子浮起飞过来：前 3 张叠成扇形，其余的飞到叠下面淡掉；落回时反过来。
+ */
 @Composable
 internal fun DragStackLayer(drag: DragStack, origin: Offset, frameSize: Pair<Dp, Dp>, lift: Float) {
     val (fw, fh) = frameSize
+    // 先画叠下面的（第 4 张起，只有在屏幕上的才飞），叠顶的 3 张最后画
+    val flyers = drag.photos.withIndex().filter { (i, p) -> i < MAX_FLYERS || p.id in drag.starts }.sortedByDescending { it.index }
     Box(Modifier.fillMaxSize()) {
-        drag.photos.take(MAX_FLYERS).forEachIndexed { i, photo ->
+        flyers.forEach { (i, photo) ->
+            val inStack = i < MAX_FLYERS
             Print(
                 photo,
                 size = fw,
+                lift = { kotlin.math.sin(Math.PI * drag.progress(i)).toFloat() },
                 modifier = Modifier
                     .layout { measurable, _ ->
                         val w = fw.roundToPx()
@@ -254,19 +317,39 @@ internal fun DragStackLayer(drag: DragStack, origin: Offset, frameSize: Pair<Dp,
                         layout(w, h) { p.place(IntOffset.Zero) }
                     }
                     .graphicsLayer {
-                        val c = stackCenter(drag.pointer, 0f, 0f, lift) - origin
-                        translationX = c.x - fw.toPx() / 2f
-                        translationY = c.y - fh.toPx() / 2f
-                        scaleX = FilingMotion.STACK_SCALE
-                        scaleY = FilingMotion.STACK_SCALE
+                        val wPx = fw.toPx()
+                        val hPx = fh.toPx()
+                        val t = drag.progress(i)
+                        val stack = stackCenter(drag.pointer, 0f, 0f, lift) - origin
+                        val slot = (if (drag.returning) drag.homes[photo.id] else drag.starts[photo.id])
+                        val from = slot?.center?.minus(origin) ?: stack
+                        val c = lerp(from, stack, t)
+                        val startScale = (slot?.width ?: wPx) / wPx
+                        val pop = 1f + FilingMotion.LIFT_POP * kotlin.math.sin(Math.PI * t).toFloat()
+                        val endScale = if (inStack) FilingMotion.STACK_SCALE else FilingMotion.STACK_SCALE * 0.9f
+                        val scale = lerpF(startScale, endScale, t) * pop
+                        translationX = c.x - wPx / 2f
+                        translationY = c.y - hPx / 2f
+                        scaleX = scale
+                        scaleY = scale
                         cameraDistance = FilingMotion.CAMERA_DISTANCE * density
-                        rotationZ = FilingMotion.STACK_ROTATIONS[i % FilingMotion.STACK_ROTATIONS.size]
-                        rotationX = FilingMotion.STACK_TILT
+                        rotationZ = if (inStack) FilingMotion.STACK_ROTATIONS[i % FilingMotion.STACK_ROTATIONS.size] * t else 0f
+                        rotationX = if (inStack) FilingMotion.STACK_TILT * t else 0f
+                        alpha = when {
+                            // 叠下面的飞到叠里淡掉
+                            !inStack -> 1f - t
+                            // 不在屏幕上的直接在叠里出现 / 消失
+                            slot == null -> t
+                            // 落回最后一段让位给格子里的原图
+                            drag.returning -> (t / FilingMotion.LAND_HANDOFF).coerceIn(0f, 1f)
+                            else -> 1f
+                        }
                     },
             )
         }
         CountBadge(drag.photos.size, Modifier.graphicsLayer {
             val c = stackCenter(drag.pointer, 0f, 0f, lift) - origin
+            alpha = drag.lift.value
             translationX = c.x + fw.toPx() * FilingMotion.STACK_SCALE / 2f - 10.dp.toPx()
             translationY = c.y - fh.toPx() * FilingMotion.STACK_SCALE / 2f - 10.dp.toPx()
         })
@@ -286,7 +369,7 @@ private fun CountBadge(count: Int, modifier: Modifier) {
     }
 }
 
-/** 「松手放进「猫」」：玻璃小胶囊，跟在照片叠上方。 */
+/** 托盘上方的玻璃小胶囊（「N 张没能放进去」等提示）。 */
 @Composable
 internal fun DropChip(text: String, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(16.dp)

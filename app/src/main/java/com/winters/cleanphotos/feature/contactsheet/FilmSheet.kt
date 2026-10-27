@@ -107,6 +107,7 @@ internal fun FilmSheet(
     stripWidth: Dp,
     hits: PhotoHitRects,
     entering: Boolean,
+    slotAlpha: (Long) -> Float,
     gestures: SheetGestureCallbacks,
     modifier: Modifier = Modifier,
 ) {
@@ -207,6 +208,7 @@ internal fun FilmSheet(
                     edgeText = if (lastInRow && row % 2 == 0) edgePrint(date) else null,
                     circled = photo.id in circled,
                     entering = entering,
+                    slotAlpha = slotAlpha,
                     // 落笔一下轻触感（与跨天同一档）
                     onPenLanded = { Haptics.dayChange(view) },
                     modifier = Modifier
@@ -250,6 +252,7 @@ private fun FilmFrame(
     edgeText: String?,
     circled: Boolean,
     entering: Boolean,
+    slotAlpha: (Long) -> Float,
     onPenLanded: () -> Unit,
     hits: PhotoHitRects,
     modifier: Modifier = Modifier,
@@ -323,6 +326,15 @@ private fun FilmFrame(
                 .offset(x = left, y = FilmGeometry.Band)
                 .size(frameW, frameH)
                 .onGloballyPositioned { hits.put(photo.id, it.boundsInRoot()) }
+                // 照片被拿起后这一格空着：只留一圈细框，不重排
+                .drawBehind {
+                    val a = 1f - slotAlpha(photo.id)
+                    if (a > 0f) {
+                        val w = 1.dp.toPx()
+                        drawRect(DarkroomColors.Rim2.copy(alpha = DarkroomColors.Rim2.alpha * a), Offset(w / 2f, w / 2f), Size(size.width - w, size.height - w), style = Stroke(width = w))
+                    }
+                }
+                .graphicsLayer { alpha = slotAlpha(photo.id) }
                 .drawWithContent {
                     drawContent()
                     val t = pen.value

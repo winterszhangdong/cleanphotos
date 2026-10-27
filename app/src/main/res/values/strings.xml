@@ -250,7 +250,6 @@
     <string name="tray_system_favorite">Gallery favorite</string>
     <string name="tray_hint">Sleeves are album folders</string>
     <string name="envelope_new">New sleeve</string>
-    <string name="drop_hint">Release to put in “%1$s”</string>
     <string name="new_album_cancel">Cancel</string>
     <string name="new_album_placeholder">Album name</string>
     <string name="new_album_path_new">%1$s · new</string>
