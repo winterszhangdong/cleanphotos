@@ -7,9 +7,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-27
+
 ### Added
 
-- 安卓：收藏页可以按天「整理」。这一天的收藏摊成一张印样表：点照片或手指划过把要放到一起的圈出来，点底片袋，或拿起一叠拖到袋子上（停一下袋子自己打开），照片就移进那个相册文件夹，并移出收藏。可以新建袋子，和已有文件夹同名时合并进去；可以顺带加系统收藏（Android 11+）。长按袋子能偷看里面最近几张。
+- 安卓：收藏页可以按天「整理」。这一天的收藏摊成一张印样表：点照片或手指划过把要放到一起的圈出来，点底片袋，或拿起一叠拖到袋子上（停一下袋子自己打开），照片就移进那个相册文件夹，并移出收藏。可以新建袋子，名字和已有相册相同（不分大小写）时直接放进那个相册，不另建；可以顺带加系统收藏（Android 11+）。长按袋子能偷看里面最近几张。
 - 安卓：放进相册可以撤回，照片回到原来的文件夹和收藏里。Android 11+ 整批只确认一次，撤回不再确认；Android 8–10 有存储写权限后直接移动。目标文件夹里有同名文件时另起「名字 (1)」，不覆盖。
 - 安卓：一天整理完出小结，写清每个相册放进几张，可以接着整理下一天。收藏页顶部写还有几天待整理，底部「已冲洗」列出放进过相册的天，点开能看是哪些照片。
 
@@ -17,7 +19,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
-- Android: Favorites can now be sorted day by day. A day of favorites opens as a contact sheet: circle photos by tapping or swiping across them, then tap an envelope, or pick up the stack and drag it onto one (it opens after a short hover). The photos move into that album folder and leave Favorites. You can make a new envelope, which merges into an existing folder of the same name, and optionally add the photos to system favorites (Android 11+). Long-press an envelope to peek at its latest photos.
+- Android: Favorites can now be sorted day by day. A day of favorites opens as a contact sheet: circle photos by tapping or swiping across them, then tap an envelope, or pick up the stack and drag it onto one (it opens after a short hover). The photos move into that album folder and leave Favorites. You can make a new envelope; if its name matches an existing album (ignoring case), the photos go into that album instead of a new one, and optionally add the photos to system favorites (Android 11+). Long-press an envelope to peek at its latest photos.
 - Android: putting photos in an album can be undone, which moves them back to their old folder and Favorites. Android 11+ asks once per batch and does not ask again to undo. Android 8–10 move directly once storage write access is granted. A file with the same name in the target folder is never overwritten; the moved photo is renamed "name (1)".
 - Android: finishing a day shows a summary of how many photos went into each album, with a button to sort the next day. The Favorites header shows how many days are left to sort, and a "Filed" section at the bottom lists the days you have filed and the photos in each.
 
@@ -415,7 +417,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.5...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.5...v1.6.0
 [1.5.5]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.2...v1.5.3
