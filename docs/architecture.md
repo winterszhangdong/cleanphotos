@@ -165,6 +165,7 @@ com.example.photocleaner
 │   └── photopager
 └── feature
     ├── allphotos
+    ├── contactsheet
     ├── favorites
     ├── review
     ├── similar
@@ -283,6 +284,8 @@ AppSeenStateDataSource
 AppSimilarResolvedDataSource
 PhotoSharpnessDataSource
 MotionPhotoDataSource
+AppFilingLogDataSource
+MediaStoreAlbumDataSource
 ```
 
 职责：
@@ -295,6 +298,8 @@ MotionPhotoDataSource
 * `AppTrashStateDataSource`：使用 DataStore 管理 App 内垃圾桶的软删除记录（upsertEntry / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
 * `AppFavoriteStateDataSource`：使用 DataStore 管理 App 内收藏记录（upsertEntry / upsertEntries / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
 * `AppSeenStateDataSource`：使用 DataStore 管理已看过状态（markSeen / removeEntries / removeMissingEntries / observeSeenIds）。
+* `AppFilingLogDataSource`：DataStore 字符串集合 `app_filing_log`，印样表装袋记录，供收藏页「已冲洗」和托盘排序。
+* `MediaStoreAlbumDataSource`：印样表装袋的文件移动和系统授权请求（见下面「印样表装袋设计」）。
 * `MotionPhotoDataSource`：只在当前页（可预取下一张图）按需识别动态照片。`ContentResolver.openFileDescriptor(uri, "r")` 整段在 `Dispatchers.IO`，用 `FileChannel` 随机读头部和尾部。解析是 `MotionPhotoLocator` 对随机读接口的纯函数。识别不到返回 null。IO 异常抛出，不在这里吞。整库查询不调用它。
 
 ### preferences
@@ -465,7 +470,31 @@ FavoritesRoute
 FavoritesScreen
 FavoritesViewModel
 FavoritesUiState
+FiledSection
 ```
+
+* `FiledSection`：列表底部「已冲洗」，展开状态 `rememberSaveable`，只读。
+
+### contactsheet
+
+负责印样表（收藏 → 某一天 → 整理）。
+
+包含：
+
+```text
+ContactSheetRoute       // 收 effect：启动系统授权 / 请求写权限 / 飞入 / 弹回
+ContactSheetScreen      // 顶栏、胶片、托盘、拖动和飞行浮层、新袋子、小结
+ContactSheetViewModel
+ContactSheetUiState
+FilmSheet               // 胶片网格 + 唯一的 pointerInput（点按 / 横划连圈 / 长按看大图或拿起）
+Envelope                // 托盘和底片袋（3D 状态只在 graphicsLayer 读取）
+FilingFlight            // 拖动、悬停、偷看、飞入的状态机和浮层
+NewAlbumSheet
+SheetSummaryPage
+```
+
+* ViewModel 的 `Pending`（File / Undo）在授权回来之前保存要做的事；`busy` 期间不接受新的装袋，Screen 另外用 `launch` 挡住第二次点击。
+* 照片从收藏里出去后由仓库 Flow 驱动：飞入效果先到，格子 `animateItem` 补位。
 
 ### trash
 
@@ -500,6 +529,7 @@ TrashScreenMode
 ```text
 all_photos
 favorites
+contact_sheet/{dayKey}
 review/{photoId}/{sortOrder}/{filterMode}/{scope}?unseenOnly={unseenOnly}
 similar/{groupKey}/{photoId}
 trash
@@ -510,6 +540,7 @@ trash
 * `all_photos` 是首页。相似分组列表画在这一页里，没有自己的顶栏。
 * `similar/{groupKey}/{photoId}` 是相似对比页。groupKey 含逗号，跳转前 `Uri.encode`。ViewModel 取自 `all_photos` 的返回栈条目，标记和撤回与列表是同一份。返回不提交。
 * `favorites` 是收藏页。
+* `contact_sheet/{dayKey}` 是印样表。dayKey 含空格和逗号，跳转前 `Uri.encode`（`NavRoutes.contactSheetRoute`）。
 * `review/{photoId}/{sortOrder}/{filterMode}/{scope}?unseenOnly={unseenOnly}` 是清理页。查询参数默认 false，收藏页仍用四个路径参数调用，生成的地址带 `?unseenOnly=false`。scope 决定手势语义（AllPhotos 上滑收藏，Favorites 上滑取消收藏）。AllPhotos 会话再按 filterMode 和 unseenOnly 过滤。
 * `trash` 是垃圾桶页。
 
@@ -637,10 +668,28 @@ SystemMediaActionRequest(
 说明：
 
 * `photos` 改为 `List<PhotoItem>`，支持批量操作。
-* 系统媒体授权仅用于永久删除（DeletePermanently）。收藏和取消收藏现在使用 App DataStore，不再触发系统授权。
+* 系统媒体授权用于永久删除（DeletePermanently）和印样表：装袋前的写授权（MoveToAlbum，createWriteRequest）、装袋后顺带的系统收藏（SystemFavorite，createFavoriteRequest），都只在 Android 11+。收藏和取消收藏使用 App DataStore，不触发系统授权。
 * `SetFavorite`、`RemoveFavorite`、`MoveToTrash` 和 `RestoreFromTrash` 保留在 `SystemMediaActionType` 枚举中但运行时不再触发 `NeedSystemApproval`。
 * ViewModel 将请求包装为一次性 UI effect，Compose 启动系统授权页。
 * 授权结果返回后 ViewModel 继续处理对应操作。
+
+---
+
+## 印样表装袋设计
+
+装袋 = 真的移动照片文件到另一个相册文件夹，同一 MediaStore 行，_ID 不变，所以收藏 / 看过 / 垃圾桶记录不受影响。
+
+```text
+Android 11+（30+）：createWriteRequest 整批一次（只含还没写授权的 uri）→ update RELATIVE_PATH → 读回确认
+Android 10（29）：清单 requestLegacyExternalStorage + WRITE_EXTERNAL_STORAGE(maxSdk 29) → update RELATIVE_PATH，不逐张确认
+Android 8–9（26–28）：WRITE_EXTERNAL_STORAGE → File.renameTo → update DATA + DISPLAY_NAME；失败把文件改回原处
+```
+
+* 写授权在本次进程里保留：撤回、同一批照片再次装袋都不再弹。
+* 已经在目标文件夹的照片不移动、不申请授权。
+* 同名文件不覆盖：10+ 由媒体库另起「名字 (1).jpg」，8–9 用 `freeFileName` 同样起名。
+* 撤回移回原文件夹。原文件夹在 Android 10 上不允许放图片时（例如不在标准目录下）移回会失败：提示「没能移回原处」，文件留在新文件夹，不丢。
+* 移出收藏和写装袋记录在同一次 DataStore edit 里完成，只记移动成功的。
 
 ---
 

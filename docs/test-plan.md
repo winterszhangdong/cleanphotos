@@ -3884,3 +3884,45 @@ TrashPreviewOverlay 与 ReviewScreen 横滑行为不一致
 
 - 中文 `DayDisplay.monthTitle`：大号数字「10」加「月」。
 - 英文：月份短名（「Oct」），第二段为空。
+
+***
+
+## 19 印样表 / 底片袋
+
+### 单元测试
+
+- `AlbumUseCasesTest`：只有 DCIM / Pictures 下的子文件夹算袋子；相册名校验；同名忽略大小写合并；同名不管在 DCIM 还是 Pictures、首尾空白和大小写都算同一个，不另建；好几个同名先取 Pictures 下那只；托盘按最近装过排序、没装过的按最新一张；露角取最新、最多 5 张；已冲洗按天合并、只算还在图库里的。
+- `AppFilingLogDataSourceTest`：同一张再装一次覆盖旧记录、按时间倒序；超过 1000 条丢最旧的；撤回和失效清理删掉对应记录。
+- `FreeFileNameTest`（Android 8–9 同名改名）：没有同名原样；`IMG_1 (1).jpg`；序号被占往后找；没有扩展名 / 以点开头整个名字后加序号；多个点只把最后一段当扩展名。
+- `ContactSheetViewModelTest`：只显示这一天的收藏、按拍摄时间正序；装袋成功飞入、圈选清空、可撤回；系统授权被拒照片叠弹回、什么都不动；没放进去的保持圈选并提示；新袋子同名合并进已有文件夹；和 DCIM 下的相册同名时放进那个相册、不算新建；整理完出小结、下一天是更早的一天；已经在目标文件夹的照片不弹授权、照常算装好，撤回也不弹；混着已在目标的照片时只为真要移动的申请授权。
+- `PhotoRepositoryRefreshTest` 只接上 `AppFilingLogDataSource`；失效 id 的清理逻辑由 `AppFilingLogDataSourceTest`「撤回和失效清理」覆盖。
+
+### 仪器测试
+
+`app/src/androidTest/.../data/MediaStoreAlbumDataSourceTest`（只用测试自己建的 `Pictures/CsTestSrc*/`、`Pictures/CsTestDst*/`，结束删掉）：
+
+- `move_keepsIdAndMovesFile_thenUndoMovesBack`：移动后 _ID 不变、文件在新文件夹、内容不变；移回原处。
+- `move_sameNameInTarget_keepsBothFiles`：目标已有同名文件，移动后两份都在、内容各自不变、路径不同。
+- `move_alreadyInTarget_isNoOp`。
+
+```bash
+ANDROID_SERIAL=<emulator> ./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.winters.cleanphotos.data.MediaStoreAlbumDataSourceTest
+```
+
+2026-10-27 在 API 26 / 29 / 30 / 33 模拟器上通过；同名时四个版本都另起 `cs_dup (1).jpg`。
+
+### 手动 / 录屏验证（模拟器，测试图片）
+
+| 项目 | API 33 | API 30 | API 29 | API 26 |
+| --- | --- | --- | --- | --- |
+| 点袋子 / 拖进袋子、悬停 0.4 秒自动打开、飞入合盖、计数滚动 | ✓ | ✓ | ✓ | ✓ |
+| 授权 | 整批一次 | 整批一次（adb 推入、别的应用的文件） | 写权限一次（同组已授权时系统直接放行） | 同 29 |
+| 移动后 _ID 不变、文件在新文件夹 | ✓ | ✓ | ✓ | ✓ |
+| 撤回移回、不再弹授权、收藏回来 | ✓ | ✓ | ✓ | ✓ |
+| 同名：另起「名字 (1).jpg」，两份内容都在 | ✓ | ✓ | ✓ | ✓ |
+| 已在目标文件夹：不弹授权 | — | — | ✓ | — |
+| 托盘授权期间不先降下再升起；撤回胶囊出现时底部提示让开 | ✓ | ✓ | — | — |
+
+撤回胶囊只有 4 秒：用 adb 测撤回时，装袋和点撤回放在同一条 `adb shell "…; sleep 2.3; input tap …"` 里。
+

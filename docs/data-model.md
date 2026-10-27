@@ -772,6 +772,7 @@ app_seen_entries
 has_migrated_favorites
 review_swipe_action_count
 total_freed_bytes
+app_filing_log
 ```
 
 含义：
@@ -784,6 +785,7 @@ app_seen_entries：已看过的照片 ID 集合（Set<String>，每条为 photoI
 has_migrated_favorites：是否已完成系统 IS_FAVORITE 到 AppFavoriteStore 的一次性迁移（含迁移当时在系统垃圾桶里的收藏）
 review_swipe_action_count：累计成功的上滑 / 下滑处理次数（Int）。2026-10-23 起清理页不再根据它显示方向提示
 total_freed_bytes：累计已确认从垃圾桶永久删除的字节（Long）。只增不减。只计刷新后确认已从图库消失的照片（size 未知按 0）；进程重建后没有删除前快照的那一次不计入
+app_filing_log：印样表装袋记录（Set<String>，格式 "photoId|filedAt|dayKey|relativePath"，用 | 分隔是因为 dayKey 含逗号）。同一 photoId 只留最近一次，最多 1000 条，超出丢最旧的。格式非法直接抛错
 ```
 
 照片页不再读写 `trash_reminder_shown_at`。旧安装里如果还留着这个键，App 不管它。
@@ -798,6 +800,7 @@ app_seen_entries = emptySet()
 has_migrated_favorites = false
 review_swipe_action_count = 0
 total_freed_bytes = 0
+app_filing_log = emptySet()
 ```
 
 当用户第一次完成有效的向上或向下清理滑动后：
@@ -1256,3 +1259,89 @@ interface SimilarPhotoRepository {
 ### 文件大小文案
 
 `core/util/FileSizeFormatter`：1024 进制，< 10 保留一位小数，≥ 10 取整（「3.1 MB」「31 MB」「1.2 GB」）。
+
+***
+
+## 印样表 / 底片袋
+
+收藏页按天整理：把圈中的收藏移动到系统相册文件夹（底片袋），移出收藏并记一条装袋记录。见 product.md「整理（印样表 · 底片袋）」和 interaction.md「印样表交互」。
+
+### PhotoAlbum
+
+```kotlin
+data class PhotoAlbum(
+    val relativePath: String, // RELATIVE_PATH 格式，以 / 结尾，如 Pictures/旅行/
+    val name: String,         // 最后一级文件夹名
+    val count: Int,           // 照片和视频张数（不含 App 垃圾桶）
+    val recent: List<PhotoItem>, // 按拍摄时间倒序最多 5 张；第一张是露角
+)
+```
+
+### AlbumRules
+
+*   只有 `DCIM/`、`Pictures/` 下的子文件夹算袋子（根目录本身不算，含 `|` 的不算）。
+*   新袋子建在 `Pictures/<名字>/`。名字 trim 后非空、不是 `.` / `..`、不以点开头、≤ 64 字，不含 `/ \ : * ? " < > |` 和换行；输入框里直接去掉这些字符。
+*   `existingFor`：按文件夹名找同名袋子（两边都去掉首尾空白、忽略大小写，DCIM/ 和 Pictures/ 下都算），找到就合并进去，不另建；好几个同名时先取 `Pictures/<名字>/`，否则按托盘顺序取第一只。
+
+### FilingRecord / MovedPhoto / FilingOutcome / FiledDay
+
+```kotlin
+data class FilingRecord(val photoId: Long, val relativePath: String, val dayKey: String, val filedAt: Long)
+data class MovedPhoto(val photo: PhotoItem, val fromPath: String)
+data class FilingOutcome(
+    val relativePath: String,
+    val moved: List<MovedPhoto>,     // 移动成功（含本来就在目标里的）
+    val failed: List<PhotoItem>,     // 文件已不在、系统拒绝、目录不允许；仍在收藏里
+    val favoritedAt: Map<Long, Long>, // 移出收藏前的收藏时间，撤回时写回
+)
+data class FiledDay(val dayKey: String, val albums: List<FiledAlbumCount>, val photos: List<PhotoItem>, val lastFiledAt: Long)
+data class FiledAlbumCount(val name: String, val count: Int)
+```
+
+*   `dayKey` 是照片在收藏页所属的天（`PhotoItem.dateGroup`）。
+*   `FiledDay` 只算还在图库里的记录；按天合并，袋子按张数降序，天按最后一次装袋时间倒序。
+
+### 页面状态
+
+*   `FavoritesUiState` 新增 `pendingDays: Int`（日期分组数）和 `filedDays: List<FiledDay>`。
+*   `ContactSheetUiState(dayKey, date, photos, circled, albums, systemFavorite, systemFavoriteSupported, loaded, busy, undo, summary, message)`：`photos` 为这一天还在收藏里的照片，按拍摄时间正序；`summary` 只在这一天已没有待整理且本次进入做过动作时非空。
+*   `ContactSheetEffect`：`LaunchSystemAction`（MoveToAlbum / SystemFavorite）、`RequestWritePermission`（8–10）、`Flight(seq, photos, relativePath)`、`Bounce`。
+*   `SystemMediaActionType` 新增 `MoveToAlbum`（createWriteRequest）和 `SystemFavorite`（createFavoriteRequest）。
+
+### AlbumRepository
+
+```kotlin
+interface AlbumRepository {
+    fun observeFilingLog(): Flow<List<FilingRecord>>
+    suspend fun prepareMove(photos: List<PhotoItem>): PhotoOperationResult
+    suspend fun fileToAlbum(photos: List<PhotoItem>, relativePath: String): FilingOutcome
+    suspend fun undoFiling(outcome: FilingOutcome): List<PhotoItem> // 返回移回失败的
+    suspend fun systemFavoriteRequest(photos: List<PhotoItem>): PhotoOperationResult?
+}
+```
+
+*   `prepareMove`：8–10 没有写权限 → `Failure(WritePermissionRequired)`；11+ 有还没授权的 → `NeedSystemApproval(MoveToAlbum)`；否则 `Success`。ViewModel 只把真要换文件夹的照片传进来（已经在目标里的不传），一张都不用移时不调用。
+*   `fileToAlbum`：逐张移动（没有 relativePath 的不动，算失败）；成功的在同一次 DataStore edit 里移出收藏、记下收藏时间、写装袋记录；然后刷新照片。
+*   `undoFiling`：逐张移回 `fromPath`；成功的写回收藏时间、删掉记录；然后刷新照片。
+*   `PhotoRepositoryImpl.refreshPhotos` 在完整授权时把失效 id 的装袋记录也清掉（Favorite → Seen → Trash → 装袋记录）。
+
+### UseCase
+
+```text
+BuildAlbumsUseCase(library, log)：图库按文件夹分组，只留袋子路径；最近装过的在前，其余按最新一张拍摄时间
+BuildFiledDaysUseCase(log, library)：收藏页「已冲洗」
+ObserveFilingLogUseCase
+PrepareAlbumMoveUseCase
+FilePhotosToAlbumUseCase(photos, relativePath)：photos 不能为空、relativePath 必须是袋子路径（require）
+UndoFilingUseCase
+RequestSystemFavoriteUseCase：Android 10 及以下返回 null
+```
+
+### DataSource
+
+*   `AppFilingLogDataSource`：`observeEntries`（按 filedAt 倒序）、`upsertIn` / `removeIn` / `removeMissingIn`（在调用方的 DataStore edit 里改）。
+*   `MediaStoreAlbumDataSource`：
+    *   `writeRequest(photos)`：11+ 只为还没有写授权的 uri 建 `createWriteRequest`，全有了返回 null。
+    *   `favoriteRequest(photos)`：11+ `createFavoriteRequest(..., true)`。
+    *   `move(photo, targetPath)`：已经在目标（忽略大小写）直接 true。10+ 改 `RELATIVE_PATH` 后读回确认；8–9 `File.renameTo` 后写回 `DATA` + `DISPLAY_NAME`，写媒体库失败或抛错时把文件改回原处。目标有同名文件时另起「名字 (1).jpg」（10+ 媒体库自己起名，8–9 用 `freeFileName`）。任何异常记日志返回 false，不影响同批其它照片。
+
