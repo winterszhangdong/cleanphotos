@@ -83,19 +83,14 @@ internal class FilingVisuals {
         private set
     val tagOut = Animatable(0f)
 
+    /** 托盘里刚点 / 刚松手的袋子，点下那一刻的张数和露角（等授权、等飞入；飞入接手或被拒绝后清掉）。 */
+    var trayPicked by mutableStateOf<HeldEnvelope?>(null)
+
     // —— 相册面板 ——
-    /** 拖着照片叠打开了面板：悬停改成判定面板里的行。 */
-    var sheetMode by mutableStateOf(false)
-    /** 面板里手指下的行（路径或 [NEW_ROW_KEY]）。 */
-    var sheetHovered by mutableStateOf<String?>(null)
-    /** 面板升起时手指的位置：至少再移动 [sheetArmPx] 才开始判定行。 */
-    var sheetArmFrom: Offset? = null
-    var sheetArmPx = 0f
-    val rowRects = HashMap<String, Rect>()
-    /** 行里迷你袋子的根坐标边界（飞入的袋口）。 */
-    val rowMouthRects = HashMap<String, Rect>()
-    var sheetList: Rect? = null
-    var sheetRect: Rect? = null
+    /** 面板里刚点的那一行（等授权时整行高亮、相片叠打开；被拒绝后清掉）。 */
+    var sheetPicked by mutableStateOf<String?>(null)
+    /** 行里相片卡座的根坐标边界（飞入的落点在最上面那张相片）。 */
+    val rowHolderRects = HashMap<String, Rect>()
     /** 停靠小叠的根坐标中心。 */
     var parkAt: Offset? = null
 
@@ -103,8 +98,6 @@ internal class FilingVisuals {
     var autoScrolling = false
     /** 进入一个新目标（触感）。 */
     var onEnter: (String) -> Unit = {}
-    /** 在「还有 N 个」上停够了：打开面板。 */
-    var onMoreDwell: () -> Unit = {}
     private var dwellJob: Job? = null
     private var tagJob: Job? = null
 
@@ -136,10 +129,6 @@ internal class FilingVisuals {
     /** 手指移动：换了目标就重新计时；停够 [FilingMotion.ENVELOPE_DWELL] 自己打开。 */
     suspend fun updateHover(pointer: Offset, scope: kotlinx.coroutines.CoroutineScope, slop: Float) {
         if (autoScrolling) return
-        if (sheetMode) {
-            updateSheetHover(pointer)
-            return
-        }
         val row = trayRow?.inflate(slop)
         val target = if (row == null || !row.contains(pointer)) null else envelopeRects.entries
             .filter { (_, r) -> r.inflate(slop).contains(pointer) && r.overlaps(row) }
@@ -156,28 +145,11 @@ internal class FilingVisuals {
         if (target == null) return
         dwellJob = scope.launch {
             launch { leanIn.animateTo(1f, MotionSprings.Gentle.spec()) }
-            // 新袋子没有照片可露：只倾斜，不计时
-            if (target == NEW_ENVELOPE_KEY) return@launch
+            // 新袋子没有照片可露、「还有 N 个」只在松手时打开（用户 2026-10-27 决定）：只倾斜，不计时
+            if (target == NEW_ENVELOPE_KEY || target == MORE_KEY) return@launch
             dwell.animateTo(1f, tween(FilingMotion.ENVELOPE_DWELL, easing = LinearEasing))
-            if (target == MORE_KEY) {
-                onMoreDwell()
-                return@launch
-            }
             hoverFan.animateTo(1f, MotionSprings.Settle.spec())
         }
-    }
-
-    private fun updateSheetHover(pointer: Offset) {
-        sheetArmFrom?.let { from ->
-            if ((pointer - from).getDistance() < sheetArmPx) return
-            sheetArmFrom = null
-        }
-        val list = sheetList
-        val target = if (list == null || !list.contains(pointer)) null else rowRects.entries
-            .firstOrNull { (_, r) -> r.contains(pointer) }?.key
-        if (target == sheetHovered) return
-        sheetHovered = target
-        if (target != null) onEnter(target)
     }
 
     /** 名签：旧签缩回（SHORT 加速离场）、新签弹出（Snappy）同时进行。 */
@@ -204,7 +176,6 @@ internal class FilingVisuals {
     suspend fun clearHover(scope: kotlinx.coroutines.CoroutineScope? = null) {
         dwellJob?.cancel()
         hovered = null
-        sheetHovered = null
         if (scope != null) showTag(null, scope) else {
             tagKey = null
             tagOutKey = null
@@ -269,7 +240,7 @@ internal fun liftProgress(lift: Float, index: Int, duration: Int): Float {
 /**
  * 一次飞入。[starts] 是圈中照片在胶片上的位置（点袋子时从这里起飞、先收成一叠）；
  * [stackAt] 不为空时照片叠已经在手指下（拖进袋子），直接从那里入袋。
- * 合盖之前袋子上停在 [heldCount] / [heldCover]，合上那一刻 [released]，计数开始滚、露角换新。
+ * 合盖之前袋子上停在 [heldCount] / [heldCover]（面板的行停在 [heldPrints]），合上那一刻 [released]，计数开始滚、露角 / 封面换新。
  */
 internal class FlightRun(
     val seq: Long,
@@ -280,14 +251,18 @@ internal class FlightRun(
     val stackAt: Offset?,
     val heldCount: Int,
     val heldCover: PhotoItem?,
-    /** 飞进相册面板里那一行的迷你袋子（而不是托盘里的袋子）。 */
+    /** 飞进相册面板里那一行的相片叠（而不是托盘里的袋子）。 */
     val intoSheet: Boolean = false,
+    /** 面板行飞入前的相片（[SheetPrints.of]）。 */
+    val heldPrints: List<PhotoItem> = emptyList(),
 ) {
     val ids: Set<Long> = photos.mapTo(HashSet()) { it.id }
     val gather = Animatable(if (stackAt != null) 1f else 0f)
     val insert = Animatable(0f)
     val flap = Animatable(0f)
     val bump = Animatable(0f)
+    /** 落进面板行之后飞行的相片淡出（和新封面交叉）。 */
+    val fade = Animatable(1f)
     var released by mutableStateOf(false)
     var finished by mutableStateOf(false)
 
@@ -305,29 +280,33 @@ internal class FlightRun(
             onClosed()
             released = true
         }
-        delay(FilingMotion.FLAP_REOPEN_DELAY.toLong())
-        flap.animateTo(0f, MotionSprings.Settle.spec())
+        coroutineScope {
+            if (intoSheet) launch { fade.animateTo(0f, tween(FilingMotion.SHEET_LAND_FADE, easing = LinearEasing)) }
+            delay(FilingMotion.FLAP_REOPEN_DELAY.toLong())
+            flap.animateTo(0f, MotionSprings.Settle.spec())
+        }
         finished = true
     }
 }
 
-/**
- * 照片叠的落点：拖动时在手指左上方 [offset]（手指和它下面的袋子露出来），中心横向不小于 [minX]。
- */
-internal fun stackCenter(pointer: Offset, offset: Offset, minX: Float): Offset =
-    Offset((pointer.x + offset.x).coerceAtLeast(minX), pointer.y + offset.y)
+/** 照片叠的落点：拖动时浮在指尖，中心在手指正上方 [lift]（横向跟手指对齐，不夹边）。 */
+internal fun stackCenter(pointer: Offset, lift: Float): Offset = Offset(pointer.x, pointer.y - lift)
 
 /** 点袋子起飞时照片叠停在托盘上方正中。 */
 internal fun restingStackCenter(trayTop: Float, screenWidth: Float, lift: Float): Offset =
     Offset(screenWidth / 2f, trayTop - lift * 2.4f)
 
-/** 拖动时照片叠相对手指的偏移（px）和最小横坐标。 */
-internal class StackPlacement(val offset: Offset, val minX: Float) {
-    fun center(pointer: Offset): Offset = stackCenter(pointer, offset, minX)
+/** 拖动时照片叠在手指正上方多少（px）。 */
+internal class StackPlacement(val lift: Float) {
+    fun center(pointer: Offset): Offset = stackCenter(pointer, lift)
+    /** 停靠小叠散开时，让叠从 [stack] 这一点出发：反推手指的位置。 */
+    fun pointerFor(stack: Offset): Offset = Offset(stack.x, stack.y + lift)
 }
 
 /**
  * 飞行层：铺满屏幕，坐标与根坐标差 [origin]。入袋阶段按袋口那条线裁掉下面，照片看上去是塞进了袋子正面后面。
+ * [land] 不为空时是飞进面板的一行：不裁，缩到 [landScale] 落在最上面那张相片的位置（层坐标），
+ * 相片收拢时跟着下沉 [landSink]，落定后淡出、新封面露出来。
  */
 @Composable
 internal fun FlightLayer(
@@ -338,6 +317,9 @@ internal fun FlightLayer(
     stackPoint: Offset,
     mouthY: Dp = EnvelopeGeometry.MouthY,
     mouthScale: Float = FilingMotion.MOUTH_SCALE,
+    land: Offset? = null,
+    landScale: Float = 1f,
+    landSink: Float = 0f,
 ) {
     val density = LocalDensity.current
     val (fw, fh) = frameSize
@@ -348,7 +330,7 @@ internal fun FlightLayer(
         Modifier
             .fillMaxSize()
             .drawWithContent {
-                if (run.insert.value > 0f) clipRect(bottom = mouthTop) { this@drawWithContent.drawContent() } else drawContent()
+                if (land == null && run.insert.value > 0f) clipRect(bottom = mouthTop) { this@drawWithContent.drawContent() } else drawContent()
             },
     ) {
         run.photos.take(MAX_FLYERS).forEachIndexed { i, photo ->
@@ -372,10 +354,11 @@ internal fun FlightLayer(
                         val ins = run.insert.value
                         val from = (start?.center ?: stackPoint + origin) - origin
                         val stack = stackPoint
-                        val mouthC = Offset(mouth.center.x - origin.x, mouthTop + hPx * mouthScale * 0.6f)
+                        val mouthC = land?.let { Offset(it.x, it.y + landSink * run.flap.value) }
+                            ?: Offset(mouth.center.x - origin.x, mouthTop + hPx * mouthScale * 0.6f)
                         val c = lerp(lerp(from, stack, g), mouthC, ins)
                         val startScale = (start?.width ?: wPx) / wPx
-                        val scale = lerpF(lerpF(startScale, FilingMotion.STACK_SCALE, g), mouthScale, ins)
+                        val scale = lerpF(lerpF(startScale, FilingMotion.STACK_SCALE, g), if (land != null) landScale else mouthScale, ins)
                         translationX = c.x - wPx / 2f
                         translationY = c.y - hPx / 2f
                         scaleX = scale
@@ -384,7 +367,7 @@ internal fun FlightLayer(
                         val r = FilingMotion.STACK_ROTATIONS[i % FilingMotion.STACK_ROTATIONS.size]
                         rotationZ = lerpF(r * g, 0f, ins)
                         rotationX = lerpF(FilingMotion.STACK_TILT * g, 0f, ins)
-                        alpha = if (run.finished) 0f else 1f
+                        alpha = if (land != null) run.fade.value else if (run.finished) 0f else 1f
                     },
             )
         }

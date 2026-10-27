@@ -178,12 +178,17 @@ internal fun FilingTray(
             items(albums.take(TrayRules.LIMIT), key = { it.relativePath }) { album ->
                 val path = album.relativePath
                 val flight = visuals.flight?.takeIf { it.relativePath == path && !it.intoSheet }
+                // 从点下 / 松手到合盖都停在放进去之前的张数和露角（授权通过后相册数据先于飞入更新），合盖那一刻再滚
+                val shown = HeldEnvelope.shown(
+                    album = album,
+                    picked = visuals.trayPicked,
+                    inFlight = flight?.takeIf { !it.released }?.let { HeldEnvelope(path, it.heldCount, it.heldCover) },
+                )
                 TrackRect(visuals.envelopeRects, path)
                 Envelope(
                     name = album.name,
-                    // 飞入途中先停在放进去之前的张数和露角，合盖那一刻再滚
-                    count = if (flight != null && !flight.released) flight.heldCount else album.count,
-                    cover = if (flight != null && !flight.released) flight.heldCover else album.recent.firstOrNull(),
+                    count = shown.count,
+                    cover = shown.cover,
                     state = visuals.stateFor(path),
                     modifier = Modifier
                         .animateItem(
@@ -405,7 +410,7 @@ internal fun TrackRect(rects: MutableMap<String, Rect>, key: String) {
 
 /**
  * 「还有 N 个」：和袋子同一个 76×104 占位，`Tray2` 底 + `Rim2` 描边；背后错开两只压暗的牛皮纸袋子边，
- * 正中放大镜 +「还有 N 个」+ mono「搜索」。悬停时和袋子一样倾斜、外沿走计时线。
+ * 正中放大镜 +「还有 N 个」+ mono「搜索」。悬停时和袋子一样倾斜、弹名签，不计时、不自己打开（松手或点它才打开面板）。
  */
 @Composable
 private fun MoreCard(count: Int, state: EnvelopeState, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -497,16 +502,7 @@ private fun NewEnvelope(dim: () -> Float, onClick: () -> Unit, modifier: Modifie
 /** 白边小相片（露角 / 扇形滑出的照片）。 */
 @Composable
 internal fun Print(photo: PhotoItem, modifier: Modifier = Modifier, size: Dp = EnvelopeGeometry.Print, lift: () -> Float = { 0f }) {
-    val context = LocalContext.current
-    val model = remember(photo.id) {
-        ImageRequest.Builder(context)
-            .data(GridThumb(photo.uri))
-            .memoryCacheKey(photoThumbKey(photo.id))
-            .placeholderMemoryCacheKey(photoThumbKey(photo.id))
-            .allowRgb565(true)
-            .crossfade(false)
-            .build()
-    }
+    val model = rememberThumbModel(photo)
     Box(
         modifier
             .size(size)
@@ -518,6 +514,24 @@ internal fun Print(photo: PhotoItem, modifier: Modifier = Modifier, size: Dp = E
             .padding(EnvelopeGeometry.PrintBorder),
     ) {
         AsyncImage(model = model, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+    }
+}
+
+/**
+ * 袋子 / 面板行里小相片的取图请求：走系统缩略图（按显示尺寸解码、RGB565），和胶片格子共用内存缓存 key，
+ * 已经解码过的直接命中；不交叉淡入，滚动列表时不额外动画。
+ */
+@Composable
+internal fun rememberThumbModel(photo: PhotoItem): ImageRequest {
+    val context = LocalContext.current
+    return remember(photo.id) {
+        ImageRequest.Builder(context)
+            .data(GridThumb(photo.uri))
+            .memoryCacheKey(photoThumbKey(photo.id))
+            .placeholderMemoryCacheKey(photoThumbKey(photo.id))
+            .allowRgb565(true)
+            .crossfade(false)
+            .build()
     }
 }
 

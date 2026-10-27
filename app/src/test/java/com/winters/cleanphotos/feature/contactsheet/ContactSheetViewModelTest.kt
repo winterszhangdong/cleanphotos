@@ -130,6 +130,58 @@ class ContactSheetViewModelTest {
     }
 
     @Test
+    fun `面板里选了相册被拒_圈选保留_再选一次能放进去`() = runTest(dispatcher) {
+        albums.prepareResult = PhotoOperationResult.NeedSystemApproval(
+            SystemMediaActionRequest(emptyList(), SystemMediaActionType.MoveToAlbum, "t", mockk(relaxed = true)),
+        )
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onToggle(1)
+        vm.effects.test {
+            vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+            advanceUntilIdle()
+            assertTrue(awaitItem() is ContactSheetEffect.LaunchSystemAction)
+            vm.onSystemMediaActionResult(approved = false)
+            assertEquals(ContactSheetEffect.Bounce, awaitItem())
+            assertEquals(setOf(1L), vm.uiState.value.circled)
+            assertTrue(!vm.uiState.value.busy)
+            // 用户点错了：面板还开着，再选一次（这次允许）
+            vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+            advanceUntilIdle()
+            assertTrue(awaitItem() is ContactSheetEffect.LaunchSystemAction)
+            vm.onSystemMediaActionResult(approved = true)
+            advanceUntilIdle()
+            assertTrue(awaitItem() is ContactSheetEffect.Flight)
+        }
+        assertEquals(listOf(listOf(1L) to travel), albums.filed)
+    }
+
+    @Test
+    fun `从面板新建相册被拒_圈选保留_再确认一次能建好`() = runTest(dispatcher) {
+        albums.prepareResult = PhotoOperationResult.NeedSystemApproval(
+            SystemMediaActionRequest(emptyList(), SystemMediaActionType.MoveToAlbum, "t", mockk(relaxed = true)),
+        )
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onToggle(1)
+        vm.effects.test {
+            vm.onFile(SheetTarget.New("秋天的海"))
+            advanceUntilIdle()
+            assertTrue(awaitItem() is ContactSheetEffect.LaunchSystemAction)
+            vm.onSystemMediaActionResult(approved = false)
+            assertEquals(ContactSheetEffect.Bounce, awaitItem())
+            assertEquals(setOf(1L), vm.uiState.value.circled)
+            vm.onFile(SheetTarget.New("秋天的海"))
+            advanceUntilIdle()
+            assertTrue(awaitItem() is ContactSheetEffect.LaunchSystemAction)
+            vm.onSystemMediaActionResult(approved = true)
+            advanceUntilIdle()
+            assertTrue(awaitItem() is ContactSheetEffect.Flight)
+        }
+        assertEquals("Pictures/秋天的海/", albums.filed.single().second)
+    }
+
+    @Test
     fun `没放进去的照片保持圈选并提示`() = runTest(dispatcher) {
         albums.failIds = setOf(2L)
         val vm = vm()

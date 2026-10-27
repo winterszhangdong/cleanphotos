@@ -86,8 +86,22 @@ private sealed interface Launch {
     val heldCount: Int
     val heldCover: PhotoItem?
     val intoSheet: Boolean
-    data class Frames(val rects: Map<Long, Rect>, override val heldCount: Int, override val heldCover: PhotoItem?, override val intoSheet: Boolean = false) : Launch
-    data class Stack(val at: Offset, override val heldCount: Int, override val heldCover: PhotoItem?, override val intoSheet: Boolean = false) : Launch
+    /** 面板行飞入前的相片（[SheetPrints.of]）。 */
+    val heldPrints: List<PhotoItem>
+    data class Frames(
+        val rects: Map<Long, Rect>,
+        override val heldCount: Int,
+        override val heldCover: PhotoItem?,
+        override val intoSheet: Boolean = false,
+        override val heldPrints: List<PhotoItem> = emptyList(),
+    ) : Launch
+    data class Stack(
+        val at: Offset,
+        override val heldCount: Int,
+        override val heldCover: PhotoItem?,
+        override val intoSheet: Boolean = false,
+        override val heldPrints: List<PhotoItem> = emptyList(),
+    ) : Launch
 }
 
 @Composable
@@ -135,11 +149,9 @@ internal fun ContactSheetScreen(
             entering = false
         }
     }
-    val stackLift = with(density) { 36.dp.toPx() }
+    val stackLift = with(density) { FilingMotion.StackLift.toPx() }
     val slop = with(density) { 8.dp.toPx() }
-    val placement = remember(density) {
-        with(density) { StackPlacement(Offset(FilingMotion.StackOffsetX.toPx(), FilingMotion.StackOffsetY.toPx()), FilingMotion.StackMinX.toPx()) }
-    }
+    val placement = remember(stackLift) { StackPlacement(stackLift) }
 
     fun albumBefore(path: String): PhotoAlbum? = state.albums.firstOrNull { it.relativePath == path }
 
@@ -154,7 +166,7 @@ internal fun ContactSheetScreen(
         if (drag.returning) return
         // 停靠着的小叠从标题左边散开
         if (parked) {
-            visuals.parkAt?.let { drag.pointer = it - placement.offset }
+            visuals.parkAt?.let { drag.pointer = placement.pointerFor(it) }
             parked = false
         }
         scope.launch {
@@ -166,18 +178,16 @@ internal fun ContactSheetScreen(
     fun fileFromFrames(album: PhotoAlbum) {
         if (!canFile()) return
         launch = Launch.Frames(circledRects(), album.count, album.recent.firstOrNull())
+        visuals.trayPicked = HeldEnvelope.of(album)
         onFile(SheetTarget.Existing(album))
     }
 
-    fun openSheet(dragging: Boolean) {
+    /** 点「还有 N 个」或把照片叠松在上面：面板升起（拖动中不会自己打开，用户 2026-10-27 决定）。 */
+    fun openSheet() {
         if (sheetOpen && sheetAnim.targetValue == 1f) return
         query = ""
         sheetOpen = true
-        visuals.sheetMode = dragging
-        if (dragging) {
-            Haptics.thresholdActivate(view)
-            visuals.sheetArmFrom = visuals.drag?.pointer
-        }
+        visuals.sheetPicked = null
         scope.launch {
             visuals.clearHover(scope)
             sheetListState.scrollToItem(0)
@@ -186,8 +196,7 @@ internal fun ContactSheetScreen(
     }
 
     suspend fun closeSheet() {
-        visuals.sheetMode = false
-        visuals.sheetHovered = null
+        visuals.sheetPicked = null
         sheetAnim.animateTo(0f, MotionSprings.Settle.spec())
         sheetOpen = false
     }
@@ -204,9 +213,7 @@ internal fun ContactSheetScreen(
         namingOpen = true
     }
 
-    visuals.sheetArmPx = slop
     visuals.onEnter = { Haptics.hoverTick(view) }
-    visuals.onMoreDwell = { openSheet(dragging = true) }
 
     BoxWithConstraints(
         Modifier
@@ -264,33 +271,6 @@ internal fun ContactSheetScreen(
                     onDrop = {
                         val drag = visuals.drag
                         if (drag == null) return@SheetGestureCallbacks
-                        if (visuals.sheetMode) {
-                            // 面板里松手：行 = 放进去；面板里别处 = 停靠；面板上方 = 面板降下、照片落回
-                            val row = visuals.sheetHovered
-                            visuals.sheetMode = false
-                            scope.launch { visuals.clearHover() }
-                            val album = row?.let(::albumBefore)
-                            when {
-                                row == NEW_ROW_KEY -> {
-                                    val name = AlbumSearch.createName(state.albums, query)
-                                    if (name == null) {
-                                        parked = true
-                                    } else {
-                                        visuals.drag = null
-                                        startNaming(name, placement.center(drag.pointer))
-                                        scope.launch { closeSheet() }
-                                    }
-                                }
-                                album != null && canFile() -> {
-                                    launch = Launch.Stack(placement.center(drag.pointer) - origin, album.count, album.recent.firstOrNull(), intoSheet = true)
-                                    onFile(SheetTarget.Existing(album))
-                                }
-                                album != null -> parked = true
-                                visuals.sheetRect?.contains(drag.pointer) == true -> parked = true
-                                else -> dismissSheet()
-                            }
-                            return@SheetGestureCallbacks
-                        }
                         val target = visuals.hovered
                         scope.launch { visuals.clearHover() }
                         when (target) {
@@ -301,7 +281,7 @@ internal fun ContactSheetScreen(
                             MORE_KEY -> {
                                 // 在「还有 N 个」上松手：打开面板，照片叠停靠在标题左边等点一行
                                 parked = true
-                                openSheet(dragging = false)
+                                openSheet()
                             }
                             null -> putBack(drag)
                             else -> {
@@ -310,6 +290,7 @@ internal fun ContactSheetScreen(
                                     putBack(drag)
                                 } else {
                                     launch = Launch.Stack(placement.center(drag.pointer) - origin, album.count, album.recent.firstOrNull())
+                                    visuals.trayPicked = HeldEnvelope.of(album)
                                     onFile(SheetTarget.Existing(album))
                                 }
                             }
@@ -375,7 +356,7 @@ internal fun ContactSheetScreen(
                 onUnfavorite = onUnfavorite,
                 onFile = ::fileFromFrames,
                 onNew = { startNaming("", null) },
-                onMore = { openSheet(dragging = false) },
+                onMore = { openSheet() },
                 onPeek = { album ->
                     Haptics.longPress(view)
                     visuals.peek = album
@@ -415,27 +396,22 @@ internal fun ContactSheetScreen(
                 visuals = visuals,
                 listState = sheetListState,
                 parked = visuals.drag?.takeIf { parked },
-                showPark = parked || visuals.sheetMode,
                 now = now,
                 onPick = { album ->
                     if (canFile()) {
+                        visuals.sheetPicked = album.relativePath
                         val drag = visuals.drag
                         launch = if (parked && drag != null) {
-                            Launch.Stack((visuals.parkAt ?: placement.center(drag.pointer)) - origin, album.count, album.recent.firstOrNull(), intoSheet = true)
+                            Launch.Stack((visuals.parkAt ?: placement.center(drag.pointer)) - origin, album.count, album.recent.firstOrNull(), intoSheet = true, heldPrints = SheetPrints.of(album.recent))
                         } else {
-                            Launch.Frames(circledRects(), album.count, album.recent.firstOrNull(), intoSheet = true)
+                            Launch.Frames(circledRects(), album.count, album.recent.firstOrNull(), intoSheet = true, heldPrints = SheetPrints.of(album.recent))
                         }
                         onFile(SheetTarget.Existing(album))
                     }
                 },
+                // 新袋子页盖在面板上面，面板和停靠的照片叠留着：取消或授权被拒都回到面板（用户 2026-10-27 决定）
                 onCreate = { name ->
-                    val at = if (parked) visuals.parkAt else null
-                    if (parked) {
-                        parked = false
-                        visuals.drag = null
-                    }
-                    startNaming(name, at)
-                    scope.launch { closeSheet() }
+                    startNaming(name, if (parked) visuals.parkAt else null)
                 },
                 onDismiss = ::dismissSheet,
             )
@@ -443,10 +419,24 @@ internal fun ContactSheetScreen(
 
         visuals.drag?.let { drag ->
             DragStackLayer(drag, origin, frameSize, placement, hidden = { parked })
-            if (!visuals.sheetMode && !parked) {
+            if (!parked) {
                 val newLabel = stringResource(R.string.envelope_new)
                 val moreLabel = pluralStringResource(R.plurals.tray_more, state.moreCount, state.moreCount)
-                HoverTagLayer(visuals, drag, origin, screenW) { key ->
+                // 名签让开浮在指尖上方的照片叠：叠上沿再往上 TagStackGap
+                val tagGap = with(density) {
+                    TagPlacement.fingerGap(
+                        lift = stackLift,
+                        stackHalfHeight = TagPlacement.stackHalfHeight(
+                            frameW = frameSize.first.toPx(),
+                            frameH = frameSize.second.toPx(),
+                            scale = FilingMotion.STACK_SCALE,
+                            maxRotationDeg = FilingMotion.STACK_ROTATIONS.maxOf { kotlin.math.abs(it) },
+                            badgeHalf = 10.dp.toPx(),
+                        ),
+                        gap = FilingMotion.TagStackGap.toPx(),
+                    )
+                }
+                HoverTagLayer(visuals, drag, origin, screenW, tagGap) { key ->
                     when (key) {
                         NEW_ENVELOPE_KEY -> newLabel
                         MORE_KEY -> moreLabel
@@ -459,8 +449,12 @@ internal fun ContactSheetScreen(
         visuals.flight?.let { run ->
             val stackPoint = run.stackAt ?: restingStackCenter(trayTop, screenW, stackLift)
             if (run.intoSheet) {
-                visuals.rowMouthRects[run.relativePath]?.let { mouth ->
-                    FlightLayer(run, origin, frameSize, mouth, stackPoint, mouthY = MiniEnvelope.MouthY, mouthScale = FilingMotion.MINI_MOUTH_SCALE)
+                visuals.rowHolderRects[run.relativePath]?.let { holder ->
+                    // 落点 = 行里最上面那张相片（打开时上浮的位置），缩到相片的图片宽
+                    val land = PrintHolder.landCenter(holder, density) - origin
+                    val landScale = with(density) { (PrintHolder.PrintWidth - PrintHolder.PrintBorder * 2).toPx() / frameSize.first.toPx() }
+                    val sink = with(density) { PrintHolder.OpenLift.toPx() }
+                    FlightLayer(run, origin, frameSize, holder, stackPoint, land = land, landScale = landScale, landSink = sink)
                 }
             } else {
                 val mouth = visuals.envelopeRects[run.relativePath] ?: visuals.envelopeRects[NEW_ENVELOPE_KEY]
@@ -538,14 +532,13 @@ internal fun ContactSheetScreen(
     }
     BackHandler(sheetOpen && !namingOpen) { dismissSheet() }
 
-    // 贴边自动滚动：拖动期间每帧推进；只让托盘这一行（或面板列表）自己滚动布局，滚动中不判定悬停
+    // 贴边自动滚动：拖动期间每帧推进；只让托盘这一行自己滚动布局，滚动中不判定悬停
     val dragging = visuals.drag
     LaunchedEffect(dragging) {
         val drag = dragging ?: return@LaunchedEffect
         val scroller = EdgeScroller()
         val zone = with(density) { FilingMotion.EdgeZone.toPx() }
         val band = with(density) { FilingMotion.EdgeBand.toPx() }
-        val sheetZone = with(density) { FilingMotion.SheetEdgeZone.toPx() }
         var last = 0L
         try {
             while (true) {
@@ -553,17 +546,14 @@ internal fun ContactSheetScreen(
                 val dt = if (last == 0L) 0f else ((frame - last) / 1_000_000f).coerceAtMost(48f)
                 last = frame
                 val p = drag.pointer
-                val sheet = visuals.sheetMode
                 val depth = when {
                     drag.returning || parked -> 0f
-                    sheet -> visuals.sheetList?.takeIf { p.x in it.left..it.right }?.let { EdgeScroll.depth(p.y, it.top, it.bottom, sheetZone) } ?: 0f
                     else -> visuals.trayRow?.takeIf { p.y in (it.top - band)..(it.bottom + band) }?.let { EdgeScroll.depth(p.x, it.left, it.right, zone) } ?: 0f
                 }
                 val dDp = scroller.step(depth, dt)
                 var scrolling = false
                 if (dDp != 0f) {
-                    val list = if (sheet) sheetListState else trayRowState
-                    val consumed = list.dispatchRawDelta(dDp * density.density)
+                    val consumed = trayRowState.dispatchRawDelta(dDp * density.density)
                     if (kotlin.math.abs(consumed) < 0.01f) scroller.hitEnd() else scrolling = true
                 }
                 if (scrolling != visuals.autoScrolling) {
@@ -594,11 +584,21 @@ internal fun ContactSheetScreen(
                         heldCount = l?.heldCount ?: 0,
                         heldCover = l?.heldCover,
                         intoSheet = intoSheet,
+                        heldPrints = l?.heldPrints.orEmpty(),
                     )
+                    val closeFirst = sheetOpen && !intoSheet
                     visuals.drag = null
                     parked = false
-                    visuals.flight = run
                     scope.launch {
+                        // 从面板里新建的相册飞进托盘：托盘这一行先在面板下面回到开头（新相册排在第一格），面板再降下露出托盘
+                        if (closeFirst) {
+                            trayRowState.scrollToItem(0)
+                            closeSheet()
+                        }
+                        visuals.flight = run
+                        // 面板行 / 托盘袋子停在点下那一刻的张数和相片交给飞入接着管，中间不空一帧
+                        visuals.sheetPicked = null
+                        visuals.trayPicked = null
                         run.play(onClosed = { Haptics.thresholdActivate(view) })
                         // 面板里装完：翻开后 300ms 面板降下，然后托盘重新排序
                         if (run.intoSheet && sheetOpen) {
@@ -613,15 +613,12 @@ internal fun ContactSheetScreen(
                 }
                 ContactSheetEffect.Bounce -> {
                     launch = null
-                    val drag = visuals.drag
+                    visuals.trayPicked = null
                     if (sheetOpen) {
-                        // 面板先降下，再落回
-                        scope.launch {
-                            closeSheet()
-                            drag?.let(::putBack)
-                        }
+                        // 面板里被拒绝（可能点错了）：面板留着，照片叠仍停靠在标题左边、圈选保留，可以再选或关掉（用户 2026-10-27 决定）
+                        visuals.sheetPicked = null
                     } else {
-                        drag?.let(::putBack)
+                        visuals.drag?.let(::putBack)
                     }
                 }
                 else -> error("页面只处理飞入和收起：$e")

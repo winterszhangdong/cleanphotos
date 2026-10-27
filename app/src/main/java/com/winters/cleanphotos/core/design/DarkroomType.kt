@@ -256,6 +256,8 @@ object DarkroomText {
     val SheetRowMeta = MonoBase.copy(fontSize = 11.sp, lineHeight = 15.sp, color = DarkroomColors.Dim).cssLines()
     val SheetRowTime = MonoBase.copy(fontSize = 11.sp, lineHeight = 15.sp, color = DarkroomColors.Faint).cssLines()
     val SheetSearch = Sans.copy(fontSize = 14.sp, lineHeight = 20.sp, color = DarkroomColors.Paper).cssLines()
+    /** 照片叠停靠在面板标题旁时的一行提示 12/16 dim。 */
+    val SheetParkedHint = Sans.copy(fontSize = 12.sp, lineHeight = 16.sp, color = DarkroomColors.Dim).cssLines()
     /** 偷看名牌 17/24 600。 */
     val PeekName = Sans.copy(fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold).cssLines()
     /** 拖动提示胶囊 12.5 500。 */

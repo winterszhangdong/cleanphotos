@@ -232,6 +232,7 @@
     <string name="tray_more_search">搜索</string>
     <string name="sheet_search_hint">搜索相册</string>
     <string name="sheet_search_clear">清空</string>
+    <string name="sheet_parked_hint">点一个相册放进去</string>
     <string name="sheet_create">新建「%1$s」</string>
     <string name="sheet_row_meta">%1$s · %2$s</string>
     <string name="sheet_time_today">今天</string>

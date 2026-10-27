@@ -253,6 +253,7 @@
     <string name="tray_more_search">Search</string>
     <string name="sheet_search_hint">Search albums</string>
     <string name="sheet_search_clear">Clear</string>
+    <string name="sheet_parked_hint">Tap an album to put them in</string>
     <string name="sheet_create">New “%1$s”</string>
     <string name="sheet_row_meta">%1$s · %2$s</string>
     <string name="sheet_time_today">Today</string>

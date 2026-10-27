@@ -2,6 +2,7 @@ package com.winters.cleanphotos.feature.contactsheet
 
 import com.winters.cleanphotos.domain.model.AlbumRules
 import com.winters.cleanphotos.domain.model.PhotoAlbum
+import com.winters.cleanphotos.domain.model.PhotoItem
 import java.text.Normalizer
 import java.time.Instant
 import java.time.LocalDate
@@ -149,9 +150,52 @@ internal object TagPlacement {
     fun bottom(fingerY: Float, envelopeTop: Float, fingerGap: Float, fanClear: Float): Float =
         minOf(fingerY - fingerGap, envelopeTop - fanClear)
 
+    /**
+     * 手指到名签下沿至少多远：照片叠浮在指尖上方 [lift]，叠的上沿再往上 [stackHalfHeight]（转过的扇形和张数角标取高的那个），再留 [gap]。
+     */
+    fun fingerGap(lift: Float, stackHalfHeight: Float, gap: Float): Float = lift + stackHalfHeight + gap
+
+    /**
+     * 照片叠的半高：[frameW] × [frameH] 的照片缩到 [scale]、最多转 [maxRotationDeg]° 后外接框的半高，
+     * 和右上角张数角标（中心在叠上沿、半高 [badgeHalf]）露出的高度，取大的。
+     */
+    fun stackHalfHeight(frameW: Float, frameH: Float, scale: Float, maxRotationDeg: Float, badgeHalf: Float): Float {
+        val r = Math.toRadians(maxRotationDeg.toDouble())
+        val w = frameW * scale / 2f
+        val h = frameH * scale / 2f
+        val rotated = (h * kotlin.math.cos(r) + w * kotlin.math.sin(r)).toFloat()
+        return maxOf(rotated, h + badgeHalf)
+    }
+
     /** 横向对准袋子中心，左右离屏幕边至少 [margin]。 */
     fun left(centerX: Float, width: Float, screenWidth: Float, margin: Float): Float =
         (centerX - width / 2f).coerceIn(margin, (screenWidth - margin - width).coerceAtLeast(margin))
 
     fun width(content: Float, min: Float, max: Float): Float = content.coerceIn(min, max)
+}
+
+/** 面板行左边插在牛皮纸卡座里的相片（ui-design 3.20「相册面板」方案 A）。 */
+internal object SheetPrints {
+    const val COUNT = 3
+
+    /**
+     * 相册里按拍摄时间最新的 [COUNT] 张，第一张在最上面（封面）。拍摄时间相同按 id 大的在前，没有拍摄时间的排最后；
+     * 不到 3 张就少画几张，空相册一张不画（只剩卡座和虚线空位）。
+     */
+    fun of(recent: List<PhotoItem>): List<PhotoItem> =
+        recent.sortedWith(compareByDescending<PhotoItem> { it.dateTaken ?: Long.MIN_VALUE }.thenByDescending { it.id }).take(COUNT)
+}
+
+/** 袋子上停住的张数和露角（[path] 是哪只袋子）。 */
+internal data class HeldEnvelope(val path: String, val count: Int, val cover: PhotoItem?) {
+    companion object {
+        fun of(album: PhotoAlbum) = HeldEnvelope(album.relativePath, album.count, album.recent.firstOrNull())
+
+        /**
+         * 袋子现在该显示什么：飞入合盖之前停在 [inFlight]；还没起飞（等授权、等移动）时停在点下那一刻的 [picked]；
+         * 都没有就是相册现在的数据。授权通过后相册数据会先于飞入更新，没有这一步袋子会先跳到新张数、起飞时退回、合盖再变。
+         */
+        fun shown(album: PhotoAlbum, picked: HeldEnvelope?, inFlight: HeldEnvelope?): HeldEnvelope =
+            inFlight ?: picked?.takeIf { it.path == album.relativePath } ?: of(album)
+    }
 }

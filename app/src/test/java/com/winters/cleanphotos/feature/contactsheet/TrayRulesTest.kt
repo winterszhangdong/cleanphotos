@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.contactsheet
 
+import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.domain.model.PhotoAlbum
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -156,10 +157,31 @@ class TrayRulesTest {
     }
 
     @Test
-    fun `照片叠在手指左上方_不出左边`() {
-        val p = StackPlacement(androidx.compose.ui.geometry.Offset(-40f, -44f), 40f)
-        assertEquals(androidx.compose.ui.geometry.Offset(160f, 556f), p.center(androidx.compose.ui.geometry.Offset(200f, 600f)))
-        assertEquals(40f, p.center(androidx.compose.ui.geometry.Offset(30f, 600f)).x, 0f)
+    fun `照片叠浮在指尖正上方_横向跟手指不夹边`() {
+        val p = StackPlacement(36f)
+        assertEquals(androidx.compose.ui.geometry.Offset(200f, 564f), p.center(androidx.compose.ui.geometry.Offset(200f, 600f)))
+        assertEquals(10f, p.center(androidx.compose.ui.geometry.Offset(10f, 600f)).x, 0f)
+        // 停靠小叠散开：从小叠的位置反推手指
+        assertEquals(androidx.compose.ui.geometry.Offset(30f, 136f), p.pointerFor(androidx.compose.ui.geometry.Offset(30f, 100f)))
+    }
+
+    @Test
+    fun `名签让开指尖上的照片叠_叠的半高取转过的外接框和张数角标的大者`() {
+        // 117×88 的照片缩到 0.66、最多转 12°：外接框半高 ≈ 29·cos12 + 38.6·sin12 ≈ 36.4；角标 29 + 10 = 39 更高
+        val half = TagPlacement.stackHalfHeight(frameW = 117f, frameH = 88f, scale = 0.66f, maxRotationDeg = 12f, badgeHalf = 10f)
+        assertEquals(39.04f, half, 0.01f)
+        // 很宽的照片转过之后外接框更高
+        assertEquals(42.12f, TagPlacement.stackHalfHeight(frameW = 200f, frameH = 88f, scale = 0.66f, maxRotationDeg = 12f, badgeHalf = 10f), 0.01f)
+        val gap = TagPlacement.fingerGap(lift = 36f, stackHalfHeight = half, gap = 8f)
+        assertEquals(83.04f, gap, 0.01f)
+        // 手指在袋子中间：袋口 − 48 更高，叠上沿（手指 − 36 − 39）在名签下面
+        val finger = 552f
+        val bottom = TagPlacement.bottom(finger, envelopeTop = 500f, fingerGap = gap, fanClear = 48f)
+        assertEquals(452f, bottom, 0f)
+        assertTrue(bottom <= finger - 36f - half - 8f)
+        // 手指在袋子上沿附近：跟着叠往上走
+        val high = TagPlacement.bottom(510f, envelopeTop = 500f, fingerGap = gap, fanClear = 48f)
+        assertTrue(high <= 510f - 36f - half - 8f + 0.01f)
     }
 
     @Test
@@ -171,5 +193,55 @@ class TrayRulesTest {
         assertEquals(LastFiled.Today, LastFiled.of(at(LocalDate.of(2026, 10, 27)), now, zone))
         assertEquals(LastFiled.DaysAgo(3), LastFiled.of(at(LocalDate.of(2026, 10, 24)), now, zone))
         assertEquals(LastFiled.On(LocalDate.of(2026, 10, 2)), LastFiled.of(at(LocalDate.of(2026, 10, 2)), now, zone))
+    }
+
+    private fun shot(id: Long, taken: Long?) = TestPhotoData.createTestPhoto(id = id).copy(dateTaken = taken)
+
+    @Test
+    fun `面板行的相片_按拍摄时间取最新 3 张_第一张是封面`() {
+        val recent = listOf(shot(1, 10), shot(2, 50), shot(3, 30), shot(4, 40), shot(5, 20))
+        assertEquals(listOf(2L, 4L, 3L), SheetPrints.of(recent).map { it.id })
+    }
+
+    @Test
+    fun `面板行的相片_不到 3 张就少画_空相册一张不画`() {
+        assertEquals(listOf(7L, 6L), SheetPrints.of(listOf(shot(6, 1), shot(7, 2))).map { it.id })
+        assertEquals(listOf(6L), SheetPrints.of(listOf(shot(6, 1))).map { it.id })
+        assertTrue(SheetPrints.of(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `面板行的相片_没有拍摄时间的排最后_同一时间 id 大的在前`() {
+        val recent = listOf(shot(1, null), shot(2, 100), shot(3, 100), shot(4, 5))
+        assertEquals(listOf(3L, 2L, 4L), SheetPrints.of(recent).map { it.id })
+    }
+
+    @Test
+    fun `放进去的照片拍得更晚就成了封面_更早的不顶掉原来的封面`() {
+        val before = listOf(shot(1, 300), shot(2, 200), shot(3, 100))
+        assertEquals(listOf(9L, 1L, 2L), SheetPrints.of(before + shot(9, 400)).map { it.id })
+        assertEquals(listOf(1L, 2L, 3L), SheetPrints.of(before + shot(8, 50)).map { it.id })
+    }
+
+    @Test
+    fun `托盘袋子从点下到合盖都停在点下那一刻_数据先更新也不先跳`() {
+        val old = shot(1, 100)
+        val filed = shot(9, 200)
+        val before = PhotoAlbum("Pictures/猫/", "猫", 9, listOf(old))
+        val after = before.copy(count = 10, recent = listOf(filed, old))
+        val picked = HeldEnvelope.of(before)
+        // 授权通过、照片已经移过去，飞入还没开始
+        assertEquals(HeldEnvelope("Pictures/猫/", 9, old), HeldEnvelope.shown(after, picked, inFlight = null))
+        // 飞入途中（合盖之前）
+        assertEquals(9, HeldEnvelope.shown(after, picked = null, inFlight = HeldEnvelope("Pictures/猫/", 9, old)).count)
+        // 合盖之后换成新的
+        assertEquals(HeldEnvelope.of(after), HeldEnvelope.shown(after, picked = null, inFlight = null))
+    }
+
+    @Test
+    fun `点下的是别的袋子_这只照常显示`() {
+        val cat = PhotoAlbum("Pictures/猫/", "猫", 9, emptyList())
+        val trip = PhotoAlbum("Pictures/旅行/", "旅行", 5, emptyList())
+        assertEquals(HeldEnvelope.of(trip), HeldEnvelope.shown(trip, HeldEnvelope.of(cat), inFlight = null))
     }
 }
