@@ -10,6 +10,9 @@ import java.time.LocalDate
  *
  * @property photos 这一天还没整理的收藏，按拍摄时间正序（像一卷胶片）。
  * @property circled 油性笔圈中的照片。
+ * @property albums 全部相册，按最后装进去的时间排（面板列表、同名判断用）。
+ * @property tray 托盘顺序（本次进入固定，见 [TrayRules]）；托盘露出前 [TrayRules.LIMIT] 只。
+ * @property moreCount 「还有 N 个」的 N；0 时没有这张卡片。
  * @property systemFavorite 托盘「加系统收藏」，默认关，只在本次进入有效。
  * @property summary 这一天整理完（本次进入至少做过一次动作、且已经没有待整理的）时的小结。
  */
@@ -19,6 +22,8 @@ data class ContactSheetUiState(
     val photos: List<PhotoItem> = emptyList(),
     val circled: Set<Long> = emptySet(),
     val albums: List<PhotoAlbum> = emptyList(),
+    val tray: List<PhotoAlbum> = emptyList(),
+    val moreCount: Int = 0,
     val systemFavorite: Boolean = false,
     val systemFavoriteSupported: Boolean = false,
     val loaded: Boolean = false,

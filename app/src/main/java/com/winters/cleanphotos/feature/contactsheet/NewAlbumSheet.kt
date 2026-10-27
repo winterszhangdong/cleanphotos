@@ -40,7 +40,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
 import com.winters.cleanphotos.R
@@ -81,8 +83,14 @@ internal fun NewAlbumSheet(
     albums: List<PhotoAlbum>,
     onCancel: () -> Unit,
     onConfirm: (String) -> Unit,
+    /** 从相册面板「+ 新建「xxx」」进来时填好的名字。 */
+    initialName: String = "",
 ) {
-    var name by rememberSaveable { mutableStateOf("") }
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        val start = AlbumRules.sanitizeInput(initialName)
+        mutableStateOf(TextFieldValue(start, TextRange(start.length)))
+    }
+    val name = field.text
     val valid = AlbumRules.isValidName(name)
     val existing = if (valid) AlbumRules.existingFor(name, albums) else null
     val focus = remember { FocusRequester() }
@@ -187,8 +195,11 @@ internal fun NewAlbumSheet(
                             Text(stringResource(R.string.new_album_placeholder), style = DarkroomText.NewAlbumInput.copy(color = DarkroomColors.LabelInk.copy(alpha = 0.3f)))
                         }
                         BasicTextField(
-                            value = name,
-                            onValueChange = { name = AlbumRules.sanitizeInput(it) },
+                            value = field,
+                            onValueChange = { v ->
+                                val clean = AlbumRules.sanitizeInput(v.text)
+                                field = if (clean == v.text) v else TextFieldValue(clean, TextRange(clean.length))
+                            },
                             singleLine = true,
                             textStyle = DarkroomText.NewAlbumInput,
                             cursorBrush = SolidColor(DarkroomColors.LabelInk),

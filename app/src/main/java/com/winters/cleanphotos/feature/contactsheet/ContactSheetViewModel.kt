@@ -104,6 +104,10 @@ class ContactSheetViewModel @Inject constructor(
 
     private var dayOrder: List<Pair<String, List<PhotoItem>>> = emptyList()
 
+    /** 托盘位置：进入时定下（[TrayRules]），这次进入里只有插队的会动。 */
+    private var session: List<String>? = null
+    private var promoted: List<String> = emptyList()
+
     init {
         viewModelScope.launch {
             photoRepository.ensurePhotosLoaded()
@@ -124,11 +128,14 @@ class ContactSheetViewModel @Inject constructor(
                     dayOrder = snap.days
                     val photos = snap.days.firstOrNull { it.first == dayKey }?.second.orEmpty()
                     val ids = photos.mapTo(HashSet()) { it.id }
+                    val order = sessionOrder(snap.albums)
                     _uiState.update {
                         it.copy(
                             photos = photos,
                             circled = it.circled.filterTo(HashSet()) { id -> id in ids },
                             albums = snap.albums,
+                            tray = TrayRules.arrange(snap.albums, order, promoted),
+                            moreCount = TrayRules.moreCount(snap.albums.size),
                             loaded = true,
                         ).withSummary()
                     }
@@ -169,6 +176,37 @@ class ContactSheetViewModel @Inject constructor(
             }
         }
         start(Pending.File(photos, path, created))
+    }
+
+    /**
+     * 一次飞入整段播完（封口翻开、面板降下）：装进去的相册原来不在托盘前 8 只里，就插到第一格。
+     * 飞入期间不动，袋子要对准。
+     */
+    /**
+     * 第一次拿到相册时定下位置（还没加载出来的空列表不算）；之后新出现的相册（新袋子建的）固定插在最前。
+     */
+    private fun sessionOrder(albums: List<PhotoAlbum>): List<String> {
+        val paths = albums.map { it.relativePath }
+        val current = session
+        val next = when {
+            current == null -> paths.takeIf { it.isNotEmpty() }
+            else -> {
+                val known = current.toHashSet()
+                val fresh = paths.filter { it !in known }
+                if (fresh.isEmpty()) current else fresh + current
+            }
+        }
+        session = next
+        return next ?: paths
+    }
+
+    fun onFlightDone(relativePath: String) {
+        val state = _uiState.value
+        val next = TrayRules.promote(state.tray, promoted, relativePath)
+        if (next == promoted) return
+        promoted = next
+        val order = session ?: return
+        _uiState.update { it.copy(tray = TrayRules.arrange(it.albums, order, promoted)) }
     }
 
     fun onUnfavorite() {

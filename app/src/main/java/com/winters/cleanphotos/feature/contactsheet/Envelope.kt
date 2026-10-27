@@ -1,6 +1,8 @@
 package com.winters.cleanphotos.feature.contactsheet
 
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -59,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.times
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -68,6 +73,8 @@ import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.FilingMotion
+import com.winters.cleanphotos.core.design.MotionDurations
+import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.MotionSprings
 import com.winters.cleanphotos.core.design.OdometerText
 import com.winters.cleanphotos.core.design.blockTouchesBelow
@@ -103,12 +110,14 @@ internal object EnvelopeGeometry {
 internal const val NEW_ENVELOPE_KEY = "+new"
 
 /**
- * 托盘：「放进相册」+ 系统收藏开关；一排底片袋（最左固定「新袋子」）；底部「取消收藏」。
- * 点袋子 = 放进去；长按 = 偷看（托盘只在有圈选时出现，两者不冲突）。
+ * 托盘：「放进相册」+ 系统收藏开关；一排底片袋（最左「新袋子」，最多 [TrayRules.LIMIT] 只相册，相册更多时最右「还有 N 个」）；底部「取消收藏」。
+ * 点袋子 = 放进去；长按 = 偷看（托盘只在有圈选时出现，两者不冲突）。袋子换位置（插队、挤出）用 settle 滑动 / SHORT 淡入淡出。
  */
 @Composable
 internal fun FilingTray(
     albums: List<PhotoAlbum>,
+    moreCount: Int,
+    rowState: LazyListState,
     visuals: FilingVisuals,
     systemFavoriteSupported: Boolean,
     systemFavorite: Boolean,
@@ -116,6 +125,7 @@ internal fun FilingTray(
     onUnfavorite: () -> Unit,
     onFile: (PhotoAlbum) -> Unit,
     onNew: () -> Unit,
+    onMore: () -> Unit,
     onPeek: (PhotoAlbum) -> Unit,
     onPeekEnd: () -> Unit,
     modifier: Modifier = Modifier,
@@ -147,21 +157,28 @@ internal fun FilingTray(
             if (systemFavoriteSupported) SystemFavoriteSwitch(systemFavorite, onSystemFavoriteToggle)
         }
         LazyRow(
-            modifier = Modifier.padding(top = EnvelopeGeometry.RowTop).fillMaxWidth().height(EnvelopeGeometry.Height + 16.dp),
+            state = rowState,
+            modifier = Modifier
+                .padding(top = EnvelopeGeometry.RowTop)
+                .fillMaxWidth()
+                .height(EnvelopeGeometry.Height + 16.dp)
+                .onGloballyPositioned { visuals.trayRow = it.boundsInRoot() },
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(EnvelopeGeometry.Gap),
             verticalAlignment = Alignment.Bottom,
         ) {
             item(key = NEW_ENVELOPE_KEY) {
+                TrackRect(visuals.envelopeRects, NEW_ENVELOPE_KEY)
                 NewEnvelope(
                     dim = visuals.dimFor(NEW_ENVELOPE_KEY),
                     onClick = onNew,
                     modifier = Modifier.onGloballyPositioned { visuals.envelopeRects[NEW_ENVELOPE_KEY] = it.boundsInRoot() },
                 )
             }
-            items(albums, key = { it.relativePath }) { album ->
+            items(albums.take(TrayRules.LIMIT), key = { it.relativePath }) { album ->
                 val path = album.relativePath
-                val flight = visuals.flight?.takeIf { it.relativePath == path }
+                val flight = visuals.flight?.takeIf { it.relativePath == path && !it.intoSheet }
+                TrackRect(visuals.envelopeRects, path)
                 Envelope(
                     name = album.name,
                     // 飞入途中先停在放进去之前的张数和露角，合盖那一刻再滚
@@ -169,6 +186,11 @@ internal fun FilingTray(
                     cover = if (flight != null && !flight.released) flight.heldCover else album.recent.firstOrNull(),
                     state = visuals.stateFor(path),
                     modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = tween(MotionDurations.SHORT, easing = MotionEasings.Standard),
+                            placementSpec = MotionSprings.Settle.spec(IntOffset.VisibilityThreshold),
+                            fadeOutSpec = tween(MotionDurations.SHORT, easing = MotionEasings.Standard),
+                        )
                         .onGloballyPositioned { visuals.envelopeRects[path] = it.boundsInRoot() }
                         .semantics {
                             role = Role.Button
@@ -185,6 +207,23 @@ internal fun FilingTray(
                             )
                         },
                 )
+            }
+            if (moreCount > 0) {
+                item(key = MORE_KEY) {
+                    TrackRect(visuals.envelopeRects, MORE_KEY)
+                    MoreCard(
+                        count = moreCount,
+                        state = visuals.stateFor(MORE_KEY),
+                        onClick = onMore,
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = tween(MotionDurations.SHORT, easing = MotionEasings.Standard),
+                                placementSpec = MotionSprings.Settle.spec(IntOffset.VisibilityThreshold),
+                                fadeOutSpec = tween(MotionDurations.SHORT, easing = MotionEasings.Standard),
+                            )
+                            .onGloballyPositioned { visuals.envelopeRects[MORE_KEY] = it.boundsInRoot() },
+                    )
+                }
             }
         }
         Row(
@@ -358,6 +397,80 @@ internal fun Envelope(
     }
 }
 
+/** 滚出列表（被回收）的袋子不再留着旧位置，免得悬停判定到看不见的袋子。 */
+@Composable
+internal fun TrackRect(rects: MutableMap<String, Rect>, key: String) {
+    DisposableEffect(rects, key) { onDispose { rects.remove(key) } }
+}
+
+/**
+ * 「还有 N 个」：和袋子同一个 76×104 占位，`Tray2` 底 + `Rim2` 描边；背后错开两只压暗的牛皮纸袋子边，
+ * 正中放大镜 +「还有 N 个」+ mono「搜索」。悬停时和袋子一样倾斜、外沿走计时线。
+ */
+@Composable
+private fun MoreCard(count: Int, state: EnvelopeState, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val g = EnvelopeGeometry
+    val label = pluralStringResource(R.plurals.tray_more, count, count)
+    Box(
+        modifier
+            .size(g.Width, g.Height)
+            .graphicsLayer {
+                val lean = state.lean()
+                alpha = state.alpha()
+                cameraDistance = FilingMotion.CAMERA_DISTANCE * density
+                transformOrigin = TransformOrigin(0.5f, 1f)
+                rotationX = FilingMotion.LEAN_TILT_X * lean
+                val s = 1f + (FilingMotion.LEAN_SCALE - 1f) * lean
+                scaleX = s
+                scaleY = s
+                translationY = -FilingMotion.LeanLift.toPx() * lean
+            }
+            .drawWithContent {
+                drawContent()
+                val d = state.dwell()
+                if (d > 0f && d < 1f) drawDwellRing(d)
+            }
+            .semantics { role = Role.Button }
+            .plainClickable(onClick = onClick),
+    ) {
+        // 背后错开的两只袋子边（向右上各错 4dp）
+        Box(
+            Modifier
+                .offset(x = 8.dp, y = g.BackTop - 8.dp)
+                .size(g.Width - 8.dp, g.Height - g.BackTop)
+                .clip(RoundedCornerShape(4.dp))
+                .background(DarkroomColors.Kraft.copy(alpha = 0.24f)),
+        )
+        Box(
+            Modifier
+                .offset(x = 4.dp, y = g.BackTop - 4.dp)
+                .size(g.Width - 4.dp, g.Height - g.BackTop)
+                .clip(RoundedCornerShape(4.dp))
+                .background(DarkroomColors.Kraft.copy(alpha = 0.4f)),
+        )
+        Column(
+            Modifier
+                .offset(y = g.BackTop)
+                .size(g.Width - 8.dp, g.Height - g.BackTop)
+                .clip(RoundedCornerShape(4.dp))
+                .background(DarkroomColors.Tray2)
+                .border(Dimens.Hairline, DarkroomColors.Rim2, RoundedCornerShape(4.dp)),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(DarkroomIcons.Search, null, tint = DarkroomColors.Paper.copy(alpha = 0.88f), modifier = Modifier.size(20.dp))
+            Text(
+                label,
+                style = DarkroomText.MoreCount,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp),
+            )
+            Text(stringResource(R.string.tray_more_search), style = DarkroomText.GhostMono.copy(fontSize = 10.sp), maxLines = 1)
+        }
+    }
+}
+
 /** 「新袋子」：虚线框 + 加号。 */
 @Composable
 private fun NewEnvelope(dim: () -> Float, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -409,10 +522,10 @@ internal fun Print(photo: PhotoItem, modifier: Modifier = Modifier, size: Dp = E
 }
 
 /** 露角每个袋子歪得不一样（±5°），按照片 id 固定。 */
-private fun coverTilt(id: Long): Float = (Math.floorMod(id * 7919L, 11L) - 5L).toFloat()
+internal fun coverTilt(id: Long): Float = (Math.floorMod(id * 7919L, 11L) - 5L).toFloat()
 
 /** 封口：上宽下窄的梯形。 */
-private val FlapShape = GenericShape { size, _ ->
+internal val FlapShape = GenericShape { size, _ ->
     moveTo(0f, 0f)
     lineTo(size.width, 0f)
     lineTo(size.width * 0.86f, size.height)
@@ -421,8 +534,8 @@ private val FlapShape = GenericShape { size, _ ->
 }
 
 /** 正面：上沿中间一个半圆指口（方便抽照片），渐变牛皮纸 + 1dp 高光。 */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFront() {
-    val r = EnvelopeGeometry.NotchRadius.toPx()
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFront(notch: Dp = EnvelopeGeometry.NotchRadius) {
+    val r = notch.toPx()
     val cx = size.width / 2f
     val corner = 4.dp.toPx()
     val path = Path().apply {

@@ -35,6 +35,8 @@ object DarkroomIcons {
     val Undo = icon("undo", "M9 14L4.5 9.5 9 5M4.5 9.5H14a5.5 5.5 0 010 11h-3")
     val More = icon("more", "M6 12h.01M12 12h.01M18 12h.01", strokeWidth = 2.6f)
     val Close = icon("close", "M6.5 6.5l11 11M17.5 6.5l-11 11")
+    /** 印样表「还有 N 个」、相册面板搜索框。 */
+    val Search = icon("search", "M10.5 4.5a6 6 0 1 0 0 12a6 6 0 1 0 0-12zM15 15l4.5 4.5")
     /** 印样表「新袋子」。 */
     val Plus = icon("plus", "M12 5v14M5 12h14")
     val Check = icon("check", "M5.5 12.5l4 4 9-9")

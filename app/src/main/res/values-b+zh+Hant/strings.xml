@@ -229,6 +229,12 @@
     <string name="tray_system_favorite">加系统收藏</string>
     <string name="tray_hint">袋子 = 相册文件夹</string>
     <string name="envelope_new">新袋子</string>
+    <string name="tray_more_search">搜索</string>
+    <string name="sheet_search_hint">搜索相册</string>
+    <string name="sheet_search_clear">清空</string>
+    <string name="sheet_create">新建「%1$s」</string>
+    <string name="sheet_row_meta">%1$s · %2$s</string>
+    <string name="sheet_time_today">今天</string>
     <string name="new_album_cancel">取消</string>
     <string name="new_album_placeholder">相册名</string>
     <string name="new_album_path_new">%1$s · 新建</string>
@@ -266,5 +272,17 @@
     </plurals>
     <plurals name="sheet_undo_failed">
         <item quantity="other">%1$d 张没能移回原处</item>
+    </plurals>
+    <plurals name="sheet_time_days_ago">
+        <item quantity="other">%1$d 天前</item>
+    </plurals>
+    <plurals name="sheet_album_total">
+        <item quantity="other">共 %1$d 个</item>
+    </plurals>
+    <plurals name="sheet_album_results">
+        <item quantity="other">%1$d 个结果</item>
+    </plurals>
+    <plurals name="tray_more">
+        <item quantity="other">还有 %1$d 个</item>
     </plurals>
 </resources>

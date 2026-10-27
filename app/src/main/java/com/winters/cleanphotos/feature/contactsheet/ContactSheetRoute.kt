@@ -58,5 +58,6 @@ fun ContactSheetRoute(
         onUndo = viewModel::onUndo,
         onUndoExpired = viewModel::onUndoExpired,
         onNextDay = onNextDay,
+        onFlightDone = viewModel::onFlightDone,
     )
 }

@@ -247,6 +247,15 @@ object DarkroomText {
     /** 袋子标签：名字 11.5/15 600、张数 mono 10/13（标签墨 72%）。 */
     val EnvelopeName = Sans.copy(fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = DarkroomColors.LabelInk).cssLines()
     val EnvelopeCount = MonoBase.copy(fontSize = 10.sp, lineHeight = 13.sp, color = DarkroomColors.LabelInk.copy(alpha = 0.72f)).cssLines()
+    /** 「还有 N 个」11.5/15 600 相纸白。 */
+    val MoreCount = Sans.copy(fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = DarkroomColors.Paper).cssLines()
+    /** 拖动时弹出的名签 13/17 600（标签墨）。 */
+    val HoverTag = Sans.copy(fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, color = DarkroomColors.LabelInk).cssLines()
+    /** 相册面板：行名 15/20 500、副行 mono 11 dim、右侧时间 mono 11 faint、搜索框 14/20。 */
+    val SheetRowName = Sans.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, color = DarkroomColors.Paper).cssLines()
+    val SheetRowMeta = MonoBase.copy(fontSize = 11.sp, lineHeight = 15.sp, color = DarkroomColors.Dim).cssLines()
+    val SheetRowTime = MonoBase.copy(fontSize = 11.sp, lineHeight = 15.sp, color = DarkroomColors.Faint).cssLines()
+    val SheetSearch = Sans.copy(fontSize = 14.sp, lineHeight = 20.sp, color = DarkroomColors.Paper).cssLines()
     /** 偷看名牌 17/24 600。 */
     val PeekName = Sans.copy(fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold).cssLines()
     /** 拖动提示胶囊 12.5 500。 */

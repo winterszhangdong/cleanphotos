@@ -48,6 +48,10 @@ data class ApiTier(val sdkInt: Int) {
     /** 跨进新的一天（决定 1）：CLOCK_TICK 全版本可用（API 21+）。 */
     val dayChangeHaptic: Int get() = HapticFeedbackConstants.CLOCK_TICK
 
+    /** 拖着照片叠换了目标（袋子 / 面板里的行）：14+ 更轻的分段滴答，更早 CLOCK_TICK。 */
+    val hoverTickHaptic: Int
+        get() = if (sdkInt >= 34) HapticFeedbackConstants.SEGMENT_FREQUENT_TICK else HapticFeedbackConstants.CLOCK_TICK
+
     companion object {
         const val MIN_SDK = 26
         val Current: ApiTier by lazy { ApiTier(Build.VERSION.SDK_INT) }

@@ -250,6 +250,12 @@
     <string name="tray_system_favorite">Gallery favorite</string>
     <string name="tray_hint">Sleeves are album folders</string>
     <string name="envelope_new">New sleeve</string>
+    <string name="tray_more_search">Search</string>
+    <string name="sheet_search_hint">Search albums</string>
+    <string name="sheet_search_clear">Clear</string>
+    <string name="sheet_create">New “%1$s”</string>
+    <string name="sheet_row_meta">%1$s · %2$s</string>
+    <string name="sheet_time_today">Today</string>
     <string name="new_album_cancel">Cancel</string>
     <string name="new_album_placeholder">Album name</string>
     <string name="new_album_path_new">%1$s · new</string>
@@ -296,5 +302,21 @@
     <plurals name="sheet_undo_failed">
         <item quantity="one">%1$d photo couldn’t be moved back</item>
         <item quantity="other">%1$d photos couldn’t be moved back</item>
+    </plurals>
+    <plurals name="sheet_time_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <plurals name="sheet_album_total">
+        <item quantity="one">%1$d album</item>
+        <item quantity="other">%1$d albums</item>
+    </plurals>
+    <plurals name="sheet_album_results">
+        <item quantity="one">%1$d result</item>
+        <item quantity="other">%1$d results</item>
+    </plurals>
+    <plurals name="tray_more">
+        <item quantity="one">%1$d more</item>
+        <item quantity="other">%1$d more</item>
     </plurals>
 </resources>

@@ -329,6 +329,40 @@ object FilingMotion {
     const val STRIP_ENTER_TILT = -1.2f
     val STRIP_SKEW = floatArrayOf(0f, 0.5f, -0.4f, 0.3f)
 
+    /** 拖动时照片叠中心在手指左上方（不挡手指和它下面的袋子），中心横向不小于 [StackMinX]。 */
+    val StackOffsetX = (-40).dp
+    val StackOffsetY = (-44).dp
+    val StackMinX = 40.dp
+
+    /** 名签：下沿 = min(手指 − TagFingerGap, 袋子上沿 − TagFanClear)；高 36、宽 64–160、离屏幕边 ≥ 8；从标签 0.88 倍弹出。 */
+    val TagFingerGap = 56.dp
+    val TagFanClear = 48.dp
+    val TagHeight = 36.dp
+    val TagMinWidth = 64.dp
+    val TagMaxWidth = 160.dp
+    val TagMargin = 8.dp
+    val TagTongueWidth = 10.dp
+    val TagTongueHeight = 6.dp
+    const val TAG_FROM_SCALE = 0.88f
+
+    /** 贴边自动滚动：托盘左右 40dp（只在袋子一行上下外扩 24dp 内算），面板列表上下 56dp；速度见 EdgeScroll。 */
+    val EdgeZone = 40.dp
+    val EdgeBand = 24.dp
+    val SheetEdgeZone = 56.dp
+
+    /** 相册面板：高 = 屏幕 × 0.72（≤ 600dp），压暗 64%；拖着打开后手指再移 8dp 才判定行；装完翻开后 300ms 降下。 */
+    const val SHEET_HEIGHT = 0.72f
+    val SheetMaxHeight = 600.dp
+    const val SHEET_SCRIM = 0.64f
+    val SheetArm = 8.dp
+    const val SHEET_CLOSE_DELAY = 300
+    /** 面板顶部不高过状态栏下这么多（键盘弹起时）。 */
+    val SheetTopClear = 56.dp
+    /** 下拉面板超过这么多就关掉。 */
+    val SheetDismissDrag = 96.dp
+    /** 入袋时缩到迷你袋口宽。 */
+    const val MINI_MOUTH_SCALE = 0.15f
+
     /** 一天冲洗完：最后一条胶片卷起（rotationY + scaleX，LONG，加速离场）。 */
     const val ROLL_ANGLE = -70f
     const val ROLL_SCALE_X = 0.16f

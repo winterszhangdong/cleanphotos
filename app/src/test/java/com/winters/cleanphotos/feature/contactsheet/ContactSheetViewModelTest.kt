@@ -3,6 +3,7 @@ package com.winters.cleanphotos.feature.contactsheet
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData.createTestPhoto
+import com.winters.cleanphotos.domain.model.FilingRecord
 import com.winters.cleanphotos.domain.model.PhotoAlbum
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
@@ -211,5 +212,66 @@ class ContactSheetViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf(listOf(1L)), albums.prepared)
         assertEquals(listOf(1L, 2L), albums.filed.single().first.sorted())
+    }
+
+    /** 旅行 1 张、Camera 4 张，再加 A1..A11（29..19 张）：共 13 个相册，托盘露 A1..A8。 */
+    private fun manyAlbums() {
+        val extra = (1..11).flatMap { i -> (0 until 30 - i).map { k -> createTestPhoto(id = 1000L + i * 100 + k, dateGroup = day).copy(relativePath = "Pictures/A$i/") } }
+        photos.setPhotos(listOf(createTestPhoto(id = 100, dateGroup = day).copy(relativePath = travel)) + extra)
+    }
+
+    @Test
+    fun `托盘露 8 只_其余算进还有 N 个`() = runTest(dispatcher) {
+        manyAlbums()
+        val vm = vm()
+        advanceUntilIdle()
+        val s = vm.uiState.value
+        assertEquals(13, s.albums.size)
+        assertEquals(5, s.moreCount)
+        assertEquals((1..8).map { "Pictures/A$it/" }, s.tray.take(TrayRules.LIMIT).map { it.relativePath })
+    }
+
+    @Test
+    fun `本次进入托盘位置固定_装进托盘里的相册不换位`() = runTest(dispatcher) {
+        manyAlbums()
+        val vm = vm()
+        advanceUntilIdle()
+        val before = vm.uiState.value.tray.map { it.relativePath }
+        vm.onToggle(1)
+        vm.onFile(SheetTarget.Existing(vm.uiState.value.albums.first { it.relativePath == "Pictures/A5/" }))
+        albums.log.value = listOf(FilingRecord(1, "Pictures/A5/", day, filedAt = 10))
+        advanceUntilIdle()
+        vm.onFlightDone("Pictures/A5/")
+        // 面板列表按最近使用排（A5 到最前），托盘不动
+        assertEquals("Pictures/A5/", vm.uiState.value.albums.first().relativePath)
+        assertEquals(before, vm.uiState.value.tray.map { it.relativePath })
+    }
+
+    @Test
+    fun `从面板装进托盘外的相册_飞入播完才插到第一格`() = runTest(dispatcher) {
+        manyAlbums()
+        val vm = vm()
+        advanceUntilIdle()
+        val before = vm.uiState.value.tray.map { it.relativePath }
+        vm.onToggle(1)
+        vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+        albums.log.value = listOf(FilingRecord(1, travel, day, filedAt = 10))
+        advanceUntilIdle()
+        // 飞入期间托盘顺序不变
+        assertEquals(before, vm.uiState.value.tray.map { it.relativePath })
+        vm.onFlightDone(travel)
+        val after = vm.uiState.value.tray.map { it.relativePath }
+        assertEquals(travel, after.first())
+        assertEquals(before.take(7), after.drop(1).take(7))
+        assertEquals(5, vm.uiState.value.moreCount)
+    }
+
+    @Test
+    fun `下次进入按最近使用重新排`() = runTest(dispatcher) {
+        manyAlbums()
+        albums.log.value = listOf(FilingRecord(1, travel, day, filedAt = 10))
+        val vm = vm()
+        advanceUntilIdle()
+        assertEquals(travel, vm.uiState.value.tray.first().relativePath)
     }
 }

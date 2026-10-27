@@ -17,6 +17,11 @@ object Haptics {
         view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
     }
 
+    /** 拖动时手指下的目标换了。 */
+    fun hoverTick(view: View, tier: ApiTier = ApiTier.Current) {
+        view.performHapticFeedback(tier.hoverTickHaptic)
+    }
+
     fun dayChange(view: View, tier: ApiTier = ApiTier.Current) {
         view.performHapticFeedback(tier.dayChangeHaptic)
     }
