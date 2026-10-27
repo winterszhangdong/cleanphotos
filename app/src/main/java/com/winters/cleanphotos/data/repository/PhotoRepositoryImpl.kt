@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import com.winters.cleanphotos.core.datastore.DataStoreKeys
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.data.datasource.AppFavoriteStateDataSource
+import com.winters.cleanphotos.data.datasource.AppFilingLogDataSource
 import com.winters.cleanphotos.data.datasource.AppSeenStateDataSource
 import com.winters.cleanphotos.data.datasource.AppTrashStateDataSource
 import com.winters.cleanphotos.data.datasource.MediaStorePhotoDataSource
@@ -45,6 +46,7 @@ class PhotoRepositoryImpl @Inject constructor(
     private val appTrashStateDataSource: AppTrashStateDataSource,
     private val appFavoriteStateDataSource: AppFavoriteStateDataSource,
     private val appSeenStateDataSource: AppSeenStateDataSource,
+    private val appFilingLogDataSource: AppFilingLogDataSource,
     private val dataStore: DataStore<Preferences>
 ) : PhotoRepository {
 
@@ -211,7 +213,7 @@ class PhotoRepositoryImpl @Inject constructor(
     }
 
     /**
-     * 串行调用三项 removeMissingEntries：Favorite → Seen → Trash。
+     * 串行清理四项失效条目：Favorite → Seen → Trash → 装袋记录。
      * existingIds 为 null 时跳过（查询不完整，无法判断哪些条目已失效）。
      */
     private suspend fun cleanupStores(existingIds: Set<Long>?) {
@@ -221,6 +223,7 @@ class PhotoRepositoryImpl @Inject constructor(
             appFavoriteStateDataSource.removeMissingIn(p, existingIds)
             appSeenStateDataSource.removeMissingIn(p, existingIds)
             appTrashStateDataSource.removeMissingIn(p, existingIds)
+            appFilingLogDataSource.removeMissingIn(p, existingIds)
         }
     }
 

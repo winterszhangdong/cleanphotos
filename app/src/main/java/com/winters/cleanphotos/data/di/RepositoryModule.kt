@@ -69,4 +69,10 @@ abstract class RepositoryModule {
     abstract fun bindMotionPhotoRepository(
         impl: MotionPhotoRepositoryImpl
     ): MotionPhotoRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAlbumRepository(
+        impl: com.winters.cleanphotos.data.repository.AlbumRepositoryImpl
+    ): com.winters.cleanphotos.domain.repository.AlbumRepository
 }

@@ -30,7 +30,11 @@ enum class SystemMediaActionType {
     MoveToTrash,
     RestoreFromTrash,
     /** 永久删除（仅用于清空垃圾桶） */
-    DeletePermanently
+    DeletePermanently,
+    /** 装进相册前拿写权限（Android 11+ createWriteRequest，整批一次） */
+    MoveToAlbum,
+    /** 装袋时顺带加系统收藏（Android 11+ createFavoriteRequest，系统确认后自己写入） */
+    SystemFavorite,
 }
 
 /**

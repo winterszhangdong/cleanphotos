@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.winters.cleanphotos.TestPhotoData.createTestPhoto
 import com.winters.cleanphotos.data.datasource.AppFavoriteStateDataSource
 import com.winters.cleanphotos.data.datasource.AppSeenStateDataSource
+import com.winters.cleanphotos.data.datasource.AppFilingLogDataSource
 import com.winters.cleanphotos.data.datasource.AppTrashStateDataSource
 import com.winters.cleanphotos.data.datasource.MediaStorePhotoDataSource
 import com.winters.cleanphotos.data.repository.PhotoRepositoryImpl
@@ -42,6 +43,7 @@ class PhotoRepositoryRefreshTest {
         appTrashStateDataSource = AppTrashStateDataSource(dataStore),
         appFavoriteStateDataSource = AppFavoriteStateDataSource(dataStore),
         appSeenStateDataSource = AppSeenStateDataSource(dataStore),
+        appFilingLogDataSource = AppFilingLogDataSource(dataStore),
         dataStore = dataStore,
     )
 
