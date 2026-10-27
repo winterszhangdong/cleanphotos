@@ -12,6 +12,8 @@ data class PhotoAlbum(
     val name: String,
     val count: Int,
     val recent: List<PhotoItem>,
+    /** 最后一次装进去的时间（`app_filing_log` 里这个相册最新一条）；没装过是 null。 */
+    val lastFiledAt: Long? = null,
 )
 
 /**

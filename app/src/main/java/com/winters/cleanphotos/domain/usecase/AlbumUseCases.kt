@@ -14,7 +14,7 @@ import javax.inject.Inject
 
 /**
  * 托盘里的底片袋：图库（不含 App 垃圾桶）按文件夹分组，只留 DCIM/、Pictures/ 下的。
- * 排序：最近装过的在前（按最后一次装袋时间），没装过的按最新一张的拍摄时间。
+ * 排序：最后一次装进去的时间倒序 → 没装过的按张数从多到少 → 名字（2026-10-27 用户决定）。
  */
 class BuildAlbumsUseCase @Inject constructor() {
     operator fun invoke(library: List<PhotoItem>, log: List<FilingRecord>): List<PhotoAlbum> {
@@ -25,11 +25,13 @@ class BuildAlbumsUseCase @Inject constructor() {
             .groupBy { it.relativePath!! }
             .map { (path, photos) ->
                 val recent = photos.sortedByDescending { it.dateTaken ?: 0L }.take(AlbumRules.PEEK_COUNT)
-                PhotoAlbum(path, AlbumRules.nameOf(path), photos.size, recent)
+                PhotoAlbum(path, AlbumRules.nameOf(path), photos.size, recent, lastUsed[path])
             }
             .sortedWith(
-                compareByDescending<PhotoAlbum> { lastUsed[it.relativePath] ?: Long.MIN_VALUE }
-                    .thenByDescending { it.recent.first().dateTaken ?: 0L },
+                compareByDescending<PhotoAlbum> { it.lastFiledAt ?: Long.MIN_VALUE }
+                    .thenByDescending { it.count }
+                    .thenBy { it.name }
+                    .thenBy { it.relativePath },
             )
     }
 }
