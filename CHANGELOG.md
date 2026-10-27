@@ -7,6 +7,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+
+- 安卓：整理收藏时长按拿起圈中的照片，照片会从各自的格子里被抓起来、飞到手指下叠好，原来的格子空着；在袋子外松手（或拒绝授权），照片各自落回原位。拖到袋子上时不再显示「松手放进……」，袋子打开的动作已经够清楚。
+
+---
+
+### Changed
+
+- Android: when sorting Favorites, long-pressing the circled photos now lifts them out of their frames and gathers them under your finger, leaving the frames empty. Releasing away from an envelope (or denying permission) puts each photo back in its frame. The "Release to put in …" hint over envelopes is gone; the envelope opening is clear enough.
+
 ## [1.6.0] - 2026-10-27
 
 ### Added

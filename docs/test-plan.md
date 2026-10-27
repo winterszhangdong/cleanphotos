@@ -3895,6 +3895,7 @@ TrashPreviewOverlay 与 ReviewScreen 横滑行为不一致
 - `AppFilingLogDataSourceTest`：同一张再装一次覆盖旧记录、按时间倒序；超过 1000 条丢最旧的；撤回和失效清理删掉对应记录。
 - `FreeFileNameTest`（Android 8–9 同名改名）：没有同名原样；`IMG_1 (1).jpg`；序号被占往后找；没有扩展名 / 以点开头整个名字后加序号；多个点只把最后一段当扩展名。
 - `ContactSheetViewModelTest`：只显示这一天的收藏、按拍摄时间正序；装袋成功飞入、圈选清空、可撤回；系统授权被拒照片叠弹回、什么都不动；没放进去的保持圈选并提示；新袋子同名合并进已有文件夹；和 DCIM 下的相册同名时放进那个相册、不算新建；整理完出小结、下一天是更早的一天；已经在目标文件夹的照片不弹授权、照常算装好，撤回也不弹；混着已在目标的照片时只为真要移动的申请授权。
+- `DragStackTest`：拿起 / 落回每张的进度两头收在 0 和 1、前几张错开、第 5 张起不再往后错；拿起后圈中的格子空着、没拿起的照常显示，落回落定后原图回来；从手指下的叠入袋时格子一直空着，点袋子起飞的不受影响。
 - `PhotoRepositoryRefreshTest` 只接上 `AppFilingLogDataSource`；失效 id 的清理逻辑由 `AppFilingLogDataSourceTest`「撤回和失效清理」覆盖。
 
 ### 仪器测试
