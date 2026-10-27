@@ -7,6 +7,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-27
+
 ### Added
 
 - 安卓：整理收藏时相册很多也好找。托盘只露最近用的 8 只袋子，最右「还有 N 个」打开相册面板，列出全部相册和最后放进去的时间，可以按名字或路径搜索（不分大小写和全 / 半角）；搜不到时直接「新建」这个名字。点它、把照片叠拖到上面停一下，或在上面松手都能打开面板；松在面板空白处，照片叠先停在标题旁，再点一个相册。
@@ -449,7 +451,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.5...v1.6.0
 [1.5.5]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.4...v1.5.5
