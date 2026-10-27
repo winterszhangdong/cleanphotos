@@ -54,4 +54,4 @@ npx wrangler dev                 # http://localhost:8787
 
 Worker 已经存在（第 1 步手动部署过）时这些权限就够；如果想让 CI 从零创建 Worker，需要更高的 Workers Admin 权限，不建议。
 
-发版流程：`apk` 任务照旧构建并发布 GitHub Release，然后把 APK 作为 artifact 交给新的 `site` 任务；`site` 任务核对 sha256 / 签名证书、构建并 `wrangler deploy`，最后确认线上 `/api/latest.json` 已是新版本。`site` 任务设了 `continue-on-error`，失败只标黄，不影响已经发布的 Release；没配 secret 时直接跳过。
+发版流程：`apk` 任务照旧构建并发布 GitHub Release，然后把 APK 作为 artifact 交给新的 `site` 任务；`site` 任务核对 sha256 / 签名证书、构建并 `wrangler deploy`（以 wrangler 成功并输出 `Current Version ID` 为准，版本号写进任务摘要），最后用 `scripts/site-check-live.sh` 补充核对线上 `/api/latest.json`：重试几次，拿到 JSON 且版本不对才失败；Cloudflare 拦 GitHub runner（403 / 挑战页 / 非 JSON）只标 warning，需要时在本机 `curl` 核对。`site` 任务设了 `continue-on-error`，失败只标黄，不影响已经发布的 Release；没配 secret 时直接跳过。

@@ -111,18 +111,21 @@ jobs:
           npm ci
           npm run build
       - name: 部署到 Cloudflare Workers
+        # 这一步才是官网是否上线的判断：wrangler 失败或者没给出 Version ID 都算失败
+        id: deploy
         if: steps.cf.outputs.skip != 'true'
         working-directory: site
-        run: npx wrangler deploy
-      - name: 核对线上最新版
-        # 部署后确认 /api/latest.json 已经是这一版（自定义域名生效前会失败，只标黄）
-        if: steps.cf.outputs.skip != 'true'
+        shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          for _ in 1 2 3 4 5 6; do
-            got="$(curl -fsS https://cleanphotos.winters.click/api/latest.json | jq -r .version || true)"
-            [ "$got" = "$version" ] && { echo "site serves $got"; exit 0; }
-            sleep 10
-          done
-          echo "::warning::官网 /api/latest.json 仍是 ${got:-?}，期望 $version"
-          exit 1
+          npx wrangler deploy 2>&1 | tee "$RUNNER_TEMP/wrangler.log"
+          id="$(sed -n 's/.*Current Version ID: *\([0-9a-f-]\{36\}\).*/\1/p' "$RUNNER_TEMP/wrangler.log" | tail -n 1)"
+          if [ -z "$id" ]; then
+            echo "::error::wrangler deploy 没有输出 Current Version ID，官网可能没有部署成功"
+            exit 1
+          fi
+          echo "version_id=$id" >> "$GITHUB_OUTPUT"
+          echo "官网已部署：Worker 版本 $id" >> "$GITHUB_STEP_SUMMARY"
+      - name: 核对线上最新版
+        # 补充核对：拿到 JSON 但版本不对才失败；Cloudflare 拦 runner（403 / 非 JSON）只标 warning
+        if: steps.cf.outputs.skip != 'true'
+        run: scripts/site-check-live.sh "${GITHUB_REF_NAME#v}"
