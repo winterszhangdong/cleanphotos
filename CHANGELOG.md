@@ -7,6 +7,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+
+- 安卓：拖着照片叠时，照片叠改回浮在指尖，不再偏到手指左上方；名签弹在照片叠上方，不压住照片，也不碰「加系统收藏」开关。
+- 安卓：把照片叠拖到「还有 N 个」上停着不再自己打开相册面板，松手（或点它）才打开；托盘贴边滚到头时也不会误开。面板里不再拖着照片叠选相册，松手后照片叠停在标题旁，点一个相册放进去。
+- 安卓：在相册面板里选了相册或新建相册后，如果在系统授权里点了拒绝，面板留着，照片叠还停在标题旁、圈选保留，可以重新选一次，不用从头再来。
+- 安卓：相册面板的每一行改成这个相册最新的 3 张相片插在牛皮纸卡座里，一眼就认得出是哪个相册（不到 3 张就少几张）。点了一个相册、等系统授权时这几张相片散开；放进去的照片落在最上面，拍得更晚的就成了新封面。照片叠停在标题旁时，标题下面提示「点一个相册放进去」。
+
+### Fixed
+
+- 安卓：点袋子或把照片叠拖进袋子、在系统授权里点了允许之后，袋子上的张数和露角不再先跳一下、再退回、再变，合盖那一刻才换成新的；相册面板里也一样。
+
+---
+
+### Changed
+
+- Android: the dragged stack floats right at your fingertip again instead of up and to the left. The name tag pops up above the stack, clear of the photos and the "Gallery favorite" switch.
+- Android: holding the stack over the "N more" card no longer opens the album sheet by itself. It opens when you release over the card or tap it, and reaching the end of the tray while auto-scrolling won't open it by accident. You no longer drag inside the sheet: after you release, the stack waits next to the title until you tap an album.
+- Android: if you pick or create an album in the sheet and then deny the system permission prompt, the sheet stays open with the stack waiting and your selection kept, so you can simply pick again.
+- Android: each album in the sheet now shows its 3 latest photos as small prints tucked into a kraft holder, so albums are easy to tell apart (fewer prints if the album has fewer photos). The prints fan out while the permission prompt is up, and the photos you file land on top, becoming the new cover if they were taken more recently. While the stack waits next to the title, a hint below it says "Tap an album to put them in".
+
+### Fixed
+
+- Android: after you tap an envelope (or drop the stack on one) and allow the system prompt, its count and peeking photo no longer jump ahead, snap back and change again. They now change once, when the flap closes. The same goes for rows in the album sheet.
+
 ## [1.7.0] - 2026-10-27
 
 ### Added
