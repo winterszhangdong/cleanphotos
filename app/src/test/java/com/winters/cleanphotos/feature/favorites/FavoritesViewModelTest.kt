@@ -7,6 +7,9 @@ import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
+import com.winters.cleanphotos.domain.usecase.BuildFiledDaysUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveFilingLogUseCase
+import com.winters.cleanphotos.fake.FakeAlbumRepository
 import com.winters.cleanphotos.domain.usecase.ObserveUnseenCountUseCase
 import com.winters.cleanphotos.domain.usecase.SortPhotosUseCase
 import com.winters.cleanphotos.fake.FakePhotoRepository
@@ -66,6 +69,8 @@ class FavoritesViewModelTest {
             sortPhotosUseCase = SortPhotosUseCase(),
             buildPhotoSectionsUseCase = BuildPhotoSectionsUseCase(),
             observeUnseenCountUseCase = ObserveUnseenCountUseCase(fakePhotoRepository, mockSeenDataSource),
+            observeFilingLog = ObserveFilingLogUseCase(FakeAlbumRepository()),
+            buildFiledDays = BuildFiledDaysUseCase(),
             computeDispatcher = testDispatcher,
         )
     }

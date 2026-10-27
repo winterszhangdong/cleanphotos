@@ -46,6 +46,8 @@ class FakePhotoRepository : PhotoRepository {
 
     private val favoritedPhotosFlow = MutableStateFlow<List<PhotoItem>>(emptyList())
 
+    fun currentFavorites(): List<PhotoItem> = favoritedPhotosFlow.value
+
     override fun observeFavoritedPhotos(): Flow<List<PhotoItem>> = favoritedPhotosFlow
 
     val trashEntriesFlow = MutableStateFlow<List<com.winters.cleanphotos.domain.model.AppTrashEntry>>(emptyList())

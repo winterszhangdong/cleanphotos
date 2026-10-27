@@ -153,6 +153,9 @@ class PhotoHitRects {
 
     fun isNotEmpty(): Boolean = rects.isNotEmpty()
 
+    /** 根坐标里的边界（印样表起飞位置）。 */
+    operator fun get(id: Long): Rect? = rects[id]
+
     fun put(id: Long, rect: Rect) {
         rects[id] = rect
     }

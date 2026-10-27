@@ -44,6 +44,7 @@ import com.winters.cleanphotos.core.design.GlassBackdropHost
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.feature.allphotos.AllPhotosRoute
+import com.winters.cleanphotos.feature.contactsheet.ContactSheetRoute
 import com.winters.cleanphotos.feature.favorites.FavoritesRoute
 import com.winters.cleanphotos.feature.review.ReviewRoute
 import com.winters.cleanphotos.feature.similar.SimilarCompareRoute
@@ -144,6 +145,26 @@ fun NavGraph(
                                     }
                                 },
                                 onNavigateBack = { e.ifCurrent { navController.popBackStack() } },
+                                onOpenDay = { dayKey -> e.ifCurrent { navController.navigate(NavRoutes.contactSheetRoute(dayKey)) } },
+                            )
+                        }
+                    }
+
+                    composable(
+                        route = NavRoutes.CONTACT_SHEET,
+                        arguments = listOf(navArgument("dayKey") { type = NavType.StringType }),
+                    ) { e ->
+                        DockEntry(e, this) { _ ->
+                            ContactSheetRoute(
+                                onNavigateBack = { e.ifCurrent { navController.popBackStack() } },
+                                // 下一天：换掉当前这一页，返回仍回到收藏
+                                onNextDay = { dayKey ->
+                                    e.ifCurrent {
+                                        navController.navigate(NavRoutes.contactSheetRoute(dayKey)) {
+                                            popUpTo(NavRoutes.CONTACT_SHEET) { inclusive = true }
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
@@ -263,7 +284,7 @@ private const val GESTURE_RETURN_BRIGHTNESS = 0.6f
 
 /** 当前目的地对应的选中项；清理页按入口 scope（从收藏进入时是「收藏」）。 */
 private fun tabFor(entry: NavBackStackEntry): BottomTab = when (entry.destination.route) {
-    NavRoutes.FAVORITES -> BottomTab.Favorites
+    NavRoutes.FAVORITES, NavRoutes.CONTACT_SHEET -> BottomTab.Favorites
     NavRoutes.TRASH -> BottomTab.Trash
     NavRoutes.REVIEW -> if (entry.arguments?.getString("scope") == "Favorites") BottomTab.Favorites else BottomTab.AllPhotos
     else -> BottomTab.AllPhotos

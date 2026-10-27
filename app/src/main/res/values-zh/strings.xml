@@ -218,4 +218,53 @@
     <string name="cd_playback_motion">播放动态照片</string>
     <string name="cd_playback_progress">播放进度</string>
     <string name="playback_motion">动态</string>
+    <!-- 印样表 / 底片袋（收藏整理） -->
+    <string name="favorites_sort_day">整理</string>
+    <string name="favorites_filed_header">已冲洗 · %1$d 张</string>
+    <string name="sheet_hint">点照片圈选 · 手指划过连圈 · 长按看大图</string>
+    <string name="sheet_circle_all">全圈</string>
+    <string name="sheet_clear">清除</string>
+    <string name="tray_title">放进相册</string>
+    <string name="tray_system_favorite">加系统收藏</string>
+    <string name="tray_hint">袋子 = 相册文件夹</string>
+    <string name="envelope_new">新袋子</string>
+    <string name="drop_hint">松手放进「%1$s」</string>
+    <string name="new_album_cancel">取消</string>
+    <string name="new_album_placeholder">相册名</string>
+    <string name="new_album_path_new">%1$s · 新建</string>
+    <string name="new_album_path_merge">%1$s · 已有，合并进去</string>
+    <string name="new_album_go">放进</string>
+    <string name="summary_filed_title">这一天冲洗完了</string>
+    <string name="summary_filed_total"> · 共 %1$d</string>
+    <string name="summary_filed_new"> · 新建</string>
+    <string name="summary_unfavorited_rest"> · 回到照片</string>
+    <string name="summary_next_day">整理 %1$s</string>
+    <string name="back_to_favorites">回到收藏</string>
+    <plurals name="favorites_days_pending">
+        <item quantity="other">%1$d 天待整理</item>
+    </plurals>
+    <plurals name="sheet_pending">
+        <item quantity="other">%1$d 张待整理</item>
+    </plurals>
+    <plurals name="sheet_circled">
+        <item quantity="other">已圈 %1$d 张</item>
+    </plurals>
+    <plurals name="envelope_count_unit">
+        <item quantity="other">\u0020张</item>
+    </plurals>
+    <plurals name="peek_meta">
+        <item quantity="other">%1$d 张 · %2$s</item>
+    </plurals>
+    <plurals name="new_album_title">
+        <item quantity="other">新相册 · 放进 %1$d 张</item>
+    </plurals>
+    <plurals name="sheet_undo_filed">
+        <item quantity="other">已放进「%2$s」%1$d 张</item>
+    </plurals>
+    <plurals name="sheet_filing_failed">
+        <item quantity="other">%1$d 张没能放进去</item>
+    </plurals>
+    <plurals name="sheet_undo_failed">
+        <item quantity="other">%1$d 张没能移回原处</item>
+    </plurals>
 </resources>

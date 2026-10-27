@@ -24,6 +24,12 @@ import com.winters.cleanphotos.feature.allphotos.PHOTO_GRID_COLUMNS
 import com.winters.cleanphotos.feature.allphotos.rememberReorderAnchor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.Text
+import com.winters.cleanphotos.core.design.DarkroomText
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -60,10 +66,13 @@ fun FavoritesScreen(
     uiState: FavoritesUiState,
     onPhotoClick: (Long) -> Unit,
     onNavigateBack: () -> Unit = {},
+    onOpenDay: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     SystemBarIcons(lightBackground = false)
-    val empty = !uiState.isLoading && uiState.sections.isEmpty()
+    // 全部装进相册后收藏是空的，但「已冲洗」还在：照常显示列表
+    val empty = !uiState.isLoading && uiState.sections.isEmpty() && uiState.filedDays.isEmpty()
+    var expandedFiled by rememberSaveable { mutableStateOf<String?>(null) }
 
     GlassBackdropHost {
         AppDockEffect(DockMode.Visible)
@@ -77,7 +86,15 @@ fun FavoritesScreen(
                                 uiState.totalCount,
                                 unit = pluralStringResource(R.plurals.favorites_count_unit, uiState.totalCount),
                             )
-                            if (!empty) FavPip()
+                            if (uiState.sections.isNotEmpty()) {
+                                FavPip()
+                                Text(
+                                    pluralStringResource(R.plurals.favorites_days_pending, uiState.pendingDays, uiState.pendingDays),
+                                    style = DarkroomText.CountSub,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(start = Dimens.CountSubGap),
+                                )
+                            }
                         }
                     },
                 )
@@ -97,12 +114,22 @@ fun FavoritesScreen(
                     ) {
                         photoDaySections(
                             sections = uiState.sections,
-                            right = { section -> MonoWithBold(null, pluralStringResource(R.plurals.favorites_section_count, section.totalCount, section.totalCount)) },
+                            right = { section ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    MonoWithBold(null, pluralStringResource(R.plurals.favorites_section_count, section.totalCount, section.totalCount))
+                                    SortDayPill()
+                                }
+                            },
                             develop = develop,
                             firstScreen = firstScreen,
                             reorderAnchor = anchor,
                             onPhotoClick = openPhoto,
+                            showChevron = false,
+                            onDayEnter = { onOpenDay(it.dayKey) },
                         )
+                        filedDaysSection(uiState.filedDays, expandedFiled) { day ->
+                            expandedFiled = if (expandedFiled == day) null else day
+                        }
                     }
                 }
             }

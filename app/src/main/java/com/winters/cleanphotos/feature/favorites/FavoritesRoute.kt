@@ -10,6 +10,7 @@ import com.winters.cleanphotos.domain.model.PhotoSortOrder
 fun FavoritesRoute(
     onNavigateToReview: (photoId: Long, sortOrder: String) -> Unit,
     onNavigateBack: () -> Unit = {},
+    onOpenDay: (dayKey: String) -> Unit = {},
     viewModel: FavoritesViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -20,5 +21,6 @@ fun FavoritesRoute(
             onNavigateToReview(photoId, uiState.sortOrder.name)
         },
         onNavigateBack = onNavigateBack,
+        onOpenDay = onOpenDay,
     )
 }

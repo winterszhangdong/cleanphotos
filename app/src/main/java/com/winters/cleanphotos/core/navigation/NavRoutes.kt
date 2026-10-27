@@ -16,6 +16,8 @@ object NavRoutes {
     const val TRASH = "trash"
     /** groupKey 含逗号，导航前要编码。 */
     const val SIMILAR_COMPARE = "similar/{groupKey}/{photoId}"
+    /** 印样表：收藏里某一天。dayKey 含空格和逗号，导航前要编码。 */
+    const val CONTACT_SHEET = "contact_sheet/{dayKey}"
 
     /**
      * 构造清理页路由，携带排序、过滤、scope，以及「只看没看过」。
@@ -32,4 +34,6 @@ object NavRoutes {
 
     fun similarCompareRoute(groupKey: String, photoId: Long): String =
         "similar/${Uri.encode(groupKey)}/$photoId"
+
+    fun contactSheetRoute(dayKey: String): String = "contact_sheet/${Uri.encode(dayKey)}"
 }

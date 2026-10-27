@@ -213,6 +213,8 @@ fun LazyGridScope.photoDaySections(
     sizeLabel: ((PhotoItem) -> String)? = null,
     /** 照片页点按按格子的实际位置命中。收藏页用格子自己的点击，不传。 */
     hitRects: PhotoHitRects? = null,
+    /** 点天标题进入这一天的方式；不传时进入这一天第一张（清理页）。收藏页传印样表。 */
+    onDayEnter: ((PhotoDaySection) -> Unit)? = null,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -250,7 +252,8 @@ fun LazyGridScope.photoDaySections(
                         numeral = label.dayNumeral,
                         meta = label.monthLabel,
                         right = { right(section) },
-                        onEnter = section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
+                        onEnter = onDayEnter?.let { enter -> { enter(section) } }
+                            ?: section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
                         modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
                         showChevron = showChevron,
                     )

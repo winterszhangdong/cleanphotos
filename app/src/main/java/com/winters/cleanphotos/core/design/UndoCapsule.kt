@@ -53,6 +53,7 @@ import kotlinx.coroutines.delay
 /**
  * 撤回胶囊的内容。[seq] 每次有效操作递增，用来重启 4 秒倒计时；[favorite] 决定琥珀 / 中性灰。
  * [subtitle] 为 null 时只有一行主文案（照片页批量操作）。
+ * [keepColor]：中性小样但不去色（印样表装袋：照片只是换了文件夹，不是离开）。
  */
 data class UndoCapsuleContent(
     val seq: Long,
@@ -61,6 +62,7 @@ data class UndoCapsuleContent(
     val favorite: Boolean,
     val title: String,
     val subtitle: String?,
+    val keepColor: Boolean = false,
 )
 
 /**
@@ -131,7 +133,7 @@ private fun UndoCapsule(info: UndoCapsuleContent, startedAt: Long?, onUndo: () -
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            UndoThumb(info.thumbKey, info.thumbModel, fav)
+            UndoThumb(info.thumbKey, info.thumbModel, fav, info.keepColor)
             Column(Modifier.weight(1f)) {
                 Text(info.title, style = DarkroomText.UndoTitle, maxLines = 1)
                 if (info.subtitle != null) Text(info.subtitle, style = DarkroomText.UndoSub, maxLines = 1)
@@ -170,7 +172,7 @@ internal fun undoRemainingMillis(startedAt: Long, now: Long, total: Int): Long =
     (total - (now - startedAt)).coerceIn(0L, total.toLong())
 
 @Composable
-private fun UndoThumb(key: Long, model: Any?, fav: Boolean) {
+private fun UndoThumb(key: Long, model: Any?, fav: Boolean, keepColor: Boolean) {
     val context = LocalContext.current
     val request = remember(key) {
         ImageRequest.Builder(context).data(model).size(THUMB_PX).memoryCacheKey("review-thumb-$key").crossfade(false).build()
@@ -185,7 +187,7 @@ private fun UndoThumb(key: Long, model: Any?, fav: Boolean) {
             model = request,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            colorFilter = if (fav) null else UNDO_TRASH_FILTER,
+            colorFilter = if (fav || keepColor) null else UNDO_TRASH_FILTER,
             modifier = Modifier.size(40.dp),
         )
         Box(

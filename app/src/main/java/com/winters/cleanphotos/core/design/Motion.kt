@@ -269,3 +269,55 @@ object GestureTokens {
         return sign * length * (1f - 1f / (d * EDGE_RESISTANCE_FACTOR / length + 1f))
     }
 }
+
+/**
+ * 印样表装袋（docs/ui-design.md 3.20）。时长和曲线仍走上面的五档与弹簧，这里只放装袋专用的具名值。
+ */
+object FilingMotion {
+    /** 油性笔一笔画圈（减速进入）；擦掉反向走 SHORT。 */
+    const val PEN_STROKE = 220
+    /** 拖着照片叠停在袋子上这么久，袋子自己打开。 */
+    const val ENVELOPE_DWELL = 400
+    /** 收叠：从胶片里起飞到叠好（落定弹簧在这段内收住，每张错开 STAGGER）。 */
+    const val GATHER = 360
+    /** 叠好后停一下再入袋。 */
+    const val STACK_HOLD = 80
+    /** 授权通过到封口合上、计数开始滚：GATHER + STACK_HOLD + MEDIUM（入袋）+ SHORT（合盖）+ 收尾。 */
+    const val TOTAL = 1100
+    /** 封口合上后停一下再翻开，露角换成装完之后这个相册按拍摄时间最新的一张。 */
+    const val FLAP_REOPEN_DELAY = 300
+
+    /** 照片叠：缩放、后仰 16°、三张的扇形角度。 */
+    const val STACK_SCALE = 0.66f
+    const val STACK_TILT = 16f
+    val STACK_ROTATIONS = floatArrayOf(-8f, 4f, 12f)
+    /** 入袋时缩到袋口宽度。 */
+    const val MOUTH_SCALE = 0.32f
+    /** 3D 透视距离（cameraDistance，按 dp 乘密度）。 */
+    const val CAMERA_DISTANCE = 12f
+
+    /** 袋子朝手指倾斜。 */
+    const val LEAN_TILT_X = 12f
+    const val LEAN_TILT_Y_MAX = 8f
+    val LeanLift = 8.dp
+    const val LEAN_SCALE = 1.04f
+    /** 其它袋子压暗。 */
+    const val DIM_OTHERS = 0.42f
+    /** 合盖时袋子被压下去。 */
+    val FlapBump = 3.dp
+
+    /** 悬停打开：最近 3 张扇形 ±14°；长按偷看：最近 5 张 ±18°、袋子上浮 10dp 放大 1.06。 */
+    const val HOVER_FAN_DEG = 14f
+    const val PEEK_FAN_DEG = 18f
+    val PeekLift = 10.dp
+    const val PEEK_SCALE = 1.06f
+
+    /** 进入印样表：胶片从左滑入 28dp，带 -1.2° 转到摆角；每条之间 ±0.5° 的手摆偏差。 */
+    val StripEnterShift = 28.dp
+    const val STRIP_ENTER_TILT = -1.2f
+    val STRIP_SKEW = floatArrayOf(0f, 0.5f, -0.4f, 0.3f)
+
+    /** 一天冲洗完：最后一条胶片卷起（rotationY + scaleX，LONG，加速离场）。 */
+    const val ROLL_ANGLE = -70f
+    const val ROLL_SCALE_X = 0.16f
+}

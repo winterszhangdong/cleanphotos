@@ -7,7 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.repository.PhotoRepository
+import com.winters.cleanphotos.domain.usecase.BuildFiledDaysUseCase
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
+import com.winters.cleanphotos.domain.usecase.ObserveFilingLogUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveUnseenCountUseCase
 import com.winters.cleanphotos.domain.usecase.SortPhotosUseCase
 import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
@@ -30,6 +32,8 @@ class FavoritesViewModel @Inject constructor(
     private val sortPhotosUseCase: SortPhotosUseCase,
     private val buildPhotoSectionsUseCase: BuildPhotoSectionsUseCase,
     private val observeUnseenCountUseCase: ObserveUnseenCountUseCase,
+    private val observeFilingLog: ObserveFilingLogUseCase,
+    private val buildFiledDays: BuildFiledDaysUseCase,
     @DefaultDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -45,12 +49,17 @@ class FavoritesViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 photoRepository.observeFavoritedPhotos(),
+                photoRepository.observeAllPhotos(),
                 observeUnseenCountUseCase(),
-            ) { favoritedPhotos, unseen ->
+                observeFilingLog(),
+            ) { favoritedPhotos, others, unseen, log ->
                 val sorted = sortPhotosUseCase(favoritedPhotos, PhotoSortOrder.NewestFirst)
+                val sections = buildPhotoSectionsUseCase(sorted, dayPool = favoritedPhotos, seenIds = emptySet())
                 FavoritesUiState(
                     totalCount = favoritedPhotos.size,
-                    sections = buildPhotoSectionsUseCase(sorted, dayPool = favoritedPhotos, seenIds = emptySet()),
+                    sections = sections,
+                    pendingDays = sections.size,
+                    filedDays = buildFiledDays(log, (favoritedPhotos + others).associateBy { it.id }),
                     unseenCount = unseen,
                 )
             }

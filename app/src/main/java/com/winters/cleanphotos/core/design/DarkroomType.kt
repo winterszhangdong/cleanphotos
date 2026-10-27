@@ -236,4 +236,22 @@ object DarkroomText {
     /** 排序提示：9px × 1.579 ≈ 14sp，行高 = 胶囊高。 */
     val Toast = Sans.copy(fontSize = 14.sp, lineHeight = 38.sp, color = DarkroomColors.Paper).cssLines()
     val EdgeHint = Sans.copy(fontSize = 12.sp, lineHeight = 16.sp, color = DarkroomColors.Paper.copy(alpha = 0.7f)).cssLines()
+
+    // —— 印样表 / 底片袋（ui-design 3.20）——
+    /** 胶片格号、片边字：mono 6.5，字距 0.06em，相纸白 42%。 */
+    val FrameNo = MonoBase.copy(fontSize = 6.5.sp, lineHeight = 8.sp, letterSpacing = 0.06.em, color = DarkroomColors.FilmEdgeText).cssLines()
+    /** 托盘标题「放进相册」15/20 600。 */
+    val TrayTitle = Sans.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold).cssLines()
+    /** 托盘开关 / 拖动提示 12。 */
+    val TraySwitch = Sans.copy(fontSize = 12.sp, lineHeight = 16.sp, color = DarkroomColors.Dim).cssLines()
+    /** 袋子标签：名字 11.5/15 600、张数 mono 10/13（标签墨 72%）。 */
+    val EnvelopeName = Sans.copy(fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = DarkroomColors.LabelInk).cssLines()
+    val EnvelopeCount = MonoBase.copy(fontSize = 10.sp, lineHeight = 13.sp, color = DarkroomColors.LabelInk.copy(alpha = 0.72f)).cssLines()
+    /** 偷看名牌 17/24 600。 */
+    val PeekName = Sans.copy(fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold).cssLines()
+    /** 拖动提示胶囊 12.5 500。 */
+    val DropChip = Sans.copy(fontSize = 12.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium).cssLines()
+    /** 新袋子标签输入 22/30 600、路径 mono 10.5（标签墨 60%）。 */
+    val NewAlbumInput = Sans.copy(fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = DarkroomColors.LabelInk).cssLines()
+    val NewAlbumPath = MonoBase.copy(fontSize = 10.5.sp, lineHeight = 14.sp, color = DarkroomColors.LabelInk.copy(alpha = 0.6f)).cssLines()
 }

@@ -240,4 +240,62 @@
     <string name="cd_playback_motion">Play motion photo</string>
     <string name="cd_playback_progress">Playback progress</string>
     <string name="playback_motion">Motion</string>
+    <!-- Contact sheet / sleeves (sorting favorites) -->
+    <string name="favorites_sort_day">Sort</string>
+    <string name="favorites_filed_header">Filed · %1$d</string>
+    <string name="sheet_hint">Tap to circle · Swipe across for more · Hold to view</string>
+    <string name="sheet_circle_all">Circle all</string>
+    <string name="sheet_clear">Clear</string>
+    <string name="tray_title">Put in album</string>
+    <string name="tray_system_favorite">Gallery favorite</string>
+    <string name="tray_hint">Sleeves are album folders</string>
+    <string name="envelope_new">New sleeve</string>
+    <string name="drop_hint">Release to put in “%1$s”</string>
+    <string name="new_album_cancel">Cancel</string>
+    <string name="new_album_placeholder">Album name</string>
+    <string name="new_album_path_new">%1$s · new</string>
+    <string name="new_album_path_merge">%1$s · exists, will merge</string>
+    <string name="new_album_go">Put in</string>
+    <string name="summary_filed_title">This day is filed</string>
+    <string name="summary_filed_total"> · %1$d total</string>
+    <string name="summary_filed_new"> · new</string>
+    <string name="summary_unfavorited_rest"> · back in Photos</string>
+    <string name="summary_next_day">Sort %1$s</string>
+    <string name="back_to_favorites">Back to Favorites</string>
+    <plurals name="favorites_days_pending">
+        <item quantity="one">%1$d day to sort</item>
+        <item quantity="other">%1$d days to sort</item>
+    </plurals>
+    <plurals name="sheet_pending">
+        <item quantity="one">%1$d to sort</item>
+        <item quantity="other">%1$d to sort</item>
+    </plurals>
+    <plurals name="sheet_circled">
+        <item quantity="one">%1$d circled</item>
+        <item quantity="other">%1$d circled</item>
+    </plurals>
+    <plurals name="envelope_count_unit">
+        <item quantity="one"></item>
+        <item quantity="other"></item>
+    </plurals>
+    <plurals name="peek_meta">
+        <item quantity="one">%1$d photo · %2$s</item>
+        <item quantity="other">%1$d photos · %2$s</item>
+    </plurals>
+    <plurals name="new_album_title">
+        <item quantity="one">New album · %1$d photo</item>
+        <item quantity="other">New album · %1$d photos</item>
+    </plurals>
+    <plurals name="sheet_undo_filed">
+        <item quantity="one">Put %1$d photo in “%2$s”</item>
+        <item quantity="other">Put %1$d photos in “%2$s”</item>
+    </plurals>
+    <plurals name="sheet_filing_failed">
+        <item quantity="one">%1$d photo couldn’t be moved</item>
+        <item quantity="other">%1$d photos couldn’t be moved</item>
+    </plurals>
+    <plurals name="sheet_undo_failed">
+        <item quantity="one">%1$d photo couldn’t be moved back</item>
+        <item quantity="other">%1$d photos couldn’t be moved back</item>
+    </plurals>
 </resources>

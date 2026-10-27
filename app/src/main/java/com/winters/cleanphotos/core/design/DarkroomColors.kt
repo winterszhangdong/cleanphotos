@@ -106,4 +106,23 @@ object DarkroomColors {
     val ToastRim = Color(0xFFFFF0E1).copy(alpha = 0.12f)
     /** 清理页底部渐变起点 rgba(10,9,8,0.7)。 */
     val ScrimBottom = Color(0xFF0A0908).copy(alpha = 0.70f)
+
+    // —— 印样表 / 底片袋（ui-design 3.20）：安全灯下的牛皮纸，饱和度压低，不和琥珀抢 ——
+    /** 胶片底 #060605、齿孔 #1E1B18、片边字与格号相纸白 42%。 */
+    val Film = Color(0xFF060605)
+    val FilmHole = Color(0xFF1E1B18)
+    val FilmEdgeText = Paper.copy(alpha = 0.42f)
+    /** 油性笔圈：相纸白 94%。 */
+    val Pen = Paper.copy(alpha = 0.94f)
+    /** 袋子正面渐变 #8A7152 → #7C6549、袋内 #4A3C2C、封口 #6B5640 → #5F4C37。 */
+    val KraftHigh = Color(0xFF8A7152)
+    val Kraft = Color(0xFF7C6549)
+    val KraftInside = Color(0xFF4A3C2C)
+    val KraftFlapHigh = Color(0xFF6B5640)
+    val KraftFlap = Color(0xFF5F4C37)
+    /** 袋子标签纸 #D8CDBA、标签字 #2A221A（张数 72%）。 */
+    val Label = Color(0xFFD8CDBA)
+    val LabelInk = Color(0xFF2A221A)
+    /** 露角 / 飞行中的照片白边 #E6E0D6。 */
+    val PrintBorder = Color(0xFFE6E0D6)
 }
