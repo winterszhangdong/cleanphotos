@@ -7,6 +7,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-27
+
 ### Changed
 
 - 安卓：拖着照片叠时，照片叠改回浮在指尖，不再偏到手指左上方；名签弹在照片叠上方，不压住照片，也不碰「加系统收藏」开关。
@@ -475,7 +477,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.5.5...v1.6.0
