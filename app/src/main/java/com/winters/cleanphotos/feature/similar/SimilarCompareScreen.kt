@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -26,10 +27,12 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +79,7 @@ import com.winters.cleanphotos.feature.review.detectReviewGestures
 import com.winters.cleanphotos.feature.review.reviewImageRequest
 import com.winters.cleanphotos.feature.review.tone
 import kotlin.math.abs
+import kotlinx.coroutines.flow.first
 
 /**
  * 对比页和照片页共用同一个 [SimilarViewModel]，挂在 all_photos 的返回栈上。
@@ -425,7 +429,21 @@ private fun CompareFilmstrip(
     index: Int,
     onSelect: (Int) -> Unit,
 ) {
+    val state = rememberLazyListState(initialFirstVisibleItemIndex = index)
+    val density = LocalDensity.current
+    val animations = LocalAnimationsEnabled.current
+    val itemPx = with(density) { Dimens.SimilarThumb.roundToPx() }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(index) {
+        snapshotFlow {
+            val info = state.layoutInfo
+            info.viewportEndOffset - info.viewportStartOffset
+        }.first { it > 0 }
+        state.followFilmstrip(index, itemPx, animate = placed && animations)
+        placed = true
+    }
     LazyRow(
+        state = state,
         modifier = Modifier
             .padding(top = Dimens.DayGap)
             .fillMaxWidth()
