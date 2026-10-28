@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -186,7 +187,11 @@ private fun LazyItemScope.similarItemMotion(): Modifier = Modifier.animateItem(
     fadeOutSpec = tween(MotionDurations.SHORT, easing = MotionEasings.Standard),
 )
 
-/** 缩略图行把剩下的横向滚动和 fling 吃掉，照片页的范围 pager 收不到。竖向照常交出去。 */
+/**
+ * 缩略图这一行还滚得动时，把剩下的横向滚动和 fling 吃掉。
+ * 漏给范围 pager 的话，pager 会吃掉速度却不滚动，页停在两页中间。
+ * 这一行放得下时不挂它，横滑直接切范围。竖向照常交出去。
+ */
 private val eatHorizontalLeftover = object : NestedScrollConnection {
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
         Offset(available.x, 0f)
@@ -219,12 +224,16 @@ private fun SimilarGroupCard(
             .padding(Dimens.FreePadding),
     ) {
         Text(similarTakenLabel(group.photos.first(), locale), style = DarkroomText.Body)
+        val rowState = rememberLazyListState()
+        val rowScrollable = rowState.canScrollForward || rowState.canScrollBackward
         LazyRow(
+            state = rowState,
+            userScrollEnabled = rowScrollable,
             modifier = Modifier
                 .padding(top = Dimens.DayGap)
                 .fillMaxWidth()
                 .height(Dimens.SimilarThumb)
-                .nestedScroll(eatHorizontalLeftover),
+                .then(if (rowScrollable) Modifier.nestedScroll(eatHorizontalLeftover) else Modifier),
             horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap),
         ) {
             itemsIndexed(group.photos, key = { _, photo -> photo.id }) { col, photo ->

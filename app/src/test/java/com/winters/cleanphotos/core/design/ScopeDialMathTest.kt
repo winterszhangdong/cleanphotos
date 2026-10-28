@@ -30,6 +30,22 @@ class ScopeDialMathTest {
     }
 
     @Test
+    fun drag_pages_moves_toward_the_next_scope_when_the_finger_moves_left() {
+        assertEquals(1f, ScopeDialMath.dragPages(dx = -40f, stride = 40f), 0.001f)
+        assertEquals(-0.5f, ScopeDialMath.dragPages(dx = 20f, stride = 40f), 0.001f)
+    }
+
+    @Test
+    fun hit_index_picks_the_label_under_the_content_x() {
+        val widths = floatArrayOf(40f, 60f, 40f)
+        val gap = 22f
+        val minTouch = 48f
+        assertEquals(0, ScopeDialMath.hitIndex(10f, widths, gap, minTouch))
+        assertEquals(1, ScopeDialMath.hitIndex(ScopeDialMath.center(1, widths, gap), widths, gap, minTouch))
+        assertEquals(-1, ScopeDialMath.hitIndex(-100f, widths, gap, minTouch))
+    }
+
+    @Test
     fun single_label_overscroll_uses_width_plus_gap() {
         val widths = floatArrayOf(40f)
         val gap = 22f

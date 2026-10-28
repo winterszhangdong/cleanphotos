@@ -3,6 +3,12 @@ package com.winters.cleanphotos.feature.allphotos
 import com.winters.cleanphotos.core.design.ScopeDialMath
 import kotlin.math.abs
 
+/**
+ * 慢滑松手时，过了视口的这个比例就进下一页。
+ * 默认一半会让已经露出下一页的滑动弹回去，最后一页尤其明显。
+ */
+const val SCOPE_SNAP_FRACTION = 0.3f
+
 /** 范围刻度或 ViewModel 要求换页时，pager 怎么过去。 */
 enum class ScopeJump {
     /** 已经在这一页。 */

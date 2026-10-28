@@ -10,6 +10,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.winters.cleanphotos.core.design.blockTouchesBelow
 import com.winters.cleanphotos.core.design.skeletonFill
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -125,6 +126,7 @@ import com.winters.cleanphotos.domain.model.PhotoDaySection
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ScopeLayout
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.yield
 import com.winters.cleanphotos.feature.similar.SimilarList
 import com.winters.cleanphotos.feature.similar.SimilarPhase
@@ -311,6 +313,8 @@ fun AllPhotosScreen(
             }
         }
     }
+    // pager 自己停稳写回的范围。和它相同就不要 requestJump，否则会把已经滑过去的页拉回来。
+    val scopeFromPager = remember { PagerScopeMirror(uiState.scope) }
     // 先让 ViewModel 对不齐的页跳过去，再把停稳页写回。跳的过程中不写回旧页。
     LaunchedEffect(pagerState) {
         yield()
@@ -318,11 +322,17 @@ fun AllPhotosScreen(
             val expected = motion.target
             if (expected != null && page != expected) return@collect
             val targetScope = scopesState.value.getOrNull(page) ?: return@collect
+            scopeFromPager.scope = targetScope
             if (targetScope != scopeHolder.value) onScopeChangedState.value(targetScope)
         }
     }
     LaunchedEffect(uiState.scope, scopes) {
-        val target = scopes.indexOf(uiState.scope)
+        if (uiState.scope == scopeFromPager.scope) return@LaunchedEffect
+        if (pagerState.isScrollInProgress && motion.target == null) {
+            snapshotFlow { pagerState.isScrollInProgress }.first { !it }
+            if (scopeHolder.value == scopeFromPager.scope) return@LaunchedEffect
+        }
+        val target = scopesState.value.indexOf(scopeHolder.value)
         if (target < 0) return@LaunchedEffect
         val idle = pagerState.settledPage == target &&
             pagerState.currentPage == target &&
@@ -336,7 +346,10 @@ fun AllPhotosScreen(
     val fling = PagerDefaults.flingBehavior(
         state = pagerState,
         snapAnimationSpec = if (animationsEnabled) MotionSprings.Snappy.spec() else snap(),
+        snapPositionalThreshold = SCOPE_SNAP_FRACTION,
     )
+    val flingState = rememberUpdatedState(fling)
+    val scopeScrollEnabled = !selecting && !menuOpen && !showLanguageSheet && !motion.on
 
     GlassBackdropHost {
         AppDockEffect(
@@ -349,9 +362,10 @@ fun AllPhotosScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                beyondViewportPageCount = 0,
+                // 邻页先组合好。拖进还没组合的页（聊天 → 那年今天）会在拖动中重新测量，位置掉回上一页。
+                beyondViewportPageCount = 1,
                 flingBehavior = fling,
-                userScrollEnabled = !selecting && !menuOpen && !showLanguageSheet && !motion.on,
+                userScrollEnabled = scopeScrollEnabled,
                 key = { scopes[it] },
             ) { page ->
                 val pageScope = scopes[page]
@@ -431,6 +445,18 @@ fun AllPhotosScreen(
                     },
                     onSelect = { index -> requestJump(index) },
                     selectedIndex = scopes.indexOf(uiState.scope).coerceAtLeast(0),
+                    scrollEnabled = scopeScrollEnabled,
+                    onDrag = { deltas, velocity ->
+                        pagerState.scroll(MutatePriority.UserInput) {
+                            val pagePx = pagerState.layoutInfo.pageSize.toFloat()
+                            for (pages in deltas) {
+                                if (pagePx > 0f) scrollBy(pages * pagePx)
+                            }
+                            if (pagePx > 0f) {
+                                with(flingState.value) { performFling(velocity() * pagePx) }
+                            }
+                        }
+                    },
                 )
             }
             Box(
@@ -857,6 +883,9 @@ private fun DoneStat(value: String, unit: String?, color: androidx.compose.ui.gr
         Text(label, style = DarkroomText.DoneLabel, modifier = Modifier.paddingFromBaseline(top = 18.56.dp, bottom = 4.64.dp))
     }
 }
+
+/** pager 停稳后写回的范围。不进组合状态。 */
+private class PagerScopeMirror(var scope: LibraryScope)
 
 /** 隔远跳转时盖住刻度进度。只在 graphicsLayer 里读 [slide] 和 [enter]。 */
 private class ScopeDialMotion {
