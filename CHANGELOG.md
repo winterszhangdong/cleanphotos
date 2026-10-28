@@ -7,6 +7,28 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-10-28
+
+### Changed
+
+- 安卓：照片页顶部的范围从一排小胶囊改成居中的刻度，当前项在中间，下面一条短线。左右滑动内容可以切到相邻范围；点相邻的名字同样滑过去，隔得远就直接跳到那一页。每个范围记住自己滚到哪里，切回来还停在原处。多选、菜单或语言弹层打开时不能横滑切换。
+- 安卓：相似对比页里，一组比底部胶片条长时，当前这张保持在条的中间，开头和结尾贴边。打开对比页时直接对准当前张，不会从最左边滑过去。
+
+### Fixed
+
+- 安卓：刚打开时如果系统图库还没准备好，不再马上显示「加载照片失败」。先停在加载中再试几次，仍然失败才提示。空的查询结果也不会被当成空相册。
+
+---
+
+### Changed
+
+- Android: the scope row at the top of the photo page is now a centered dial with a short line under the current name, instead of a row of small chips. Swipe the content left or right to move to the next scope; tapping a neighboring name does the same, and tapping one farther away jumps straight there. Each scope keeps its own scroll position. Swiping between scopes is disabled while multi-select, the menu, or the language sheet is open.
+- Android: on the similar-photo compare screen, when a group is longer than the filmstrip, the current photo stays centered and the first and last thumbnails stay at the ends. Opening compare lands on the current photo instead of sliding in from the left.
+
+### Fixed
+
+- Android: if the system gallery is not ready the moment the app opens, it no longer shows "Couldn't load photos" right away. It stays on the loading state and tries again; the error appears only if those tries still fail. An empty query is not treated as an empty library.
+
 ## [1.7.1] - 2026-10-27
 
 ### Changed
@@ -477,7 +499,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.0...v1.6.1
