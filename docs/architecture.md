@@ -193,7 +193,7 @@ com.example.photocleaner
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
 * Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，网格、小结页、清理页和垃圾桶预览的静态层用视频 uri 画首帧；网格缩略图和清理页大图都用 `RGB_565`。播放是另一层 TextureView，不改静态图请求。清理页环境光把 96px 小图按屏幕上的 36dp 折算半径做一次盒式模糊并缓存，当前页、左右邻页、离场页和撤回让位页直接画这张图。alpha 为 0 的垫底页不画。不再对整页做实时 RenderEffect
-* 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、范围按钮 `ScopeChipRow`
+* 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、范围刻度 `ScopeDial`
 * 间距
 * 通用组件
 * 图标（`DraftIcons` 画返回、日期箭头和勾；其余仍可用 `MaterialSymbol`）
@@ -424,10 +424,10 @@ LocateMotionPhotoVideoUseCase（图片走 Repository；视频直接变成 Playba
 包含：
 
 ```text
-AllPhotosRoute（照片页导航项里同时持有 SimilarViewModel；第一次切到相似才 start，且只启动一次。对比页用同一个返回栈条目上的 ViewModel）
-AllPhotosScreen（顶栏 + 范围行 quick return；相似列表嵌在这一页）
+AllPhotosRoute（照片页导航项里同时持有 SimilarViewModel；停稳到相似才 start，且只启动一次。对比页用同一个返回栈条目上的 ViewModel）
+AllPhotosScreen（顶栏 + 范围刻度 quick return；内容区 HorizontalPager 左右滑换范围；相似列表嵌在这一页）
 SimilarCompareRoute（全屏对比；手势在 feature/similar，复用清理页的判定函数，不改清理页）
-AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化。大文件内部用 LargestFirst，菜单排序另存）
+AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化。`_scope` 是停稳的范围。除当前页外只预算左右相邻页（相似邻页不算，它画分组卡片）。大文件内部用 LargestFirst，菜单排序另存）
 AllPhotosUiState
 PhotoDateSection
 PhotoChromeCollapse

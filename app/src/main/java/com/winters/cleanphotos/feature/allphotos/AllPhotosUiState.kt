@@ -56,6 +56,60 @@ fun LibraryScope.emptyTitleRes(): Int = when (this) {
     LibraryScope.All, LibraryScope.Similar -> error("$this 没有范围空状态")
 }
 
+/** 范围刻度上的页，从左到右。「那年今天」只在要显示时排在最后。 */
+fun visibleLibraryScopes(showOnThisDay: Boolean): List<LibraryScope> = buildList {
+    add(LibraryScope.All)
+    add(LibraryScope.Similar)
+    add(LibraryScope.LargeFiles)
+    add(LibraryScope.Screenshots)
+    add(LibraryScope.ChatApps)
+    if (showOnThisDay) add(LibraryScope.OnThisDay)
+}
+
+/** 停稳范围和左右相邻。范围不在可见列表里就直接出错。 */
+fun neighborLibraryScopes(settled: LibraryScope, visible: List<LibraryScope>): List<LibraryScope> {
+    val index = visible.indexOf(settled)
+    check(index >= 0) { "范围 $settled 不在 $visible" }
+    return listOfNotNull(visible.getOrNull(index - 1), visible[index], visible.getOrNull(index + 1))
+}
+
+/** 某一页已经算好的列表。多选和进清理页不用它，只用停稳的那一页。 */
+data class ScopePage(
+    val sections: List<PhotoDaySection>,
+    val scopeCount: Int,
+    val visibleCount: Int,
+    val visibleBytes: Long,
+)
+
+/**
+ * 这一页中间画什么。顺序与 [AllPhotosUiState.content] 一致：
+ * 加载（相似除外）→ 空列表上的错误 → 相似 → 全部看过了 → 范围为空 → 范围都看过 → 相册为空 → 网格。
+ */
+fun libraryContent(
+    scope: LibraryScope,
+    page: ScopePage,
+    isLoading: Boolean,
+    error: UiText?,
+    unseenOnly: Boolean,
+    totalCount: Int,
+): LibraryContent {
+    val loading = isLoading && page.sections.isEmpty() && scope != LibraryScope.Similar
+    if (loading) return LibraryContent.Loading
+    if (error != null && page.sections.isEmpty()) return LibraryContent.Error(error)
+    if (scope == LibraryScope.Similar) return LibraryContent.Similar
+    if (scope == LibraryScope.All && unseenOnly && page.visibleCount == 0 && totalCount > 0) {
+        return LibraryContent.AllSeen
+    }
+    if (error == null && scope.isNarrowRange && page.scopeCount == 0 && totalCount > 0) {
+        return LibraryContent.ScopeEmpty
+    }
+    if (error == null && scope.isNarrowRange && unseenOnly && page.visibleCount == 0 && page.scopeCount > 0) {
+        return LibraryContent.ScopeSeen
+    }
+    if (page.sections.isEmpty()) return LibraryContent.LibraryEmpty
+    return LibraryContent.Grid
+}
+
 /** 照片页中间区域画什么。判断在状态上，界面只 when。 */
 sealed interface LibraryContent {
     data object Loading : LibraryContent
@@ -94,6 +148,8 @@ data class AllPhotosUiState(
     val isInitialLoad: Boolean = true,
     val hasPermission: Boolean = false,
     val errorMessage: UiText? = null,
+    /** 停稳范围和左右相邻的页面。其它范围还没算，界面先画骨架。 */
+    val pages: Map<LibraryScope, ScopePage> = emptyMap(),
 ) {
     /** 数量为 0 且当前不是这个范围时，不显示「那年今天」。 */
     val showOnThisDay: Boolean
@@ -111,21 +167,26 @@ data class AllPhotosUiState(
      * 加载（相似范围除外）→ 空列表上的错误 → 相似 → 全部看过了 → 范围为空 → 范围都看过 → 相册为空 → 网格。
      */
     val content: LibraryContent
-        get() {
-            val loading = isLoading && sections.isEmpty() && scope != LibraryScope.Similar
-            if (loading) return LibraryContent.Loading
-            if (errorMessage != null && sections.isEmpty()) return LibraryContent.Error(errorMessage)
-            if (scope == LibraryScope.Similar) return LibraryContent.Similar
-            if (scope == LibraryScope.All && unseenOnly && visibleCount == 0 && totalCount > 0) {
-                return LibraryContent.AllSeen
-            }
-            if (errorMessage == null && scope.isNarrowRange && scopeCount == 0 && totalCount > 0) {
-                return LibraryContent.ScopeEmpty
-            }
-            if (errorMessage == null && scope.isNarrowRange && unseenOnly && visibleCount == 0 && scopeCount > 0) {
-                return LibraryContent.ScopeSeen
-            }
-            if (sections.isEmpty()) return LibraryContent.LibraryEmpty
-            return LibraryContent.Grid
+        get() = libraryContent(
+            scope,
+            ScopePage(sections, scopeCount, visibleCount, visibleBytes),
+            isLoading,
+            errorMessage,
+            unseenOnly,
+            totalCount,
+        )
+
+    /**
+     * 某一页画什么。停稳页没有预计算时退回 [content]。
+     * 还没算的相似页先出比对骨架，其它没算的页出加载骨架。
+     */
+    fun pageContent(forScope: LibraryScope): LibraryContent {
+        val page = pages[forScope]
+        if (page != null) {
+            return libraryContent(forScope, page, isLoading, errorMessage, unseenOnly, totalCount)
         }
+        if (forScope == scope) return content
+        if (forScope == LibraryScope.Similar) return LibraryContent.Similar
+        return LibraryContent.Loading
+    }
 }

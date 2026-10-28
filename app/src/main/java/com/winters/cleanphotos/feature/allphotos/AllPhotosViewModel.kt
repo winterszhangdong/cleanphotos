@@ -108,43 +108,35 @@ class AllPhotosViewModel @Inject constructor(
                 val seenIds = frame.seenIds
                 // shortcut: 今天只在照片列表 / 看过状态变化时重算，跨过午夜不会自动刷新；要精确就加一个按日期变化的 Flow
                 val today = LocalDate.now()
-                // 相似不吃范围过滤，网格仍按「全部」+ 菜单排序留着。大文件只在这个范围按大小排，不排整库两次。
-                val dateSorted = if (scope == LibraryScope.LargeFiles) null else sortPhotosUseCase(allPhotos, sortOrder)
-                val scoped = when (scope) {
-                    LibraryScope.Similar -> dateSorted!!
-                    LibraryScope.LargeFiles -> sortPhotosUseCase(
-                        allPhotos.filter { PhotoFilterRules.matches(it, PhotoFilterMode.LargeFiles, today) },
-                        PhotoSortOrder.LargestFirst,
-                    )
-                    else -> filterPhotosUseCase(dateSorted!!, scope.toFilterMode(), seenIds, unseenOnly = false, today)
+                // shortcut: 只算相邻页，跳远时目标页先显示骨架再出图
+                val onThisDayCount = allPhotos.count { PhotoFilterRules.matches(it, PhotoFilterMode.OnThisDay, today) }
+                val visibleScopes = visibleLibraryScopes(onThisDayCount > 0 || scope == LibraryScope.OnThisDay)
+                // 相似邻页画分组卡片，不用网格：不在邻位上再分组一遍整库
+                val wanted = neighborLibraryScopes(scope, visibleScopes).filter { it != LibraryScope.Similar || it == scope }
+                val dateSorted = sortPhotosUseCase(allPhotos, sortOrder)
+                val built = wanted.associateWith { neighbor ->
+                    buildScope(neighbor, allPhotos, dateSorted, seenIds, unseenOnly, today)
                 }
-                val applyUnseen = unseenOnly && scope != LibraryScope.Similar
-                val visible = if (applyUnseen) scoped.filter { it.id !in seenIds } else scoped
-                val onThisDayCount = if (scope == LibraryScope.OnThisDay) {
-                    scoped.size
-                } else {
-                    allPhotos.count { PhotoFilterRules.matches(it, PhotoFilterMode.OnThisDay, today) }
-                }
-                val layout = if (scope == LibraryScope.Similar) ScopeLayout.Day else scope.layout
-                val sections = buildPhotoSectionsUseCase(visible, dayPool = scoped, seenIds = seenIds, layout = layout)
+                val settled = built.getValue(scope)
                 Listed(
                     state = AllPhotosUiState(
                         totalCount = allPhotos.size,
                         onThisDayCount = onThisDayCount,
-                        scopeCount = scoped.size,
-                        visibleCount = visible.size,
-                        visibleBytes = visible.sumOf { it.size ?: 0L },
+                        scopeCount = settled.page.scopeCount,
+                        visibleCount = settled.page.visibleCount,
+                        visibleBytes = settled.page.visibleBytes,
                         sortOrder = sortOrder,
                         scope = scope,
                         unseenOnly = unseenOnly,
-                        sections = sections,
+                        sections = settled.page.sections,
                         seenIds = seenIds,
                         allSeenStats = stats,
-                        hangPhotos = dateSorted?.take(HANG_PHOTO_COUNT).orEmpty(),
+                        hangPhotos = dateSorted.take(HANG_PHOTO_COUNT),
+                        pages = built.mapValues { it.value.page },
                     ),
-                    selectable = visible,
-                    selectableById = visible.associateBy { it.id },
-                    gridPhotos = sections.flatMap { it.photos },
+                    selectable = settled.visible,
+                    selectableById = settled.visible.associateBy { it.id },
+                    gridPhotos = settled.page.sections.flatMap { it.photos },
                 )
             }
                 // 排序 / 分组整个相册不在主线程：本页留在返回栈里时，清理页每次滑动都会让这里重算一遍
@@ -190,6 +182,37 @@ class AllPhotosViewModel @Inject constructor(
     /** 从系统设置回来时重新检查（拒绝且不再询问 → 去系统设置开启）。 */
     fun recheckPermission() {
         onPermissionResult(PermissionChecker.hasPhotoPermission(getApplication()))
+    }
+
+    private fun buildScope(
+        scope: LibraryScope,
+        allPhotos: List<PhotoItem>,
+        dateSorted: List<PhotoItem>,
+        seenIds: Set<Long>,
+        unseenOnly: Boolean,
+        today: LocalDate,
+    ): BuiltScope {
+        val scoped = when (scope) {
+            LibraryScope.Similar -> dateSorted
+            LibraryScope.LargeFiles -> sortPhotosUseCase(
+                allPhotos.filter { PhotoFilterRules.matches(it, PhotoFilterMode.LargeFiles, today) },
+                PhotoSortOrder.LargestFirst,
+            )
+            else -> filterPhotosUseCase(dateSorted, scope.toFilterMode(), seenIds, unseenOnly = false, today)
+        }
+        val applyUnseen = unseenOnly && scope != LibraryScope.Similar
+        val visible = if (applyUnseen) scoped.filter { it.id !in seenIds } else scoped
+        val layout = if (scope == LibraryScope.Similar) ScopeLayout.Day else scope.layout
+        val sections = buildPhotoSectionsUseCase(visible, dayPool = scoped, seenIds = seenIds, layout = layout)
+        return BuiltScope(
+            page = ScopePage(
+                sections = sections,
+                scopeCount = scoped.size,
+                visibleCount = visible.size,
+                visibleBytes = visible.sumOf { it.size ?: 0L },
+            ),
+            visible = visible,
+        )
     }
 
     fun onSortOrderChanged(order: PhotoSortOrder) {
@@ -345,6 +368,11 @@ private data class PhotoFrame(
     val scope: LibraryScope,
     val unseenOnly: Boolean,
     val seenIds: Set<Long>,
+)
+
+private data class BuiltScope(
+    val page: ScopePage,
+    val visible: List<PhotoItem>,
 )
 
 private data class Listed(

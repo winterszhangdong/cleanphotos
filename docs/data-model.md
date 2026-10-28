@@ -521,7 +521,8 @@ data class AllPhotosUiState(
     val unseenOnly: Boolean = false,
     val scopeCount: Int = 0,
     val visibleBytes: Long = 0L,
-    val onThisDayCount: Int = 0
+    val onThisDayCount: Int = 0,
+    val pages: Map<LibraryScope, ScopePage> = emptyMap()
 )
 ```
 
@@ -540,10 +541,11 @@ isLoading：是否加载中
 hasPermission：是否有相册权限
 errorMessage：错误信息
 sortOrder：菜单里的排序（最新优先 / 最早优先）。大文件范围不改它，网格另按 LargestFirst 排
-scope：当前范围。LibraryScope = All / Similar / LargeFiles / Screenshots / ChatApps / OnThisDay。相似映射到 PhotoFilterMode.AllPhotos
+scope：停稳的范围。LibraryScope = All / Similar / LargeFiles / Screenshots / ChatApps / OnThisDay。相似映射到 PhotoFilterMode.AllPhotos。多选、gridPhotos、进清理页只用这个范围
 unseenOnly：「只看没看过」。不持久化
 onThisDayCount：全部照片里命中「那年今天」的张数，不受「看过」影响
-showOnThisDay：onThisDayCount > 0，或当前范围已经是 OnThisDay；否则范围行不显示「那年今天」
+showOnThisDay：onThisDayCount > 0，或当前范围已经是 OnThisDay；否则范围刻度不显示「那年今天」
+pages：停稳范围和左右相邻范围的 ScopePage（sections / scopeCount / visibleCount / visibleBytes）。相似只在停稳时有，作邻页时不算。其它范围还没算，界面先画骨架。顶栏数字读当前页（过半就换）对应的 ScopePage
 ```
 
 ***

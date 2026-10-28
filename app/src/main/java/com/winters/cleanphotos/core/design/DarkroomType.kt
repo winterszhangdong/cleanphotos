@@ -135,6 +135,8 @@ object DarkroomText {
     ).cssLines()
     /** .tb / .ghost：13sp 500 相纸白。 */
     val Button13 = Sans.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium).cssLines()
+    /** 范围刻度：14/20 500 相纸白。距离透明度由刻度乘上去，不另换色。 */
+    val ScopeDial = Sans.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium).cssLines()
     /** .btn-paper：13sp 600 暗室色。 */
     val ButtonPaper = Sans.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DarkroomColors.Room).cssLines()
     /** .btn-clear / .dg-actions：14sp 600。 */

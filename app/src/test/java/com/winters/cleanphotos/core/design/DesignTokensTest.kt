@@ -65,6 +65,17 @@ class DesignTokensTest {
         assertEquals(2f, Dimens.NavIndicatorHeight.value)
     }
 
+    @Test fun scope_dial_matches_the_row_spec() {
+        assertEquals(40f, Dimens.ScopeRowHeight.value)
+        assertEquals(8f, Dimens.ScopeRowBottom.value)
+        assertEquals(22f, Dimens.ScopeDialGap.value)
+        assertEquals(40f, Dimens.ScopeDialEdgeFade.value)
+        assertEquals(6f, Dimens.ScopeDialTextTop.value)
+        assertEquals(32f, Dimens.ScopeDialIndicatorTop.value)
+        assertEquals(14f, DarkroomText.ScopeDial.fontSize.value)
+        assertEquals(20f, DarkroomText.ScopeDial.lineHeight.value)
+    }
+
     @Test fun develop_single_channel_windows() {
         val p = DevelopProfiles.Single
         val v0 = DevelopMatrix.values(p, 0f)

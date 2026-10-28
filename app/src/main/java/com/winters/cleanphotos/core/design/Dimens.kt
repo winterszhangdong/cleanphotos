@@ -95,11 +95,18 @@ object Dimens {
     val CountGap = 4.dp
     val CountSubGap = 8.dp
     val HeaderActionGap = 8.dp
-    /** 照片页范围按钮（task032 G3）：胶囊高 32、左右 14、间距 8；整行高 40（含下边 8）。 */
-    val ScopeChipHeight = 32.dp
-    val ScopeChipPadH = 14.dp
-    val ScopeChipGap = 8.dp
+    /**
+     * 照片页范围刻度。行高 40，含文字下方 8dp。
+     * 相邻文字间距 22。两端各 40dp 渐隐到暗室底。
+     * 文字距行顶 6dp（去掉下边 8dp 后的 32dp 里，20dp 行高垂直居中）。
+     * 指示线顶边在 32dp，尺寸复用导航指示线 16×2。
+     */
     val ScopeRowHeight = 40.dp
+    val ScopeRowBottom = 8.dp
+    val ScopeDialGap = 22.dp
+    val ScopeDialEdgeFade = 40.dp
+    val ScopeDialTextTop = 6.dp
+    val ScopeDialIndicatorTop = 32.dp
     /** .year：高 32，左右 16，间距 12。 */
     val YearHeight = 32.dp
     val YearGap = 12.dp

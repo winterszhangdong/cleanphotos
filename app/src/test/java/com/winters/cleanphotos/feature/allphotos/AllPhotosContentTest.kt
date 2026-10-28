@@ -149,4 +149,23 @@ class AllPhotosContentTest {
     fun all_scope_has_no_empty_title() {
         LibraryScope.All.emptyTitleRes()
     }
+
+    @Test
+    fun missing_page_is_skeleton_and_similar_stays_similar() {
+        val state = AllPhotosUiState(scope = LibraryScope.All, isLoading = true)
+        assertEquals(LibraryContent.Loading, state.pageContent(LibraryScope.LargeFiles))
+        assertEquals(LibraryContent.Similar, state.pageContent(LibraryScope.Similar))
+        assertEquals(state.content, state.pageContent(LibraryScope.All))
+        val ready = state.copy(
+            isLoading = false,
+            pages = mapOf(LibraryScope.Screenshots to ScopePage(emptyList(), scopeCount = 0, visibleCount = 0, visibleBytes = 0)),
+            totalCount = 3,
+        )
+        assertEquals(LibraryContent.ScopeEmpty, ready.pageContent(LibraryScope.Screenshots))
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun neighbor_scope_missing_from_visible_list_fails() {
+        neighborLibraryScopes(LibraryScope.OnThisDay, visibleLibraryScopes(showOnThisDay = false))
+    }
 }

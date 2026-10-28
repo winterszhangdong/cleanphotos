@@ -13,7 +13,13 @@ import com.winters.cleanphotos.core.design.skeletonFill
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +34,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
@@ -76,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import androidx.activity.compose.BackHandler
 import com.winters.cleanphotos.core.design.MotionDurations
+import com.winters.cleanphotos.core.design.MotionSprings
 import com.winters.cleanphotos.core.navigation.AppDockEffect
 import com.winters.cleanphotos.core.navigation.DockMode
 import com.winters.cleanphotos.core.navigation.DockScrim
@@ -98,8 +106,7 @@ import com.winters.cleanphotos.core.design.MenuOption
 import com.winters.cleanphotos.core.design.MenuScrim
 import com.winters.cleanphotos.core.design.MenuSection
 import com.winters.cleanphotos.core.design.MonoWithBold
-import com.winters.cleanphotos.core.design.ScopeChipItem
-import com.winters.cleanphotos.core.design.ScopeChipRow
+import com.winters.cleanphotos.core.design.ScopeDial
 import com.winters.cleanphotos.core.design.ScreenHeader
 import com.winters.cleanphotos.core.design.SkeletonBlock
 import com.winters.cleanphotos.core.design.SystemBarIcons
@@ -114,8 +121,11 @@ import com.winters.cleanphotos.core.design.whenSettled
 import com.winters.cleanphotos.core.design.skeletonColor
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.core.util.NumberFormatter
+import com.winters.cleanphotos.domain.model.PhotoDaySection
 import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ScopeLayout
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.yield
 import com.winters.cleanphotos.feature.similar.SimilarList
 import com.winters.cleanphotos.feature.similar.SimilarPhase
 import com.winters.cleanphotos.feature.similar.SimilarUiState
@@ -164,7 +174,6 @@ fun AllPhotosScreen(
     val selecting = selection.isSelecting
     BackHandler(enabled = selecting && !menuOpen) { selectionActions.onExit() }
     LaunchedEffect(selecting) { if (selecting) menuOpen = false }
-    val content = uiState.content
     val showingSimilar = uiState.scope == LibraryScope.Similar
     val sortToast = remember { SortToastState() }
     val locale = currentLocale()
@@ -176,8 +185,21 @@ fun AllPhotosScreen(
         sortToast.show(sortLabel)
     }
 
-    val gridState = rememberPhotoGridState()
+    // 每个范围一个滚动状态，调用顺序固定，那年今天藏起来也不挪槽位。进程内记住，不写 DataStore。
+    val gridAll = rememberPhotoGridState()
+    val gridLarge = rememberPhotoGridState()
+    val gridShots = rememberPhotoGridState()
+    val gridChat = rememberPhotoGridState()
+    val gridToday = rememberPhotoGridState()
     val similarListState = rememberLazyListState()
+    fun gridFor(scope: LibraryScope): LazyGridState = when (scope) {
+        LibraryScope.All -> gridAll
+        LibraryScope.LargeFiles -> gridLarge
+        LibraryScope.Screenshots -> gridShots
+        LibraryScope.ChatApps -> gridChat
+        LibraryScope.OnThisDay -> gridToday
+        LibraryScope.Similar -> error("相似没有网格")
+    }
     val collapse = remember { PhotoChromeCollapse() }
     val scopeHolder = rememberUpdatedState(uiState.scope)
     val density = LocalDensity.current
@@ -186,17 +208,15 @@ fun AllPhotosScreen(
     )
     val animateSettle = rememberUpdatedState(LocalAnimationsEnabled.current)
     val settleScope = rememberCoroutineScope()
-    fun listAtTop(list: LazyListState?, grid: LazyGridState): Boolean {
-        return if (scopeHolder.value == LibraryScope.Similar) {
-            list!!.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0
-        } else {
-            grid.firstVisibleItemIndex == 0 && grid.firstVisibleItemScrollOffset == 0
-        }
-    }
-    val chromeScroll = remember(collapse, similarListState, gridState) {
+    val scopes = remember(uiState.showOnThisDay) { visibleLibraryScopes(uiState.showOnThisDay) }
+    val pagerState = rememberPagerState(
+        initialPage = scopes.indexOf(uiState.scope).coerceAtLeast(0),
+    ) { scopes.size }
+    val scopesState = rememberUpdatedState(scopes)
+    val chromeScroll = remember(collapse) {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (listAtTop(similarListState, gridState)) collapse.snapExpanded()
+                if (listAtTop()) collapse.snapExpanded()
                 else collapse.follow(consumed.y, collapseDistance.value)
                 return Offset.Zero
             }
@@ -205,32 +225,118 @@ fun AllPhotosScreen(
                 collapse.settle(
                     settleScope,
                     collapseDistance.value,
-                    atTop = listAtTop(similarListState, gridState),
+                    atTop = listAtTop(),
                     animate = animateSettle.value,
                 )
                 return Velocity.Zero
             }
+
+            // 过半的那一页，不是停稳范围：拖到邻页再竖滑时，顶栏跟正在滚的列表。
+            fun listAtTop(): Boolean {
+                val visible = scopesState.value
+                val current = visible[pagerState.currentPage.coerceIn(visible.indices)]
+                return if (current == LibraryScope.Similar) {
+                    similarListState.firstVisibleItemIndex == 0 && similarListState.firstVisibleItemScrollOffset == 0
+                } else {
+                    val grid = gridFor(current)
+                    grid.firstVisibleItemIndex == 0 && grid.firstVisibleItemScrollOffset == 0
+                }
+            }
         }
     }
-    // 从清理页返回会重新进入组合，滚动位置刚被恢复。只在范围真的变了才回顶部并展开顶栏。
+    // 从清理页返回会重新进入组合。只在范围真的变了才把顶栏展开，不改这个范围已经记住的滚动位置。
     var handledScope by rememberSaveable { mutableStateOf(uiState.scope.name) }
     LaunchedEffect(uiState.scope) {
         if (handledScope == uiState.scope.name) return@LaunchedEffect
         handledScope = uiState.scope.name
-        gridState.scrollToItem(0)
-        similarListState.scrollToItem(0)
         collapse.snapExpanded()
     }
     LaunchedEffect(menuOpen, selecting, showLanguageSheet) {
         if (menuOpen || selecting || showLanguageSheet) collapse.snapExpanded()
     }
 
-    val chromeTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + Dimens.HeaderHeight + Dimens.ScopeRowHeight
-    val showListFade = when (content) {
-        LibraryContent.Grid -> uiState.errorMessage == null
-        LibraryContent.Similar -> uiState.errorMessage == null && similarState.groups.isNotEmpty()
-        else -> false
+    val animationsEnabled = LocalAnimationsEnabled.current
+    val motion = remember { ScopeDialMotion() }
+    val onScopeChangedState = rememberUpdatedState(onScopeChanged)
+    fun requestJump(target: Int) {
+        if (motion.target == target && motion.jump?.isActive == true) return
+        val gen = ++motion.generation
+        motion.target = target
+        motion.jump?.cancel()
+        motion.jump = settleScope.launch {
+            try {
+                val idle = pagerState.settledPage == target &&
+                    pagerState.currentPage == target &&
+                    !pagerState.isScrollInProgress
+                val heading = pagerState.isScrollInProgress && pagerState.targetPage == target
+                if (idle || heading) return@launch
+                when (scopeJump(pagerState.currentPage, target, animationsEnabled)) {
+                    ScopeJump.Stay -> return@launch
+                    ScopeJump.Snap -> {
+                        motion.on = false
+                        motion.enter.snapTo(1f)
+                        pagerState.scrollToPage(target)
+                    }
+                    ScopeJump.Adjacent -> {
+                        motion.on = false
+                        motion.enter.snapTo(1f)
+                        pagerState.animateScrollToPage(target, animationSpec = MotionSprings.Snappy.spec())
+                    }
+                    ScopeJump.Far -> {
+                        val visual = if (motion.on) {
+                            motion.slide.value
+                        } else {
+                            pagerState.currentPage + pagerState.currentPageOffsetFraction
+                        }
+                        motion.slide.snapTo(visual)
+                        motion.on = true
+                        motion.enter.snapTo(0f)
+                        pagerState.scrollToPage(target)
+                        if (motion.generation == gen) {
+                            coroutineScope {
+                                launch { motion.slide.animateTo(target.toFloat(), MotionSprings.Snappy.spec()) }
+                                launch {
+                                    motion.enter.animateTo(1f, tween(MotionDurations.SHORT, easing = MotionEasings.Standard))
+                                }
+                            }
+                        }
+                    }
+                }
+            } finally {
+                if (motion.generation == gen) {
+                    motion.on = false
+                    motion.target = null
+                    motion.enter.snapTo(1f)
+                }
+            }
+        }
     }
+    // 先让 ViewModel 对不齐的页跳过去，再把停稳页写回。跳的过程中不写回旧页。
+    LaunchedEffect(pagerState) {
+        yield()
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            val expected = motion.target
+            if (expected != null && page != expected) return@collect
+            val targetScope = scopesState.value.getOrNull(page) ?: return@collect
+            if (targetScope != scopeHolder.value) onScopeChangedState.value(targetScope)
+        }
+    }
+    LaunchedEffect(uiState.scope, scopes) {
+        val target = scopes.indexOf(uiState.scope)
+        if (target < 0) return@LaunchedEffect
+        val idle = pagerState.settledPage == target &&
+            pagerState.currentPage == target &&
+            !pagerState.isScrollInProgress
+        val heading = pagerState.isScrollInProgress && pagerState.targetPage == target
+        if (idle || heading || (motion.target == target && motion.jump?.isActive == true)) return@LaunchedEffect
+        requestJump(target)
+    }
+
+    val chromeTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + Dimens.HeaderHeight + Dimens.ScopeRowHeight
+    val fling = PagerDefaults.flingBehavior(
+        state = pagerState,
+        snapAnimationSpec = if (animationsEnabled) MotionSprings.Snappy.spec() else snap(),
+    )
 
     GlassBackdropHost {
         AppDockEffect(
@@ -240,38 +346,35 @@ fun AllPhotosScreen(
             } else null,
         )
         Box(modifier.fillMaxSize().background(DarkroomColors.Room).nestedScroll(chromeScroll)) {
-            when (content) {
-                LibraryContent.Loading -> LoadingSkeleton(Modifier.padding(top = chromeTop))
-                is LibraryContent.Error -> {
-                    Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
-                        MessageState(stringResource(R.string.photos_error_title), content.message.asString())
-                    }
-                }
-                LibraryContent.Similar -> SimilarList(
-                    uiState = similarState,
-                    listState = similarListState,
-                    contentPadding = PaddingValues(top = chromeTop + Dimens.FreeTop, bottom = dockListBottomPadding()),
-                    onOpen = onSimilarOpen,
-                    onCommit = onSimilarCommit,
-                )
-                LibraryContent.AllSeen -> AllSeenContent(
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 0,
+                flingBehavior = fling,
+                userScrollEnabled = !selecting && !menuOpen && !showLanguageSheet && !motion.on,
+                key = { scopes[it] },
+            ) { page ->
+                val pageScope = scopes[page]
+                ScopePageBody(
                     uiState = uiState,
+                    pageScope = pageScope,
+                    similarState = similarState,
+                    similarListState = similarListState,
+                    gridState = if (pageScope == LibraryScope.Similar) gridAll else gridFor(pageScope),
+                    chromeTop = chromeTop,
+                    settled = pageScope == uiState.scope,
+                    enter = { motion.enter.value },
+                    pageOffset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },
+                    onPhotoClick = onPhotoClick,
                     onTrashClick = onTrashClick,
-                    onShowSeen = { onShowUnseenChanged(false) },
+                    onScopeChanged = onScopeChanged,
+                    onShowUnseenChanged = onShowUnseenChanged,
+                    onSimilarOpen = onSimilarOpen,
+                    onSimilarCommit = onSimilarCommit,
+                    selection = selection,
+                    selectionActions = selectionActions,
                 )
-                LibraryContent.ScopeEmpty -> SmartFilterEmpty(
-                    title = stringResource(uiState.scope.emptyTitleRes()),
-                    onShowAll = { onScopeChanged(LibraryScope.All) },
-                )
-                LibraryContent.ScopeSeen -> ScopeSeenEmpty(onShowSeen = { onShowUnseenChanged(false) })
-                LibraryContent.LibraryEmpty -> {
-                    Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
-                        MessageState(stringResource(R.string.photos_empty_title), stringResource(R.string.photos_empty_body))
-                    }
-                }
-                LibraryContent.Grid -> PhotoList(uiState, onPhotoClick, selection, selectionActions, gridState, chromeTop)
             }
-            if (showListFade) ListFade()
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -295,49 +398,14 @@ fun AllPhotosScreen(
                 ScreenHeader(
                     leftAlpha = if (menuOpen) 0.5f else 1f,
                     count = {
-                        when {
-                            selecting -> HeaderCount(
-                                selection.count,
-                                unit = pluralStringResource(R.plurals.count_unit, selection.count),
-                                sub = stringResource(R.string.header_sub_selected),
-                            )
-                            content == LibraryContent.Loading -> {
-                                SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
-                                Text(
-                                    stringResource(R.string.photos_loading),
-                                    style = DarkroomText.CountSub,
-                                    modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
-                                )
-                            }
-                            showingSimilar && similarState.phase != SimilarPhase.Ready -> {
-                                SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
-                                if (similarState.compareTotal > 0) {
-                                    Text(
-                                        stringResource(R.string.similar_comparing, similarState.compared, similarState.compareTotal),
-                                        style = DarkroomText.CountSub,
-                                        modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
-                                    )
-                                }
-                            }
-                            showingSimilar -> HeaderCount(
-                                similarState.groups.size,
-                                unit = pluralStringResource(R.plurals.unit_group, similarState.groups.size),
-                                sub = pluralStringResource(
-                                    R.plurals.header_sub_can_move,
-                                    similarState.removableCount,
-                                    similarState.removableCount,
-                                ),
-                            )
-                            uiState.scope.showsByteTotal -> HeaderCount(
-                                uiState.visibleCount,
-                                unit = pluralStringResource(R.plurals.count_unit, uiState.visibleCount),
-                                sub = stringResource(R.string.header_sub_bytes, FileSizeFormatter.format(uiState.visibleBytes, locale)),
-                            )
-                            else -> HeaderCount(
-                                uiState.visibleCount,
-                                unit = pluralStringResource(R.plurals.count_unit, uiState.visibleCount),
-                            )
-                        }
+                        PhotosHeaderCount(
+                            selecting = selecting,
+                            selectionCount = selection.count,
+                            headerScope = scopes[pagerState.currentPage.coerceIn(scopes.indices)],
+                            uiState = uiState,
+                            similarState = similarState,
+                            locale = locale,
+                        )
                     },
                     actions = {
                         if (selecting) {
@@ -355,7 +423,15 @@ fun AllPhotosScreen(
                         }
                     },
                 )
-                ScopeChipRow(scopeChips(uiState, onScopeChanged))
+                ScopeDial(
+                    labels = scopes.map { scopeLabel(it) },
+                    progress = {
+                        if (motion.on) motion.slide.value
+                        else pagerState.currentPage + pagerState.currentPageOffsetFraction
+                    },
+                    onSelect = { index -> requestJump(index) },
+                    selectedIndex = scopes.indexOf(uiState.scope).coerceAtLeast(0),
+                )
             }
             Box(
                 Modifier
@@ -455,21 +531,158 @@ fun AllPhotosScreen(
 }
 
 @Composable
-private fun scopeChips(uiState: AllPhotosUiState, onScopeChanged: (LibraryScope) -> Unit): List<ScopeChipItem> {
-    fun chip(label: String, scope: LibraryScope) = ScopeChipItem(label, uiState.scope == scope) { onScopeChanged(scope) }
-    return buildList {
-        add(chip(stringResource(R.string.scope_all), LibraryScope.All))
-        add(chip(stringResource(R.string.scope_similar), LibraryScope.Similar))
-        add(chip(stringResource(R.string.filter_large_files), LibraryScope.LargeFiles))
-        add(chip(stringResource(R.string.filter_screenshots), LibraryScope.Screenshots))
-        add(chip(stringResource(R.string.scope_chat), LibraryScope.ChatApps))
-        if (uiState.showOnThisDay) add(chip(stringResource(R.string.filter_on_this_day), LibraryScope.OnThisDay))
+private fun scopeLabel(scope: LibraryScope): String = when (scope) {
+    LibraryScope.All -> stringResource(R.string.scope_all)
+    LibraryScope.Similar -> stringResource(R.string.scope_similar)
+    LibraryScope.LargeFiles -> stringResource(R.string.filter_large_files)
+    LibraryScope.Screenshots -> stringResource(R.string.filter_screenshots)
+    LibraryScope.ChatApps -> stringResource(R.string.scope_chat)
+    LibraryScope.OnThisDay -> stringResource(R.string.filter_on_this_day)
+}
+
+@Composable
+private fun RowScope.PhotosHeaderCount(
+    selecting: Boolean,
+    selectionCount: Int,
+    headerScope: LibraryScope,
+    uiState: AllPhotosUiState,
+    similarState: SimilarUiState,
+    locale: java.util.Locale,
+) {
+    val page = uiState.pages[headerScope]
+    val count = page?.visibleCount ?: uiState.visibleCount
+    when {
+        selecting -> HeaderCount(
+            selectionCount,
+            unit = pluralStringResource(R.plurals.count_unit, selectionCount),
+            sub = stringResource(R.string.header_sub_selected),
+        )
+        uiState.pageContent(headerScope) == LibraryContent.Loading -> {
+            SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
+            Text(
+                stringResource(R.string.photos_loading),
+                style = DarkroomText.CountSub,
+                modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
+            )
+        }
+        headerScope == LibraryScope.Similar && similarState.phase != SimilarPhase.Ready -> {
+            SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
+            if (similarState.compareTotal > 0) {
+                Text(
+                    stringResource(R.string.similar_comparing, similarState.compared, similarState.compareTotal),
+                    style = DarkroomText.CountSub,
+                    modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
+                )
+            }
+        }
+        headerScope == LibraryScope.Similar -> HeaderCount(
+            similarState.groups.size,
+            unit = pluralStringResource(R.plurals.unit_group, similarState.groups.size),
+            sub = pluralStringResource(
+                R.plurals.header_sub_can_move,
+                similarState.removableCount,
+                similarState.removableCount,
+            ),
+        )
+        headerScope.showsByteTotal -> HeaderCount(
+            count,
+            unit = pluralStringResource(R.plurals.count_unit, count),
+            sub = stringResource(R.string.header_sub_bytes, FileSizeFormatter.format(page?.visibleBytes ?: uiState.visibleBytes, locale)),
+        )
+        else -> HeaderCount(
+            count,
+            unit = pluralStringResource(R.plurals.count_unit, count),
+        )
+    }
+}
+
+@Composable
+private fun ScopePageBody(
+    uiState: AllPhotosUiState,
+    pageScope: LibraryScope,
+    similarState: SimilarUiState,
+    similarListState: LazyListState,
+    gridState: LazyGridState,
+    chromeTop: Dp,
+    settled: Boolean,
+    enter: () -> Float,
+    pageOffset: () -> Float,
+    onPhotoClick: (Long) -> Unit,
+    onTrashClick: () -> Unit,
+    onScopeChanged: (LibraryScope) -> Unit,
+    onShowUnseenChanged: (Boolean) -> Unit,
+    onSimilarOpen: (String, Long) -> Unit,
+    onSimilarCommit: (String) -> Unit,
+    selection: PhotoSelectionState,
+    selectionActions: PhotoSelectionActions,
+) {
+    val page = uiState.pages[pageScope]
+    val content = uiState.pageContent(pageScope)
+    val showFade = when (content) {
+        LibraryContent.Grid -> uiState.errorMessage == null
+        LibraryContent.Similar -> uiState.errorMessage == null && similarState.groups.isNotEmpty()
+        else -> false
+    }
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = enter() }) {
+            when (content) {
+                LibraryContent.Loading -> LoadingSkeleton(Modifier.padding(top = chromeTop))
+                is LibraryContent.Error -> {
+                    Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
+                        MessageState(stringResource(R.string.photos_error_title), content.message.asString())
+                    }
+                }
+                LibraryContent.Similar -> SimilarList(
+                    uiState = similarState,
+                    listState = similarListState,
+                    contentPadding = PaddingValues(top = chromeTop + Dimens.FreeTop, bottom = dockListBottomPadding()),
+                    onOpen = if (settled) onSimilarOpen else { _, _ -> },
+                    onCommit = if (settled) onSimilarCommit else { _ -> },
+                )
+                LibraryContent.AllSeen -> AllSeenContent(
+                    uiState = uiState,
+                    onTrashClick = onTrashClick,
+                    onShowSeen = { onShowUnseenChanged(false) },
+                )
+                LibraryContent.ScopeEmpty -> SmartFilterEmpty(
+                    title = stringResource(pageScope.emptyTitleRes()),
+                    onShowAll = { onScopeChanged(LibraryScope.All) },
+                )
+                LibraryContent.ScopeSeen -> ScopeSeenEmpty(onShowSeen = { onShowUnseenChanged(false) })
+                LibraryContent.LibraryEmpty -> {
+                    Box(Modifier.fillMaxSize().padding(top = chromeTop)) {
+                        MessageState(stringResource(R.string.photos_empty_title), stringResource(R.string.photos_empty_body))
+                    }
+                }
+                LibraryContent.Grid -> PhotoList(
+                    uiState = uiState,
+                    pageScope = pageScope,
+                    sections = page?.sections ?: uiState.sections,
+                    reviewSort = if (pageScope.layout == ScopeLayout.Flat) PhotoSortOrder.LargestFirst else uiState.sortOrder,
+                    onPhotoClick = if (settled) onPhotoClick else { _ -> },
+                    selection = if (settled) selection else PhotoSelectionState(),
+                    actions = if (settled) selectionActions else PhotoSelectionActions.None,
+                    gridState = gridState,
+                    topPadding = chromeTop,
+                )
+            }
+            if (showFade) ListFade()
+        }
+        Box(
+            Modifier.matchParentSize().drawBehind {
+                val shade = pageShadeAlpha(pageOffset(), enter())
+                if (shade > 0f) drawRect(DarkroomColors.Room.copy(alpha = shade))
+            },
+        )
     }
 }
 
 @Composable
 private fun PhotoList(
     uiState: AllPhotosUiState,
+    pageScope: LibraryScope,
+    sections: List<PhotoDaySection>,
+    reviewSort: PhotoSortOrder,
     onPhotoClick: (Long) -> Unit,
     selection: PhotoSelectionState,
     actions: PhotoSelectionActions,
@@ -480,7 +693,7 @@ private fun PhotoList(
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
-    val reorder = rememberPhotoReorder(gridState, uiState.reviewSortOrder, uiState.scope to uiState.unseenOnly, uiState.sections)
+    val reorder = rememberPhotoReorder(gridState, reviewSort, pageScope to uiState.unseenOnly, sections)
     val locale = currentLocale()
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
@@ -512,7 +725,7 @@ private fun PhotoList(
         contentPadding = PaddingValues(top = topPadding, bottom = dockListBottomPadding()),
     ) {
         photoDaySections(
-            sections = uiState.sections,
+            sections = sections,
             right = { section ->
                 if (section.totalCount > 0 && section.seenCount >= section.totalCount) {
                     MonoWithBold(null, stringResource(R.string.section_all_seen))
@@ -527,7 +740,7 @@ private fun PhotoList(
             onPhotoClick = openPhoto,
             selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay, actions.onToggle, actions.onLongPress),
             showChevron = false,
-            sizeLabel = if (uiState.scope.layout == ScopeLayout.Flat) {
+            sizeLabel = if (pageScope.layout == ScopeLayout.Flat) {
                 { photo ->
                     FileSizeFormatter.format(
                         photo.size ?: error("大文件没有 size：${photo.id}"),
@@ -643,6 +856,16 @@ private fun DoneStat(value: String, unit: String?, color: androidx.compose.ui.gr
         )
         Text(label, style = DarkroomText.DoneLabel, modifier = Modifier.paddingFromBaseline(top = 18.56.dp, bottom = 4.64.dp))
     }
+}
+
+/** 隔远跳转时盖住刻度进度。只在 graphicsLayer 里读 [slide] 和 [enter]。 */
+private class ScopeDialMotion {
+    var on by mutableStateOf(false)
+    val slide = Animatable(0f)
+    val enter = Animatable(1f)
+    var generation = 0
+    var jump: Job? = null
+    var target: Int? = null
 }
 
 /** 排序提示：减速淡入并上移 → 停留 → 淡出。只在绘制阶段读进度。 */

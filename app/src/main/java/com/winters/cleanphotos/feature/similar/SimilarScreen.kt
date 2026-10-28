@@ -22,6 +22,11 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -181,6 +186,15 @@ private fun LazyItemScope.similarItemMotion(): Modifier = Modifier.animateItem(
     fadeOutSpec = tween(MotionDurations.SHORT, easing = MotionEasings.Standard),
 )
 
+/** 缩略图行把剩下的横向滚动和 fling 吃掉，照片页的范围 pager 收不到。竖向照常交出去。 */
+private val eatHorizontalLeftover = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        Offset(available.x, 0f)
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        Velocity(available.x, 0f)
+}
+
 @Composable
 private fun SimilarGroupCard(
     group: SimilarGroup,
@@ -209,7 +223,8 @@ private fun SimilarGroupCard(
             modifier = Modifier
                 .padding(top = Dimens.DayGap)
                 .fillMaxWidth()
-                .height(Dimens.SimilarThumb),
+                .height(Dimens.SimilarThumb)
+                .nestedScroll(eatHorizontalLeftover),
             horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap),
         ) {
             itemsIndexed(group.photos, key = { _, photo -> photo.id }) { col, photo ->

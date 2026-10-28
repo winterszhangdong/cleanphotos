@@ -622,6 +622,40 @@ class AllPhotosViewModelTest {
         assertReviewMatchesGrid(vm)
     }
 
+    @Test
+    fun `只预算停稳范围的左右相邻页`() = runTest(testDispatcher) {
+        val min = SmartFilterRules.LARGE_FILE_MIN_BYTES
+        fakePhotoRepository.setPhotos(
+            listOf(
+                TestPhotoData.createTestPhoto(1).copy(relativePath = "DCIM/Camera/", size = 100),
+                TestPhotoData.createTestPhoto(2).copy(relativePath = "Pictures/Screenshots/", size = 100),
+                TestPhotoData.createTestPhoto(3).copy(relativePath = "DCIM/Camera/", size = min),
+                TestPhotoData.createTestPhoto(4).copy(relativePath = "Pictures/QQ/", size = 100),
+            ),
+        )
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        val all = vm.uiState.value
+        assertEquals(setOf(LibraryScope.All), all.pages.keys)
+        assertEquals(4, all.pages.getValue(LibraryScope.All).visibleCount)
+        assertEquals(LibraryContent.Similar, all.pageContent(LibraryScope.Similar))
+        assertEquals(all.sections, all.pages.getValue(LibraryScope.All).sections)
+
+        vm.onScopeChanged(LibraryScope.LargeFiles)
+        advanceUntilIdle()
+        val large = vm.uiState.value
+        assertEquals(
+            setOf(LibraryScope.LargeFiles, LibraryScope.Screenshots),
+            large.pages.keys,
+        )
+        val largeIds = large.pages.getValue(LibraryScope.LargeFiles).sections.flatMap { it.photos }.map { it.id }.toSet()
+        val shotIds = large.pages.getValue(LibraryScope.Screenshots).sections.flatMap { it.photos }.map { it.id }.toSet()
+        assertEquals(setOf(3L), largeIds)
+        assertEquals(setOf(2L), shotIds)
+        assertEquals(large.sections.flatMap { it.photos }.map { it.id }.toSet(), largeIds)
+    }
+
     private suspend fun assertReviewMatchesGrid(vm: AllPhotosViewModel) {
         val state = vm.uiState.value
         val gridOrder = state.sections.flatMap { it.selectableIds }

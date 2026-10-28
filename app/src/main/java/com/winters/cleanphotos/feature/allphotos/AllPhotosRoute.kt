@@ -23,6 +23,9 @@ import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.feature.language.LanguageViewModel
 import com.winters.cleanphotos.feature.similar.SimilarViewModel
 
+/** 相似比对只在停稳到相似时开始。左右滑露出相似页不算。 */
+internal fun similarScanStartsOn(scope: LibraryScope): Boolean = scope == LibraryScope.Similar
+
 @Composable
 fun AllPhotosRoute(
     onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String, unseenOnly: Boolean) -> Unit,
@@ -63,7 +66,7 @@ fun AllPhotosRoute(
     }
 
     LaunchedEffect(uiState.scope) {
-        if (uiState.scope == LibraryScope.Similar) similarViewModel.start()
+        if (similarScanStartsOn(uiState.scope)) similarViewModel.start()
     }
 
     LifecycleResumeEffect(Unit) {
