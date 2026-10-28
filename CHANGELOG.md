@@ -7,6 +7,22 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-10-29
+
+### Fixed
+
+- 安卓：照片页上方的范围刻度本身可以左右滑，和在内容区滑一样切到相邻范围。点刻度上的名字仍然选中那一项。
+- 安卓：相似页里，缩略图放得下的那一行横滑可以切范围，不再滑不动。这一行比屏幕宽时，横滑仍然只滚缩略图。
+- 安卓：左右滑过了大约三成屏幕就停在下一页，不再滑过去又弹回来。滑到最后一项也一样。
+
+---
+
+### Fixed
+
+- Android: the scope dial at the top of the photo page can itself be swiped left or right, and moves to the next scope the same way swiping the content does. Tapping a name still selects it.
+- Android: on the similar page, swiping a thumbnail row that fits on screen changes scope instead of getting stuck. A row wider than the screen still only scrolls its thumbnails.
+- Android: a horizontal swipe that passes about 30% of the screen stays on the next scope instead of snapping back. That includes swiping onto the last scope.
+
 ## [1.7.2] - 2026-10-28
 
 ### Changed
