@@ -325,6 +325,7 @@ class AllPhotosViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.e(TAG, "读取图库失败", e)
                 _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = UiText.Res(R.string.error_load_photos))
             } finally {
                 _uiState.value = _uiState.value.copy(isInitialLoad = false)

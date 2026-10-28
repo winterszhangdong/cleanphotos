@@ -111,6 +111,7 @@ MediaStore / DataStore
 * 提供照片查询、收藏、移动到垃圾桶、恢复等能力。
 * 将需要系统媒体授权的操作转换为明确的操作结果。
 * MediaStore 查询 / 更新（ContentResolver，binder 调用）一律在 `Dispatchers.IO` 上执行，不依赖调用方所在线程：ViewModel 从 viewModelScope（主线程）调用，单次整库查询在真机上就要 11–17ms。
+* 打开进程时系统图库可能还没就绪。主查询失败（例如 `Volume external_primary not found`、查询返回 null）会在加载态里短重试，仍失败才向上抛，并且不会把这次记成已经加载过。null 游标不是空图库，避免失效清理把收藏和垃圾桶记录删掉。
 
 ---
 

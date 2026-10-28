@@ -28,7 +28,8 @@ class MediaStorePhotoDataSource @Inject constructor(
     fun queryAllPhotos(): List<PhotoItem> {
         try {
             val images = query(MediaType.Image, trashedOnly = false)
-            // 没有视频权限时不查视频表：SecurityException 会让整次照片查询失败
+            // 没有视频权限时不查视频表：SecurityException 会让整次照片查询失败。
+            // 视频表的其它失败同样向上抛，由仓库重试。不能只返回照片：失效清理会把没读到的视频当成已删除。
             val videos = if (PermissionChecker.canReadVideos(context)) {
                 query(MediaType.Video, trashedOnly = false)
             } else {
@@ -107,7 +108,11 @@ class MediaStorePhotoDataSource @Inject constructor(
                 "$DATE_TAKEN DESC",
             )
         }
-        cursor?.use { readRows(it, collection, mediaType, storageRoot, items) }
+        // null 不是空图库（空图库是空游标）。当成空列表的话，后面的失效清理会把收藏和垃圾桶记录删掉。
+        val rows = cursor ?: throw IllegalStateException(
+            "MediaStore 查询没有返回游标 mediaType=$mediaType trashedOnly=$trashedOnly",
+        )
+        rows.use { readRows(it, collection, mediaType, storageRoot, items) }
         return items
     }
 

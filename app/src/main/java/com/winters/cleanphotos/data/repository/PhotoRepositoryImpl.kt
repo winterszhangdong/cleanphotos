@@ -18,6 +18,7 @@ import com.winters.cleanphotos.domain.repository.PhotoRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
@@ -53,6 +54,12 @@ class PhotoRepositoryImpl @Inject constructor(
     companion object {
         private const val TAG = "PhotoRepository"
         private val HAS_MIGRATED_KEY = booleanPreferencesKey(DataStoreKeys.HAS_MIGRATED_FAVORITES)
+
+        /**
+         * 打开进程的瞬间 MediaProvider 可能还没挂上 external_primary，查询会抛
+         * `Volume external_primary not found` 或直接返回空游标。间隔逐次加长，仍失败再向上抛。
+         */
+        internal val QUERY_RETRY_DELAYS_MS = longArrayOf(80L, 160L, 320L)
     }
 
     /** MediaStore 全部照片（未过滤） */
@@ -115,7 +122,7 @@ class PhotoRepositoryImpl @Inject constructor(
      * 1. 查询 MediaStore
      * 2. 执行一次性迁移（首次启动时）
      * 3. 串行调用三项 removeMissingEntries（Favorite → Seen → Trash）
-     * 4. MediaStore 查询异常时跳过全部清理
+     * 4. 主查询失败时短重试；仍失败则向上抛出，并跳过全部清理（不把失败当成空图库）
      * 5. 只有部分照片访问权时跳过迁移和清理：查询结果只是用户选中的那几张，
      *    拿它当整个图库会把其余照片的垃圾桶 / 收藏 / 看过状态全部删掉
      */
@@ -142,10 +149,8 @@ class PhotoRepositoryImpl @Inject constructor(
     }
 
     private suspend fun refreshLocked() {
-        // MediaStore 主查询异常向上抛出，让 ViewModel 能展示错误状态
-        val photos = withContext(Dispatchers.IO) {
-            mediaStoreDataSource.queryAllPhotos()
-        }
+        // 主查询在重试后仍失败才向上抛，让 ViewModel 展示错误。失败不写入 lastRefreshAt，下次还能再读。
+        val photos = queryAllPhotosRetrying()
         allMediaStorePhotos.value = photos
         lastRefreshAt = elapsedMillis()
         if (!PermissionChecker.hasFullPhotoAccess(context)) return
@@ -172,6 +177,23 @@ class PhotoRepositoryImpl @Inject constructor(
     }
 
     private fun elapsedMillis(): Long = System.nanoTime() / 1_000_000L
+
+    private suspend fun queryAllPhotosRetrying(): List<PhotoItem> {
+        var attempt = 0
+        while (true) {
+            try {
+                return withContext(Dispatchers.IO) { mediaStoreDataSource.queryAllPhotos() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val delayMs = QUERY_RETRY_DELAYS_MS.getOrNull(attempt)
+                Log.w(TAG, "读取图库失败（第 ${attempt + 1} 次）", e)
+                if (delayMs == null) throw e
+                delay(delayMs)
+                attempt++
+            }
+        }
+    }
 
     /**
      * 观察 App 内垃圾桶照片。

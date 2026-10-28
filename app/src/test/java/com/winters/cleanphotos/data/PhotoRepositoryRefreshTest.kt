@@ -12,6 +12,7 @@ import com.winters.cleanphotos.data.repository.PhotoRepositoryImpl
 import com.winters.cleanphotos.domain.model.PhotoItem
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -139,5 +142,62 @@ class PhotoRepositoryRefreshTest {
         repo.refreshPhotos()
 
         assertEquals(listOf(2L), repo.observeFavoritedPhotos().first().map(PhotoItem::id))
+    }
+
+    @Test
+    fun `主查询短暂失败时重试并加载照片`() = runBlocking {
+        var call = 0
+        every { mediaStore.queryAllPhotos() } answers {
+            call++
+            if (call == 1) throw IllegalArgumentException("Volume external_primary not found")
+            listOf(createTestPhoto(3))
+        }
+        repo.refreshPhotos()
+        assertEquals(2, call)
+        assertEquals(listOf(3L), repo.observeAllPhotos().first().map(PhotoItem::id))
+    }
+
+    @Test
+    fun `主查询连续失败时抛出且不记成已加载`() = runBlocking {
+        val calls = AtomicInteger()
+        every { mediaStore.queryAllPhotos() } answers {
+            calls.incrementAndGet()
+            throw IllegalStateException("MediaStore 查询没有返回游标")
+        }
+        try {
+            repo.refreshPhotos()
+            fail("主查询连续失败应该抛出")
+        } catch (e: IllegalStateException) {
+            assertEquals("MediaStore 查询没有返回游标", e.message)
+        }
+        val attempts = PhotoRepositoryImpl.QUERY_RETRY_DELAYS_MS.size + 1
+        assertEquals(attempts, calls.get())
+        assertEquals(emptyList<Long>(), repo.observeAllPhotos().first().map(PhotoItem::id))
+
+        // 失败没有写入 lastRefreshAt，回到前台的节流不能把这次当成「刚加载过」而跳过
+        try {
+            repo.refreshPhotosIfStale(minIntervalMs = 60_000)
+            fail("未加载过时回到前台应该再查，而不是跳过")
+        } catch (e: IllegalStateException) {
+            assertEquals("MediaStore 查询没有返回游标", e.message)
+        }
+        assertEquals(attempts * 2, calls.get())
+    }
+
+    @Test
+    fun `主查询取消时不重试`() = runBlocking {
+        var call = 0
+        every { mediaStore.queryAllPhotos() } answers {
+            call++
+            throw CancellationException("cancelled")
+        }
+        try {
+            repo.refreshPhotos()
+            fail("取消应该抛出")
+        } catch (e: CancellationException) {
+            assertEquals("cancelled", e.message)
+        }
+        assertEquals(1, call)
+        assertTrue(repo.observeAllPhotos().first().isEmpty())
     }
 }
