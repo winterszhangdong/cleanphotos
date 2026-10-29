@@ -310,10 +310,12 @@ private suspend fun PointerInputScope.detectScopeDial(
         var active: Job? = null
         try {
             while (isActive) {
-                var channel: Channel<Float>? = null
-                var velocityPages = 0f
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    // awaitEachGesture 反复调用这个块，通道必须每次手势新建。
+                    // 留在外面的话，第一次松手关掉之后，后面的滑动还在往已关闭的通道里送。
+                    var channel: Channel<Float>? = null
+                    var velocityPages = 0f
                     var totalX = 0f
                     var totalY = 0f
                     var vertical = false
