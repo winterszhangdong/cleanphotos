@@ -7,6 +7,18 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-10-29
+
+### Fixed
+
+- 安卓：照片页的范围刻度可以连续左右滑。之前滑一次之后就不再动。
+
+---
+
+### Fixed
+
+- Android: the scope dial on the photo page can be swiped again and again. Previously it stopped responding after the first swipe.
+
 ## [1.7.3] - 2026-10-29
 
 ### Fixed
