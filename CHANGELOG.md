@@ -7,6 +7,36 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.5] - 2026-11-01
+
+### Fixed
+
+- 安卓：存储卡暂时卸载后再打开，不再清掉卡上照片的收藏、看过、垃圾桶和装袋记录。重新插上之后这些状态还在。只授权了部分照片，或这次没能读全图库时，同样不清理。在线照片被系统删掉时，记录仍会清掉。
+- 安卓：一次系统确认最多 2000 张。清空垃圾桶、装进相册、加系统收藏超过这个数时，分成几批依次确认。删除时如果取消某一批，后面的不再问，已经删掉的留下，没确认的仍在垃圾桶，释放空间只算真正消失的。装进相册要每一批都同意才移动文件；任一批拒绝，文件不动，圈选还在。加系统收藏时拒绝，只停掉后面的收藏，不把已经放进相册的照片移回来。
+- 安卓：Android 8 和 9 上，读不出尺寸探测结果时不再把整张照片当成坏图。
+- 安卓：动态照片里，描述项的 Semantic 和 Length 谁写在前面都能找到视频。某一项没有长度时，不再拿旁边那一项的长度来算。
+- 安卓：撤回的 4 秒从这次操作记下来的那一刻算。切页面、切范围，或页面重建，都不会重新计时。过了 4 秒再点撤回不再执行。
+- 安卓：清理时如果离开页面，已经做出的收藏和移走仍会记下来。最后一张写入失败时回到这张，不再停在黑屏上。
+- 安卓：相似照片在相册还没读出来时，不再显示成「没有找到相似照片」。读失败可以重试。对比页翻页或回弹还没停就捏合，松手后停在已经翻到的那张。
+- 安卓：清空垃圾桶后，溶解不会在刷新时再挂一次而停住。
+- iOS：图库还在分批读入时，先不进入清理，避免会话只停在先读出的那一批。全选一天时按这一天的全部照片，而不是屏幕上先画出的几张。清理页缩放按安全区内照片的实际位置计算。垃圾桶预览在列表变短后仍用夹紧后的位置。手指抬起时最后一段位移也算进手势。
+- 官网：`/download` 和最新版地址一样返回 APK。浏览器语言按权重最高的一条选择中文或英文，手动选过的语言优先。首页演示里，收藏当前这张再撤回，照片还在。
+
+---
+
+### Fixed
+
+- Android: refreshing after a storage card is unmounted no longer drops favorites, seen marks, trash entries, or filing records for photos on that card. They come back when the card is mounted again. The same skip happens with partial photo access, or when the library could not be read completely. Photos deleted from an online volume are still cleaned up.
+- Android: one system confirmation covers at most 2000 photos. Emptying the trash, filing into an album, or adding system favorites past that is split into batches. Cancelling a delete batch stops the rest: photos already deleted stay deleted, the rest remain in the trash, and freed space counts only photos that are actually gone. Filing moves files only after every write batch is allowed; denying any batch moves nothing and keeps the selection. Denying a system-favorite batch stops later favorites and does not move back photos already filed.
+- Android: on Android 8 and 9, a bounds probe that returns no size is no longer treated as a broken photo.
+- Android: motion photos are found whether Semantic or Length is written first. An item with no length no longer borrows the length of the item beside it.
+- Android: the 4-second undo starts when the action is recorded. Switching pages or scopes, or recreating the screen, does not start it over. After 4 seconds, undo does nothing.
+- Android: favorites and trash actions already made are still saved if you leave review while they are being written. If the last photo fails to save, review returns to that photo instead of a black screen.
+- Android: similar photos no longer show "No similar photos" while the library is still loading. A failed load can be retried. If you pinch before a page turn or a vertical spring has settled, letting go stays on the page you already reached.
+- Android: emptying the trash no longer gets stuck by hanging the dissolve animation a second time during refresh.
+- iOS: review does not open while the library is still arriving in batches, so the session is not cut off at the first batch. Select-all uses every photo in that day, not only the ones drawn first. Zoom follows the photo's real frame inside the safe area. Trash preview stays on a valid index after the list shrinks. The last movement as the finger lifts counts toward the gesture.
+- Site: `/download` returns the latest APK, the same as the latest-version address. Language follows the highest-priority Accept-Language tag, and a manual choice wins. In the homepage demo, undoing a favorite of the photo on screen keeps that photo visible.
+
 ## [1.7.4] - 2026-10-29
 
 ### Fixed
