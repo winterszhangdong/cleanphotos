@@ -14,7 +14,10 @@ import com.winters.cleanphotos.domain.repository.MotionPhotoRepository
 import com.winters.cleanphotos.domain.usecase.LocateMotionPhotoVideoUseCase
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
 import com.winters.cleanphotos.domain.model.TrashReminderRules
+import com.winters.cleanphotos.data.datasource.firstMediaStoreBatch
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
+import com.winters.cleanphotos.domain.model.SystemMediaActionRequest
+import com.winters.cleanphotos.domain.model.SystemMediaActionType
 import com.winters.cleanphotos.domain.usecase.DeletePhotosPermanentlyUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTrashedPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.RestorePhotoFromTrashUseCase
@@ -25,6 +28,7 @@ import com.winters.cleanphotos.fake.FakePhotoRepository
 import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
 import io.mockk.every
+import kotlinx.coroutines.CompletableDeferred
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
@@ -781,5 +785,157 @@ class TrashViewModelTest {
         val playback = viewModel.uiState.value.playback
         assertTrue(playback is PlaybackTarget.Video)
         assertEquals(photos[1].uri, playback!!.uri)
+    }
+
+    private fun scriptDeleteBatches() {
+        fakeReviewRepository.deleteHandler = { batch ->
+            val split = firstMediaStoreBatch(batch)
+            PhotoOperationResult.NeedSystemApproval(
+                SystemMediaActionRequest(
+                    photos = split.current,
+                    actionType = SystemMediaActionType.DeletePermanently,
+                    requestToken = "t",
+                    intentSender = mockk(relaxed = true),
+                    remaining = split.remaining,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `正好 2000 张只弹一次删除确认`() = runTest(testDispatcher) {
+        fakePhotoRepository.setTrashedPhotos(TestPhotoData.createTestPhotos(2000).map { it.copy(isTrashed = true) })
+        scriptDeleteBatches()
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.effects.test {
+            viewModel.onShowEmptyTrashConfirm()
+            viewModel.onConfirmEmptyTrash()
+            advanceUntilIdle()
+            val effect = awaitItem() as TrashEffect.LaunchSystemMediaAction
+            assertEquals(2000, effect.request.photos.size)
+            assertTrue(effect.request.remaining.isEmpty())
+            assertEquals(listOf(2000), fakeReviewRepository.deletedIds.map { it.size })
+        }
+    }
+
+    @Test
+    fun `第一批删除确认被拒_列表不变且不计释放`() = runTest(testDispatcher) {
+        fakePhotoRepository.setTrashedPhotos(TestPhotoData.createTestPhotos(2).map { it.copy(isTrashed = true) })
+        scriptDeleteBatches()
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.effects.test {
+            viewModel.onShowEmptyTrashConfirm()
+            viewModel.onConfirmEmptyTrash()
+            advanceUntilIdle()
+            awaitItem()
+            viewModel.onSystemMediaActionResult(false)
+            advanceUntilIdle()
+            expectNoEvents()
+        }
+        assertEquals(2, viewModel.uiState.value.photos.size)
+        assertTrue(fakeReviewRepository.forgotten.isEmpty())
+        assertEquals(0L, fakePreferences.totalFreedBytesFlow.value)
+        assertNull(viewModel.uiState.value.actionMessage)
+    }
+
+    @Test
+    fun `2001 张同意第一批后拒绝第二批_只结算已删除的`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(2001).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        scriptDeleteBatches()
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.effects.test {
+            viewModel.onShowEmptyTrashConfirm()
+            viewModel.onConfirmEmptyTrash()
+            advanceUntilIdle()
+            val first = awaitItem() as TrashEffect.LaunchSystemMediaAction
+            assertEquals(2000, first.request.photos.size)
+            assertEquals(1, first.request.remaining.size)
+            val gone = first.request.photos.map { it.id }.toSet()
+            fakePhotoRepository.setTrashedPhotos(photos.filter { it.id !in gone })
+            viewModel.onSystemMediaActionResult(true)
+            advanceUntilIdle()
+            val second = awaitItem() as TrashEffect.LaunchSystemMediaAction
+            assertEquals(listOf(2001L), second.request.photos.map { it.id })
+            viewModel.onSystemMediaActionResult(false)
+            advanceUntilIdle()
+            expectNoEvents()
+        }
+        assertEquals(listOf(2001L), viewModel.uiState.value.photos.map { it.id })
+        assertNull(viewModel.uiState.value.actionMessage)
+        assertNull(viewModel.uiState.value.justFreedBytes)
+        assertFalse(viewModel.uiState.value.isProcessingAction)
+        assertEquals(listOf((1L..2000L).toSet()), fakeReviewRepository.forgotten)
+        assertEquals(2000L * 1024L * 100L, fakePreferences.totalFreedBytesFlow.value)
+        assertEquals(listOf(2001, 1), fakeReviewRepository.deletedIds.map { it.size })
+    }
+
+    @Test
+    fun `2001 张两批都同意_清空并累计全部字节`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(2001).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        scriptDeleteBatches()
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        val expected = photos.sumOf { it.size!! }
+        viewModel.effects.test {
+            viewModel.onShowEmptyTrashConfirm()
+            viewModel.onConfirmEmptyTrash()
+            advanceUntilIdle()
+            val first = awaitItem() as TrashEffect.LaunchSystemMediaAction
+            val gone = first.request.photos.map { it.id }.toSet()
+            fakePhotoRepository.setTrashedPhotos(photos.filter { it.id !in gone })
+            viewModel.onSystemMediaActionResult(true)
+            advanceUntilIdle()
+            awaitItem()
+            fakePhotoRepository.setTrashedPhotos(emptyList())
+            viewModel.onSystemMediaActionResult(true)
+            advanceUntilIdle()
+            expectNoEvents()
+        }
+        assertEquals(UiText.Res(R.string.msg_trash_emptied), viewModel.uiState.value.actionMessage)
+        assertEquals(expected, viewModel.uiState.value.justFreedBytes)
+        assertEquals(expected, fakePreferences.totalFreedBytesFlow.value)
+        assertEquals(listOf((1L..2000L).toSet(), setOf(2001L)), fakeReviewRepository.forgotten)
+    }
+
+    @Test
+    fun `刷新挂起期间溶解已结束_收尾不再挂上同一快照`() = runTest(testDispatcher) {
+        val photos = TestPhotoData.createTestPhotos(1).map { it.copy(isTrashed = true) }
+        fakePhotoRepository.setTrashedPhotos(photos)
+        fakeReviewRepository.deletePermanentlyResult = PhotoOperationResult.NeedSystemApproval(
+            SystemMediaActionRequest(
+                photos,
+                SystemMediaActionType.DeletePermanently,
+                "t",
+                mockk(relaxed = true),
+            ),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        val gate = CompletableDeferred<Unit>()
+        fakePhotoRepository.beforeRefreshTrashed = { gate.await() }
+        viewModel.effects.test {
+            viewModel.onShowEmptyTrashConfirm()
+            viewModel.onConfirmEmptyTrash()
+            advanceUntilIdle()
+            awaitItem()
+            fakePhotoRepository.setTrashedPhotos(emptyList())
+            viewModel.onSystemMediaActionResult(true)
+            advanceUntilIdle()
+            assertNotNull(viewModel.uiState.value.dissolving)
+            // 动画关闭时，溶解会在刷新还挂着的时候播完
+            viewModel.onDissolveFinished()
+            assertNull(viewModel.uiState.value.dissolving)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            expectNoEvents()
+        }
+        assertNull(viewModel.uiState.value.dissolving)
+        assertEquals(UiText.Res(R.string.msg_trash_emptied), viewModel.uiState.value.actionMessage)
+        assertEquals(photos.sumOf { it.size!! }, viewModel.uiState.value.justFreedBytes)
     }
 }

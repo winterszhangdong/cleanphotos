@@ -44,10 +44,16 @@ class AlbumRepositoryImpl @Inject constructor(
             return PhotoOperationResult.Failure(PhotoOperationFailureReason.WritePermissionRequired)
         }
         // checkUriPermission / createWriteRequest 都是 binder 调用
-        val sender = withContext(Dispatchers.IO) { albumDataSource.writeRequest(photos) }
+        val batch = withContext(Dispatchers.IO) { albumDataSource.writeRequest(photos) }
             ?: return PhotoOperationResult.Success
         return PhotoOperationResult.NeedSystemApproval(
-            SystemMediaActionRequest(photos, SystemMediaActionType.MoveToAlbum, UUID.randomUUID().toString(), sender),
+            SystemMediaActionRequest(
+                photos = batch.current,
+                actionType = SystemMediaActionType.MoveToAlbum,
+                requestToken = UUID.randomUUID().toString(),
+                intentSender = batch.intentSender,
+                remaining = batch.remaining,
+            ),
         )
     }
 
@@ -96,9 +102,15 @@ class AlbumRepositoryImpl @Inject constructor(
 
     override suspend fun systemFavoriteRequest(photos: List<PhotoItem>): PhotoOperationResult? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || photos.isEmpty()) return null
-        val sender = withContext(Dispatchers.IO) { albumDataSource.favoriteRequest(photos) }
+        val batch = withContext(Dispatchers.IO) { albumDataSource.favoriteRequest(photos) }
         return PhotoOperationResult.NeedSystemApproval(
-            SystemMediaActionRequest(photos, SystemMediaActionType.SystemFavorite, UUID.randomUUID().toString(), sender),
+            SystemMediaActionRequest(
+                photos = batch.current,
+                actionType = SystemMediaActionType.SystemFavorite,
+                requestToken = UUID.randomUUID().toString(),
+                intentSender = batch.intentSender,
+                remaining = batch.remaining,
+            ),
         )
     }
 }

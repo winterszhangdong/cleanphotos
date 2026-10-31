@@ -12,8 +12,15 @@ import android.util.Size
  * 8–9 用 inSampleSize。HARDWARE 位图复制成 ARGB_8888，方便后面读像素。
  * 取图或解码失败返回 null。
  */
-internal fun loadPhotoBitmap(context: Context, uri: Uri, edge: Int): Bitmap? {
-    val raw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+internal fun loadPhotoBitmap(
+    context: Context,
+    uri: Uri,
+    edge: Int,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+): Bitmap? {
+    // 测试可传入更低的 sdkInt 强制走旧解码，但覆盖不得绕过真实 API 边界：
+    // 只有设备 SDK 与传入 sdkInt 都 >= Q 才调用 loadThumbnail。
+    val raw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && sdkInt >= Build.VERSION_CODES.Q) {
         context.contentResolver.loadThumbnail(uri, Size(edge, edge), null)
     } else {
         decodeSampled(context, uri, edge)
@@ -27,7 +34,9 @@ internal fun loadPhotoBitmap(context: Context, uri: Uri, edge: Int): Bitmap? {
 private fun decodeSampled(context: Context, uri: Uri, edge: Int): Bitmap? {
     val resolver = context.contentResolver
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+    // inJustDecodeBounds 的解码按契约返回 null，尺寸写在 outWidth/outHeight。这个 null 不是失败。
+    val opened = resolver.openInputStream(uri) ?: return null
+    opened.use { BitmapFactory.decodeStream(it, null, bounds) }
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
     val opts = BitmapFactory.Options().apply {
         inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, edge)

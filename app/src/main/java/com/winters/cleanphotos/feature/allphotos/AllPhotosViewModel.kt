@@ -2,6 +2,8 @@ package com.winters.cleanphotos.feature.allphotos
 
 import kotlinx.coroutines.CancellationException
 import android.util.Log
+import com.winters.cleanphotos.core.coroutines.UptimeClock
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.R
 import android.app.Application
@@ -53,6 +55,7 @@ class AllPhotosViewModel @Inject constructor(
     private val batchFavoritePhotosUseCase: BatchFavoritePhotosUseCase,
     private val batchMovePhotosToTrashUseCase: BatchMovePhotosToTrashUseCase,
     private val undoBatchActionUseCase: UndoBatchActionUseCase,
+    private val uptimeClock: UptimeClock,
     @DefaultDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : AndroidViewModel(application) {
 
@@ -280,6 +283,10 @@ class AllPhotosViewModel @Inject constructor(
 
     fun onUndoBatch() {
         val undo = _selection.value.undo ?: return
+        if (uptimeClock.uptimeMillis() >= undo.deadlineUptimeMillis) {
+            if (_selection.value.undo?.seq == undo.seq) _selection.value = _selection.value.copy(undo = null)
+            return
+        }
         _selection.value = _selection.value.copy(undo = null)
         viewModelScope.launch {
             // 写入失败（存储满等）不闪退：照片停在批量操作后的状态，日志记下原因
@@ -321,7 +328,14 @@ class AllPhotosViewModel @Inject constructor(
             }
             val action = outcome.first
             // 动作完成后退出多选，并给出撤回胶囊
-            _selection.value = PhotoSelectionState(undo = BatchUndo(++undoSeq, action, batchUndoTitle(action)))
+            _selection.value = PhotoSelectionState(
+                undo = BatchUndo(
+                    ++undoSeq,
+                    action,
+                    batchUndoTitle(action),
+                    uptimeClock.uptimeMillis() + MotionDurations.UNDO_COUNTDOWN,
+                ),
+            )
         }
     }
 

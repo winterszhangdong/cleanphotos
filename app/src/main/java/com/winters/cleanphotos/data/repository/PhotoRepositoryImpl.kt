@@ -12,6 +12,7 @@ import com.winters.cleanphotos.data.datasource.AppFavoriteStateDataSource
 import com.winters.cleanphotos.data.datasource.AppFilingLogDataSource
 import com.winters.cleanphotos.data.datasource.AppSeenStateDataSource
 import com.winters.cleanphotos.data.datasource.AppTrashStateDataSource
+import com.winters.cleanphotos.data.datasource.MediaPresence
 import com.winters.cleanphotos.data.datasource.MediaStorePhotoDataSource
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.repository.PhotoRepository
@@ -164,10 +165,11 @@ class PhotoRepositoryImpl @Inject constructor(
             Log.w(TAG, "迁移收藏失败", e)
         }
 
-        // 系统垃圾桶查询是 binder 调用，不能留在调用方的主线程（P8 实测曾卡主线程 11–17ms）
-        val existingIds = withContext(Dispatchers.IO) { buildExistingPhotoIds(photos) }
+        // 存在性查询是 binder 调用，不能留在调用方的主线程（P8 实测曾卡主线程 11–17ms）。
+        // 不能拿默认查询的可见列表做清理：卸载的 SD 卡不在结果里，但照片还在。
+        val presence = withContext(Dispatchers.IO) { mediaStoreDataSource.queryPresence(photos) }
         try {
-            cleanupStores(existingIds)
+            cleanupStores(presence)
         } catch (e: CancellationException) {
             throw e
         } catch (e: java.io.IOException) {
@@ -220,27 +222,13 @@ class PhotoRepositoryImpl @Inject constructor(
     }
 
     /**
-     * 构建当前存在的照片 ID 集合（未进系统垃圾桶 ∪ 已进系统垃圾桶）。
-     * 返回 null 表示查询不完整（任一类查询失败），调用方应跳过清理。
-     * 返回空集表示媒体库确实为空，调用方应正常执行清理以移除 stale 条目。
-     */
-    private fun buildExistingPhotoIds(normalPhotos: List<PhotoItem>): Set<Long>? {
-        val trashedPhotos = try {
-            mediaStoreDataSource.queryTrashedPhotos()
-        } catch (e: Exception) {
-            Log.w(TAG, "查询系统垃圾桶失败，跳过失效清理", e)
-            return null
-        }
-        return (normalPhotos.map { it.id } + trashedPhotos.map { it.id }).toSet()
-    }
-
-    /**
      * 串行清理四项失效条目：Favorite → Seen → Trash → 装袋记录。
-     * existingIds 为 null 时跳过（查询不完整，无法判断哪些条目已失效）。
+     * 存在性查询不完整时跳过，避免把暂时卸载的卷上的记录删掉。
      */
-    private suspend fun cleanupStores(existingIds: Set<Long>?) {
-        if (existingIds == null) return
-        // 三项共用同一个 DataStore，合成一次写入；没有失效条目时 DataStore 内容不变，不会重写文件
+    private suspend fun cleanupStores(presence: MediaPresence) {
+        if (!presence.authoritative) return
+        // 四项共用同一个 DataStore，合成一次写入；没有失效条目时 DataStore 内容不变，不会重写文件
+        val existingIds = presence.ids
         dataStore.edit { p ->
             appFavoriteStateDataSource.removeMissingIn(p, existingIds)
             appSeenStateDataSource.removeMissingIn(p, existingIds)

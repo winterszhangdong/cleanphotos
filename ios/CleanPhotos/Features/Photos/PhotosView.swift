@@ -270,9 +270,14 @@ struct PhotosView: View {
         }
     }
 
+    /// 当天 8 张以后没画出来的照片也在选择范围内（全选用 allItems）。只拿画出来的格子裁剪会把它们丢掉。
+    private var scopeIds: Set<String> {
+        Set(library.sections.flatMap { $0.days.flatMap { $0.allItems.map(\.id) } })
+    }
+
     private func pruneSelection() {
         guard selecting else { return }
-        let keep = selected.intersection(visibleIds)
+        let keep = SelectionPrune.remaining(selected: selected, scope: scopeIds)
         if keep != selected { selected = keep }
         if selected.isEmpty && dragAnchor == nil { selecting = false }
     }

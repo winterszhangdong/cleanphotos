@@ -75,7 +75,9 @@ function place(i, { x = 0, dy = 0, sc = 1, op = 1, filter = 'none', ring = false
   p.ph.style.boxShadow = ring ? '0 0 0 1px rgba(242,169,59,.55), 0 0 48px rgba(242,169,59,.28), 0 32px 64px rgba(0,0,0,.6)' : 'none';
   p.img.style.filter = filter; p.amb.style.opacity = amb;
 }
-const hide = i => { if (pages[i]) pages[i].el.style.visibility = 'hidden'; };
+let motion = 0;
+// 不隐藏当前这张。收藏首张再滑回来撤回时，延迟的 hide(cur) 和 cur 是同一张。
+const hide = i => { if (i === state.idx || !pages[i]) return; pages[i].el.style.visibility = 'hidden'; };
 function render() {
   const p = PHOTOS[Math.min(state.idx, PHOTOS.length - 1)];
   $id('time').textContent = `${T.weekday} · ${p.tm}`;
@@ -118,6 +120,7 @@ function showUndo(kind, i) {
   u.classList.add('on'); clearTimeout(undoTimer); undoTimer = setTimeout(() => u.classList.remove('on'), 4000);
 }
 function commit(k, d) {
+  if (busy) return;
   busy = true; stopHint();
   const i = state.idx, q = Math.min(Math.abs(d), CAP) / CAP;
   if (k === 'up') place(i, { dy: d - 900, sc: 1 - .1 * q, op: 0, ring: true, amb: 0, tr: `266ms ${ACC}` });
@@ -128,35 +131,39 @@ function commit(k, d) {
   next(i);
 }
 function next(i) {
+  const token = ++motion;
   state.idx = i + 1; render();
-  setTimeout(() => { chrome.style.transition = 'opacity .28s'; chrome.style.opacity = 1; }, 120);
-  if (state.idx >= PHOTOS.length) { setTimeout(finish, 300); return; }
+  setTimeout(() => { if (token !== motion) return; chrome.style.transition = 'opacity .28s'; chrome.style.opacity = 1; }, 120);
+  if (state.idx >= PHOTOS.length) { setTimeout(() => { if (token === motion) finish(); }, 300); return; }
   const n = state.idx;
   place(n, { sc: .94, op: 0, filter: 'brightness(.6)' });
-  requestAnimationFrame(() => requestAnimationFrame(() => place(n, { tr: `280ms ${DEC}` })));
-  setTimeout(() => { hide(i); busy = false; }, 300);
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (token === motion) place(n, { tr: `280ms ${DEC}` }); }));
+  setTimeout(() => { if (token !== motion) return; hide(i); busy = false; }, 300);
 }
 function browse(dir) {
   const i = state.idx, j = i + dir;
   if (j < 0 || j >= PHOTOS.length) { place(i, { tr: `280ms ${STD}` }); return; }
   busy = true; stopHint();
+  const token = ++motion;
   if (!state.marks[i]) state.marks[i] = 'k';
   place(i, { x: -dir * (WIDTH + 16), tr: `280ms ${STD}` });
   place(j, { x: dir * (WIDTH + 16) });
-  requestAnimationFrame(() => requestAnimationFrame(() => place(j, { tr: `280ms ${STD}` })));
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (token === motion) place(j, { tr: `280ms ${STD}` }); }));
   state.idx = j; render();
-  setTimeout(() => { hide(i); busy = false; }, 300);
+  setTimeout(() => { if (token !== motion) return; hide(i); busy = false; }, 300);
 }
 function undo() {
   if (busy) return;
   const h = state.history.pop(); if (!h) return;
+  const token = ++motion;
   $id('undo').classList.remove('on'); clearTimeout(undoTimer);
   const cur = state.idx;
-  if (pages[cur]) place(cur, { sc: .94, op: 0, filter: 'brightness(.5)', tr: `300ms ${STD}` });
+  if (cur !== h.i && pages[cur]) place(cur, { sc: .94, op: 0, filter: 'brightness(.5)', tr: `300ms ${STD}` });
   state.marks[h.i] = ''; state.idx = h.i; $id('done').classList.remove('on');
   place(h.i, { dy: h.k === 'up' ? -760 : 760, sc: .9, filter: 'brightness(.4)' });
-  requestAnimationFrame(() => requestAnimationFrame(() => place(h.i, { tr: `450ms ${DEC}` })));
-  render(); setTimeout(() => hide(cur), 320);
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (token === motion) place(h.i, { tr: `450ms ${DEC}` }); }));
+  render();
+  if (cur !== h.i) setTimeout(() => { if (token === motion) hide(cur); }, 320);
 }
 function finish() {
   const m = state.marks;
@@ -220,7 +227,11 @@ const end = () => {
   } else if (k === 'h') {
     const j = state.idx - Math.sign(d);
     if (Math.abs(d) >= 60 && pages[j]) browse(-Math.sign(d));
-    else { place(state.idx, { tr: `280ms ${STD}` }); if (pages[j]) { place(j, { x: -Math.sign(d) * (WIDTH + 16), tr: `280ms ${STD}` }); setTimeout(() => hide(j), 300); } }
+    else {
+      const token = motion;
+      place(state.idx, { tr: `280ms ${STD}` });
+      if (pages[j]) { place(j, { x: -Math.sign(d) * (WIDTH + 16), tr: `280ms ${STD}` }); setTimeout(() => { if (token === motion) hide(j); }, 300); }
+    }
   }
 };
 screen.addEventListener('pointerup', end); screen.addEventListener('pointercancel', end);
@@ -229,8 +240,8 @@ screen.addEventListener('keydown', e => {
   bumpIdle();
   if (e.key.toLowerCase() === 'z') { undo(); return; }
   if (busy || state.idx >= PHOTOS.length) return;
-  if (e.key === 'ArrowUp') { e.preventDefault(); setDrag('up', -THRESHOLD); setTimeout(() => commit('up', -THRESHOLD), 120); }
-  if (e.key === 'ArrowDown') { e.preventDefault(); setDrag('down', THRESHOLD); setTimeout(() => commit('down', THRESHOLD), 120); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); if (busy) return; const token = motion; setDrag('up', -THRESHOLD); setTimeout(() => { if (token === motion && !busy) commit('up', -THRESHOLD); }, 120); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); if (busy) return; const token = motion; setDrag('down', THRESHOLD); setTimeout(() => { if (token === motion && !busy) commit('down', THRESHOLD); }, 120); }
   if (e.key === 'ArrowRight') { e.preventDefault(); browse(1); }
   if (e.key === 'ArrowLeft') { e.preventDefault(); browse(-1); }
 });

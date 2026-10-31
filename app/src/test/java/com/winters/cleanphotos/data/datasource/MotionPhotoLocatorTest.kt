@@ -207,6 +207,138 @@ class MotionPhotoLocatorTest {
         assertNull(MotionPhotoLocator.validate(ArrayBytes(ftyp + moov), 0))
     }
 
+    @Test
+    fun `Google 属性反序且 Padding 夹在 Length 和 Semantic 之间仍按项相加`() {
+        val mp4 = mp4()
+        val trailer = oversizeBox("uuid")
+        val xml = """
+            <rdf:Description Camera:MotionPhoto="1">
+              <Container:Directory>
+                <rdf:li Item:Length="0" Item:Padding="8" Item:Semantic="Primary"/>
+                <rdf:li Item:Length="${mp4.size}" Item:Padding="50" Item:Semantic="MotionPhoto"/>
+                <rdf:li Item:Length="${trailer.size}" Item:Semantic="GainMap"/>
+              </Container:Directory>
+            </rdf:Description>
+        """.trimIndent()
+        val file = jpeg(xmpApp1(xml), mp4 + trailer)
+        val found = MotionPhotoLocator.locate(ArrayBytes(file))
+        assertVideo(file, found, (file.size - mp4.size - trailer.size).toLong(), mp4.size.toLong())
+    }
+
+    @Test
+    fun `元素形式 Length 写在 Semantic 前面`() {
+        val mp4 = mp4()
+        val xml = """
+            <Container:Item>
+              <Camera:MotionPhoto>1</Camera:MotionPhoto>
+              <Item:Length>${mp4.size}</Item:Length>
+              <Item:Semantic>MotionPhoto</Item:Semantic>
+            </Container:Item>
+        """.trimIndent()
+        val file = jpeg(xmpApp1(xml), mp4)
+        val found = MotionPhotoLocator.locate(ArrayBytes(file))
+        assertVideo(file, found, (file.size - mp4.size).toLong(), mp4.size.toLong())
+    }
+
+    @Test
+    fun `没有 Length 的 Primary 不拿走下一项的 Length`() {
+        val mp4 = mp4()
+        val xml = """
+            <rdf:Description Camera:MotionPhoto="1">
+              <Container:Directory>
+                <rdf:li Item:Semantic="Primary"/>
+                <rdf:li Item:Length="${mp4.size}" Item:Semantic="MotionPhoto"/>
+              </Container:Directory>
+            </rdf:Description>
+        """.trimIndent()
+        val file = jpeg(xmpApp1(xml), mp4)
+        val found = MotionPhotoLocator.locate(ArrayBytes(file))
+        assertVideo(file, found, (file.size - mp4.size).toLong(), mp4.size.toLong())
+    }
+
+    @Test
+    fun `前一个 Directory 的超大 Length 不影响后一个 Directory`() {
+        val mp4 = mp4()
+        val xml = """
+            <rdf:Description Camera:MotionPhoto="1">
+              <Container:Directory>
+                <rdf:li Item:Semantic="MotionPhoto" Item:Length="999999999"/>
+              </Container:Directory>
+              <Container:Directory>
+                <rdf:li Item:Semantic="Primary" Item:Length="0"/>
+                <rdf:li Item:Semantic="MotionPhoto" Item:Length="${mp4.size}"/>
+              </Container:Directory>
+            </rdf:Description>
+        """.trimIndent()
+        val file = jpeg(xmpApp1(xml), mp4)
+        val found = MotionPhotoLocator.locate(ArrayBytes(file))
+        assertVideo(file, found, (file.size - mp4.size).toLong(), mp4.size.toLong())
+    }
+
+    @Test
+    fun `vivo 属性 Length 写在 Semantic 前面`() {
+        val mp4 = mp4()
+        val trailer = oversizeBox("uuid")
+        val xml = """
+            Camera:MotionPhoto="1"
+            Item:Length="${mp4.size + trailer.size}" Item:Semantic="MotionPhoto"
+        """.trimIndent()
+        val file = jpeg(exifApp1(make = null, xmp = xml), mp4 + trailer)
+        val found = MotionPhotoLocator.locate(ArrayBytes(file))
+        assertVideo(file, found, (file.size - mp4.size - trailer.size).toLong(), mp4.size.toLong())
+    }
+
+    @Test
+    fun `vivo Description 夹着无关 rdf li 仍按属性识别`() {
+        val mp4 = mp4()
+        val trailer = oversizeBox("uuid")
+        val xml = """
+            <rdf:Description Camera:MotionPhoto="1" Item:Length="${mp4.size + trailer.size}" Item:Semantic="MotionPhoto">
+              <dc:subject>
+                <rdf:Bag>
+                  <rdf:li>holiday</rdf:li>
+                </rdf:Bag>
+              </dc:subject>
+            </rdf:Description>
+        """.trimIndent()
+        val file = jpeg(exifApp1(make = null, xmp = xml), mp4 + trailer)
+        val found = MotionPhotoLocator.locate(ArrayBytes(file))
+        assertVideo(file, found, (file.size - mp4.size - trailer.size).toLong(), mp4.size.toLong())
+    }
+
+    @Test
+    fun `vivo Description 属性反序且夹着无关 rdf li 仍识别`() {
+        val mp4 = mp4()
+        val trailer = oversizeBox("uuid")
+        val xml = """
+            <rdf:Description Camera:MotionPhoto="1" Item:Semantic="MotionPhoto" Item:Length="${mp4.size + trailer.size}">
+              <dc:subject>
+                <rdf:Bag>
+                  <rdf:li>holiday</rdf:li>
+                </rdf:Bag>
+              </dc:subject>
+            </rdf:Description>
+        """.trimIndent()
+        val file = jpeg(exifApp1(make = null, xmp = xml), mp4 + trailer)
+        val found = MotionPhotoLocator.locate(ArrayBytes(file))
+        assertVideo(file, found, (file.size - mp4.size - trailer.size).toLong(), mp4.size.toLong())
+    }
+
+    @Test
+    fun `真实目录项有 Semantic 但缺 Length 时不借用相邻项`() {
+        val mp4 = mp4()
+        val xml = """
+            <rdf:Description Camera:MotionPhoto="1">
+              <Container:Directory>
+                <rdf:li Item:Semantic="MotionPhoto"/>
+                <rdf:li Item:Length="${mp4.size}"/>
+              </Container:Directory>
+            </rdf:Description>
+        """.trimIndent()
+        val file = jpeg(xmpApp1(xml), mp4)
+        assertNull(MotionPhotoLocator.locate(ArrayBytes(file)))
+    }
+
     private fun assertVideo(file: ByteArray, found: MotionPhotoVideo?, offset: Long, length: Long) {
         val video = found ?: error("应识别到视频 offset=$offset")
         assertEquals(offset, video.offset)

@@ -1,17 +1,23 @@
 package com.winters.cleanphotos.data
 
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
 import com.winters.cleanphotos.TestPhotoData.createTestPhoto
 import com.winters.cleanphotos.data.datasource.AppFavoriteStateDataSource
 import com.winters.cleanphotos.data.datasource.AppSeenStateDataSource
 import com.winters.cleanphotos.data.datasource.AppFilingLogDataSource
 import com.winters.cleanphotos.data.datasource.AppTrashStateDataSource
+import com.winters.cleanphotos.data.datasource.MediaPresence
 import com.winters.cleanphotos.data.datasource.MediaStorePhotoDataSource
 import com.winters.cleanphotos.data.repository.PhotoRepositoryImpl
+import com.winters.cleanphotos.domain.model.AppTrashEntry
+import com.winters.cleanphotos.domain.model.FilingRecord
 import com.winters.cleanphotos.domain.model.PhotoItem
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,19 +45,25 @@ class PhotoRepositoryRefreshTest {
     private val dataStore = PreferenceDataStoreFactory.create(scope = scope) { File(dir, "t.preferences_pb") }
     private val mediaStore = mockk<MediaStorePhotoDataSource>()
     private val queries = AtomicInteger()
+    private val favorites = AppFavoriteStateDataSource(dataStore)
+    private val seen = AppSeenStateDataSource(dataStore)
+    private val trash = AppTrashStateDataSource(dataStore)
+    private val filing = AppFilingLogDataSource(dataStore)
 
     private val repo = PhotoRepositoryImpl(
         context = mockk<Context>(relaxed = true),
         mediaStoreDataSource = mediaStore,
-        appTrashStateDataSource = AppTrashStateDataSource(dataStore),
-        appFavoriteStateDataSource = AppFavoriteStateDataSource(dataStore),
-        appSeenStateDataSource = AppSeenStateDataSource(dataStore),
-        appFilingLogDataSource = AppFilingLogDataSource(dataStore),
+        appTrashStateDataSource = trash,
+        appFavoriteStateDataSource = favorites,
+        appSeenStateDataSource = seen,
+        appFilingLogDataSource = filing,
         dataStore = dataStore,
     )
 
     init {
         every { mediaStore.queryTrashedPhotos() } returns emptyList()
+        // 默认证据不足，避免把迁移进来的系统垃圾桶收藏当成失效删掉。
+        every { mediaStore.queryPresence(any()) } returns MediaPresence(emptySet(), authoritative = false)
     }
 
     @After
@@ -199,5 +211,71 @@ class PhotoRepositoryRefreshTest {
         }
         assertEquals(1, call)
         assertTrue(repo.observeAllPhotos().first().isEmpty())
+    }
+
+    @Test
+    fun `卸载卷上的记录刷新后还在_重新挂上后回到列表`() = runBlocking {
+        favorites.upsertEntries(mapOf(1L to 1L, 2L to 2L, 3L to 3L))
+        trash.upsertEntries(listOf(AppTrashEntry(photoId = 4L, movedToTrashAt = 10L)))
+        seen.markSeen(setOf(4L))
+        dataStore.edit { filing.upsertIn(it, listOf(FilingRecord(4L, "Pictures/trip/", "2024-05-20", 10L))) }
+        val online = createTestPhoto(1)
+        every { mediaStore.queryAllPhotos() } returns listOf(online)
+        every { mediaStore.queryPresence(any()) } returns MediaPresence(setOf(1L, 2L, 4L), authoritative = true)
+        repo.refreshPhotos()
+
+        assertEquals(setOf(1L, 2L), favorites.observeEntries().first().map { it.photoId }.toSet())
+        assertEquals(listOf(4L), trash.observeEntries().first().map { it.photoId })
+        assertEquals(setOf(4L), seen.observeSeenIds().first())
+        assertEquals(listOf(4L), filing.observeEntries().first().map { it.photoId })
+        assertEquals(listOf(1L), repo.observeFavoritedPhotos().first().map(PhotoItem::id))
+        assertTrue(repo.observeAllPhotos().first().none { it.id == 2L })
+        assertTrue(repo.observeTrashedPhotos().first().isEmpty())
+
+        every { mediaStore.queryAllPhotos() } returns listOf(online, createTestPhoto(2), createTestPhoto(4))
+        repo.refreshPhotos()
+        assertEquals(listOf(1L, 2L), repo.observeFavoritedPhotos().first().map(PhotoItem::id))
+        assertEquals(listOf(4L), repo.observeTrashedPhotos().first().map(PhotoItem::id))
+        assertTrue(repo.observeAllPhotos().first().none { it.id == 2L || it.id == 4L })
+    }
+
+    @Test
+    fun `真实删除且存在性查询完整时清掉记录`() = runBlocking {
+        favorites.upsertEntries(mapOf(1L to 1L, 3L to 3L))
+        every { mediaStore.queryAllPhotos() } returns listOf(createTestPhoto(1))
+        every { mediaStore.queryPresence(any()) } returns MediaPresence(setOf(1L), authoritative = true)
+        repo.refreshPhotos()
+        assertEquals(listOf(1L), favorites.observeEntries().first().map { it.photoId })
+    }
+
+    @Test
+    fun `存在性查询失败时不清理`() = runBlocking {
+        favorites.upsertEntries(mapOf(3L to 1L))
+        trash.upsertEntries(listOf(AppTrashEntry(photoId = 4L, movedToTrashAt = 10L)))
+        every { mediaStore.queryAllPhotos() } returns emptyList()
+        every { mediaStore.queryPresence(any()) } returns MediaPresence(emptySet(), authoritative = false)
+        repo.refreshPhotos()
+        assertEquals(listOf(3L), favorites.observeEntries().first().map { it.photoId })
+        assertEquals(listOf(4L), trash.observeEntries().first().map { it.photoId })
+    }
+
+    @Test
+    fun `部分照片权限时不查询存在性也不清记录`() = runBlocking {
+        val denied = mockk<Context>(relaxed = true)
+        every { denied.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_DENIED
+        val limited = PhotoRepositoryImpl(
+            context = denied,
+            mediaStoreDataSource = mediaStore,
+            appTrashStateDataSource = trash,
+            appFavoriteStateDataSource = favorites,
+            appSeenStateDataSource = seen,
+            appFilingLogDataSource = filing,
+            dataStore = dataStore,
+        )
+        favorites.upsertEntries(mapOf(3L to 1L))
+        every { mediaStore.queryAllPhotos() } returns emptyList()
+        limited.refreshPhotos()
+        assertEquals(listOf(3L), favorites.observeEntries().first().map { it.photoId })
+        verify(exactly = 0) { mediaStore.queryPresence(any()) }
     }
 }

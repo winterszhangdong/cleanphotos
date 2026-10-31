@@ -57,14 +57,20 @@ class FakePhotoRepository : PhotoRepository {
 
     /** ensurePhotosLoaded 调用次数与副作用（模拟进程重建后首次加载照片表）。 */
     var ensureLoadedCalls = 0
+    var beforeEnsure: suspend () -> Unit = {}
     var onEnsureLoaded: (() -> Unit)? = null
     override suspend fun ensurePhotosLoaded() {
         ensureLoadedCalls++
+        beforeEnsure()
         onEnsureLoaded?.invoke()
         onEnsureLoaded = null
     }
 
+    /** 刷新垃圾桶前挂起（测试溶解在刷新期间播完）。 */
+    var beforeRefreshTrashed: suspend () -> Unit = {}
+
     override suspend fun refreshTrashedPhotos() {
+        beforeRefreshTrashed()
         if (shouldThrowOnRefresh) {
             throw RuntimeException("查询垃圾桶失败")
         }

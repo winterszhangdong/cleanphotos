@@ -150,6 +150,8 @@ internal class SimilarCompareMotion(
     }
 
     override fun onPinchEnd() {
+        // 翻页或回弹的弹簧被这轮捏合取消后，没人再写 dx/dy。这里收回残余位移，已经提交的页和缩放中心不动。
+        if (dx != 0f || dy != 0f) springBack(0f, 0f)
         if (zoom < GestureTokens.ZOOM_REST_MIN) {
             animateZoom(1f, Offset.Zero, MotionSprings.Bouncy)
         } else {

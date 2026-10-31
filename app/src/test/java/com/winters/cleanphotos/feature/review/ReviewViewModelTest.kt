@@ -43,12 +43,19 @@ import com.winters.cleanphotos.domain.usecase.UndoPhotoActionUseCase
 import com.winters.cleanphotos.fake.FakePhotoRepository
 import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
+import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
+import androidx.lifecycle.ViewModelStore
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -76,6 +83,7 @@ class ReviewViewModelTest {
     private lateinit var seen: FakeSeenStateRepository
     private var savedState = androidx.lifecycle.SavedStateHandle()
     private val motionPhotos = FakeMotionPhotos()
+    private var now = 0L
 
     private class FakeMotionPhotos : MotionPhotoRepository {
         var located: MotionPhotoVideo? = null
@@ -89,21 +97,53 @@ class ReviewViewModelTest {
     /** 记录每次实际执行到仓库的操作，用于验证连续快滑不丢操作。 */
     private class CountingReviewRepository(val fake: FakeReviewRepository = FakeReviewRepository()) : ReviewRepository by fake {
         val calls = mutableListOf<Pair<String, Long>>()
+        val persisted = mutableMapOf<Long, String>()
+        var holdNextFavorite: CompletableDeferred<PhotoOperationResult>? = null
+        var holdNextUnfavorite: CompletableDeferred<PhotoOperationResult>? = null
+        var holdNextTrash: CompletableDeferred<Unit>? = null
         override suspend fun favoritePhoto(photo: PhotoItem, effects: SwipeSideEffects): PhotoOperationResult {
-            calls += "fav" to photo.id; return fake.favoritePhoto(photo, effects)
+            calls += "fav" to photo.id
+            val held = holdNextFavorite
+            val result = if (held != null) {
+                holdNextFavorite = null
+                held.await()
+            } else {
+                fake.favoritePhoto(photo, effects)
+            }
+            if (result is PhotoOperationResult.Success) persisted[photo.id] = "fav"
+            return result
         }
         override suspend fun removeFavorite(photo: PhotoItem, effects: SwipeSideEffects): PhotoOperationResult {
-            calls += "unfav" to photo.id; return fake.removeFavorite(photo, effects)
+            calls += "unfav" to photo.id
+            val held = holdNextUnfavorite
+            val result = if (held != null) {
+                holdNextUnfavorite = null
+                held.await()
+            } else {
+                fake.removeFavorite(photo, effects)
+            }
+            if (result is PhotoOperationResult.Success) persisted[photo.id] = "library"
+            return result
         }
         /** 模拟 DataStore 写入抛异常（存储满）。 */
         var throwOnTrash: Boolean = false
         override suspend fun movePhotoToTrash(photo: PhotoItem, effects: SwipeSideEffects): PhotoOperationResult {
             calls += "trash" to photo.id
+            val held = holdNextTrash
+            if (held != null) {
+                holdNextTrash = null
+                held.await()
+            }
             if (throwOnTrash) throw java.io.IOException("No space left on device")
-            return fake.movePhotoToTrash(photo, effects)
+            val result = fake.movePhotoToTrash(photo, effects)
+            if (result is PhotoOperationResult.Success) persisted[photo.id] = "trash"
+            return result
         }
         override suspend fun restorePhotoFromTrash(photo: PhotoItem): PhotoOperationResult {
-            calls += "restore" to photo.id; return fake.restorePhotoFromTrash(photo)
+            calls += "restore" to photo.id
+            val result = fake.restorePhotoFromTrash(photo)
+            if (result is PhotoOperationResult.Success) persisted[photo.id] = "library"
+            return result
         }
     }
 
@@ -124,7 +164,7 @@ class ReviewViewModelTest {
         unmockkStatic(Uri::class)
     }
 
-    private fun createViewModel(): ReviewViewModel {
+    private fun createViewModel(compute: CoroutineDispatcher = testDispatcher): ReviewViewModel {
         val favorite = FavoritePhotoUseCase(reviewRepository)
         val removeFavorite = RemoveFavoritePhotoUseCase(reviewRepository)
         val restore = RestorePhotoFromTrashUseCase(reviewRepository)
@@ -144,7 +184,9 @@ class ReviewViewModelTest {
             observeShowDirectionHintsUseCase = ObserveShowDirectionHintsUseCase(preferences),
             observeTrashSummaryUseCase = ObserveTrashSummaryUseCase(photoRepository),
             locateMotionPhotoVideoUseCase = LocateMotionPhotoVideoUseCase(motionPhotos),
-            computeDispatcher = testDispatcher,
+            operationQueue = ReviewOperationQueue(CoroutineScope(SupervisorJob() + testDispatcher)),
+            uptimeClock = UptimeClock { now },
+            computeDispatcher = compute,
             savedStateHandle = savedState,
         )
     }
@@ -237,6 +279,7 @@ class ReviewViewModelTest {
         assertNull(vm.onSwipeDown(1L))
         advanceUntilIdle()
         assertTrue(vm.uiState.value.isCompleted)
+        assertEquals(0L, vm.uiState.value.restoreEpoch)
     }
 
     @Test
@@ -504,5 +547,261 @@ class ReviewViewModelTest {
         vm.onPageSettled("p2")
         advanceUntilIdle()
         assertFalse(vm.uiState.value.playbackMuted)
+    }
+
+    @Test
+    fun `过了截止时间再撤回不会执行`() = runTest(testDispatcher) {
+        val vm = start()
+        advanceUntilIdle()
+        vm.onSwipeDown(3L)
+        advanceUntilIdle()
+        val deadline = vm.uiState.value.undo!!.deadlineUptimeMillis
+        now = deadline
+        assertNull(vm.onUndo())
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.undo)
+        assertEquals(listOf("trash" to 3L), reviewRepository.calls)
+        assertEquals("trash", reviewRepository.persisted[3L])
+    }
+
+    @Test
+    fun `离开清理页后已入队的写入仍按顺序落盘`() = runTest(testDispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        reviewRepository.holdNextTrash = gate
+        val vm = start(count = 5, startId = 5L)
+        advanceUntilIdle()
+        val store = ViewModelStore()
+        store.put("review", vm)
+        assertEquals("p4", vm.onSwipeDown(5L))
+        assertEquals("p3", vm.onSwipeUp(4L))
+        advanceUntilIdle()
+        assertEquals(listOf("trash" to 5L), reviewRepository.calls)
+        store.clear()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf("trash" to 5L, "fav" to 4L), reviewRepository.calls)
+        assertEquals("trash", reviewRepository.persisted[5L])
+        assertEquals("fav", reviewRepository.persisted[4L])
+    }
+
+    @Test
+    fun `最后一张还在落盘时不算完成_离开后仍然写入`() = runTest(testDispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        reviewRepository.holdNextTrash = gate
+        val vm = start(count = 1, startId = 1L)
+        advanceUntilIdle()
+        val store = ViewModelStore()
+        store.put("review", vm)
+        assertNull(vm.onSwipeDown(1L))
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.currentKey)
+        assertFalse(vm.uiState.value.isCompleted)
+        store.clear()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf("trash" to 1L), reviewRepository.calls)
+        assertEquals("trash", reviewRepository.persisted[1L])
+    }
+
+    @Test
+    fun `系统授权还在等时离开_不堵住后面已经接纳的写入`() = runTest(testDispatcher) {
+        val request = SystemMediaActionRequest(
+            photos = listOf(TestPhotoData.createTestPhoto(id = 5L)),
+            actionType = SystemMediaActionType.MoveToTrash,
+            requestToken = "t",
+            intentSender = mockk<IntentSender>(),
+        )
+        reviewRepository.fake.moveTrashResult = PhotoOperationResult.NeedSystemApproval(request)
+        val vm = start(count = 5, startId = 5L)
+        advanceUntilIdle()
+        val store = ViewModelStore()
+        store.put("review", vm)
+        vm.onSwipeDown(5L)
+        vm.onSwipeUp(4L)
+        advanceUntilIdle()
+        store.clear()
+        advanceUntilIdle()
+        assertEquals(listOf("trash" to 5L, "fav" to 4L), reviewRepository.calls)
+        assertEquals("fav", reviewRepository.persisted[4L])
+        assertFalse(reviewRepository.persisted[5L] == "trash")
+    }
+
+    @Test
+    fun `旧收藏失败不会清掉撤回后重做的移走`() = runTest(testDispatcher) {
+        val gate = CompletableDeferred<PhotoOperationResult>()
+        reviewRepository.holdNextFavorite = gate
+        val vm = start()
+        advanceUntilIdle()
+        vm.onSwipeUp(3L)
+        advanceUntilIdle()
+        vm.onUndo()
+        vm.onSwipeDown(3L)
+        gate.complete(PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed))
+        advanceUntilIdle()
+        val s = vm.uiState.value
+        assertFalse(3L in photoKeys(s))
+        assertEquals(PhotoActionType.MoveToTrash, s.undo?.type)
+        assertEquals(3L, s.undo?.photo?.id)
+        assertEquals(listOf("fav" to 3L, "trash" to 3L), reviewRepository.calls)
+        assertEquals("trash", reviewRepository.persisted[3L])
+    }
+
+    @Test
+    fun `旧撤回失败不会清掉随后做成的移走`() = runTest(testDispatcher) {
+        val vm = start()
+        advanceUntilIdle()
+        vm.onSwipeUp(3L)
+        advanceUntilIdle()
+        val gate = CompletableDeferred<PhotoOperationResult>()
+        reviewRepository.holdNextUnfavorite = gate
+        vm.onUndo()
+        advanceUntilIdle()
+        vm.onSwipeDown(3L)
+        gate.complete(PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed))
+        advanceUntilIdle()
+        val s = vm.uiState.value
+        assertFalse(3L in photoKeys(s))
+        assertEquals(PhotoActionType.MoveToTrash, s.undo?.type)
+        assertEquals(listOf("fav" to 3L, "unfav" to 3L, "trash" to 3L), reviewRepository.calls)
+        assertEquals("trash", reviewRepository.persisted[3L])
+    }
+
+    @Test
+    fun `单张会话写入失败后回到这张_不判完成`() = runTest(testDispatcher) {
+        reviewRepository.fake.moveTrashResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        val vm = start(count = 1, startId = 1L)
+        advanceUntilIdle()
+        assertNull(vm.onSwipeDown(1L))
+        advanceUntilIdle()
+        val s = vm.uiState.value
+        assertEquals("p1", s.currentKey)
+        assertEquals(listOf(1L), photoKeys(s))
+        assertFalse(s.isCompleted)
+        assertNotNull(s.errorMessage)
+        assertNull(s.undo)
+        assertEquals(1L, s.restoreEpoch)
+    }
+
+    @Test
+    fun `末张写入失败后回到这张_不判完成`() = runTest(testDispatcher) {
+        val vm = start(count = 2, startId = 2L)
+        advanceUntilIdle()
+        vm.onSwipeDown(2L)
+        advanceUntilIdle()
+        reviewRepository.fake.moveTrashResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        assertNull(vm.onSwipeDown(1L))
+        advanceUntilIdle()
+        val s = vm.uiState.value
+        assertEquals("p1", s.currentKey)
+        assertTrue(1L in photoKeys(s))
+        assertFalse(s.isCompleted)
+        assertNotNull(s.errorMessage)
+        assertEquals(1L, s.restoreEpoch)
+    }
+
+    @Test
+    fun `空页被合并时成功滑走末张不反弹`() = runTest(testDispatcher) {
+        val gate = HoldDispatcher(testDispatcher)
+        photoRepository.setPhotos(TestPhotoData.createTestPhotos(1))
+        val vm = createViewModel(compute = gate).also { it.initialize(1L, "NewestFirst", "AllPhotos", "AllPhotos") }
+        advanceUntilIdle()
+        val before = vm.uiState.value
+        assertEquals("p1", before.currentKey)
+        assertEquals(0L, before.restoreEpoch)
+        val stage = ReviewStageState(CoroutineScope(SupervisorJob() + testDispatcher))
+        stage.syncFromViewModel(before.pages, before.currentKey, before.restoreEpoch)
+
+        gate.hold = true
+        assertNull(vm.onSwipeDown(1L))
+        stage.sessionEndedLocally = true
+        stage.currentKey = null
+        advanceUntilIdle()
+        val held = vm.uiState.value
+        assertTrue(before.pages === held.pages)
+        assertEquals("p1", held.currentKey)
+        assertEquals(0L, held.restoreEpoch)
+        assertNull(held.errorMessage)
+        stage.syncFromViewModel(held.pages, held.currentKey, held.restoreEpoch)
+        assertNull(stage.currentKey)
+        assertTrue(stage.sessionEndedLocally)
+
+        gate.release()
+        advanceUntilIdle()
+        val after = vm.uiState.value
+        assertNull(after.currentKey)
+        assertEquals(0L, after.restoreEpoch)
+        assertTrue(after.isCompleted)
+        assertNull(after.errorMessage)
+        assertTrue(photoKeys(after).isEmpty())
+        stage.syncFromViewModel(after.pages, after.currentKey, after.restoreEpoch)
+        assertNull(stage.currentKey)
+        assertTrue(stage.sessionEndedLocally)
+    }
+
+    @Test
+    fun `空页被计算线程合并掉时舞台仍回到失败的那张`() = runTest(testDispatcher) {
+        val gate = HoldDispatcher(testDispatcher)
+        photoRepository.setPhotos(TestPhotoData.createTestPhotos(1))
+        val vm = createViewModel(compute = gate).also { it.initialize(1L, "NewestFirst", "AllPhotos", "AllPhotos") }
+        advanceUntilIdle()
+        val before = vm.uiState.value
+        assertEquals("p1", before.currentKey)
+        assertEquals(0L, before.restoreEpoch)
+        val stage = ReviewStageState(CoroutineScope(SupervisorJob() + testDispatcher))
+        stage.syncFromViewModel(before.pages, before.currentKey, before.restoreEpoch)
+        assertEquals("p1", stage.currentKey)
+
+        gate.hold = true
+        reviewRepository.fake.moveTrashResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        assertNull(vm.onSwipeDown(1L))
+        stage.sessionEndedLocally = true
+        stage.currentKey = null
+        advanceUntilIdle()
+        val held = vm.uiState.value
+        assertTrue(before.pages === held.pages)
+        assertEquals("p1", held.currentKey)
+        assertEquals(0L, held.restoreEpoch)
+        assertNull(held.errorMessage)
+        stage.syncFromViewModel(held.pages, held.currentKey, held.restoreEpoch)
+        assertNull(stage.currentKey)
+        assertTrue(stage.sessionEndedLocally)
+
+        gate.release()
+        advanceUntilIdle()
+        val after = vm.uiState.value
+        assertEquals("p1", after.currentKey)
+        assertEquals(before.restoreEpoch + 1, after.restoreEpoch)
+        assertTrue(before.pages === after.pages)
+        assertNotNull(after.errorMessage)
+        assertFalse(after.isCompleted)
+        assertTrue(1L in photoKeys(after))
+        stage.syncFromViewModel(after.pages, after.currentKey, after.restoreEpoch)
+        assertEquals("p1", stage.currentKey)
+        assertEquals("p1", stage.currentPage?.key)
+        assertFalse(stage.sessionEndedLocally)
+    }
+}
+
+/** 计算线程先按住。StateFlow 只交出最后一次 Core，空页那一帧不会建成界面状态。 */
+private class HoldDispatcher(private val delegate: CoroutineDispatcher) : CoroutineDispatcher() {
+    var hold = false
+    private val pending = ArrayDeque<Runnable>()
+
+    override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+        if (hold) {
+            synchronized(pending) { pending.addLast(block) }
+        } else {
+            delegate.dispatch(context, block)
+        }
+    }
+
+    fun release() {
+        val blocks = synchronized(pending) {
+            hold = false
+            val copy = pending.toList()
+            pending.clear()
+            copy
+        }
+        blocks.forEach { delegate.dispatch(EmptyCoroutineContext, it) }
     }
 }

@@ -10,7 +10,9 @@ import com.winters.cleanphotos.domain.model.SimilarHashProgress
 import com.winters.cleanphotos.domain.model.SimilarMark
 import com.winters.cleanphotos.domain.model.SimilarSharpnessProgress
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
+import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
+import com.winters.cleanphotos.domain.usecase.EnsurePhotosLoadedUseCase
 import com.winters.cleanphotos.domain.usecase.GroupSimilarPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveSimilarGroupsUseCase
@@ -19,6 +21,8 @@ import com.winters.cleanphotos.fake.FakePhotoRepository
 import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
 import com.winters.cleanphotos.fake.FakeSimilarResolvedRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -31,6 +35,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -43,6 +48,7 @@ class SimilarViewModelTest {
     private val review = FakeReviewRepository()
     private val seen = FakeSeenStateRepository()
     private val resolved = FakeSimilarResolvedRepository()
+    private var now = 0L
 
     @Before
     fun setUp() {
@@ -208,6 +214,95 @@ class SimilarViewModelTest {
         assertEquals(3, vm.uiState.value.groups.single().photos.size)
     }
 
+    @Test
+    fun `冷启动先加载照片表再扫描_再 start 不重扫`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        photos.beforeEnsure = { gate.await() }
+        photos.onEnsureLoaded = { photos.setPhotos(listOf(shot(1, 1_000), shot(2, 2_000))) }
+        var hashes = 0
+        val vm = viewModel(onHash = { hashes++ })
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(SimilarPhase.Loading, vm.uiState.value.phase)
+        assertEquals(0, hashes)
+        assertEquals(1, photos.ensureLoadedCalls)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(1, hashes)
+        assertEquals(SimilarPhase.Ready, vm.uiState.value.phase)
+        assertEquals(1, vm.uiState.value.groups.size)
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(1, photos.ensureLoadedCalls)
+        assertEquals(1, hashes)
+    }
+
+    @Test
+    fun `照片表为空时扫描结束后才可以离开_比对中不离开`() = runTest(dispatcher) {
+        val vm = viewModel()
+        assertFalse(similarCompareShouldLeave(vm.uiState.value.phase, hasGroup = false))
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(1, photos.ensureLoadedCalls)
+        assertEquals(SimilarPhase.Ready, vm.uiState.value.phase)
+        assertTrue(vm.uiState.value.groups.isEmpty())
+        assertTrue(similarCompareShouldLeave(vm.uiState.value.phase, hasGroup = false))
+        assertFalse(similarCompareShouldLeave(SimilarPhase.Comparing, hasGroup = false))
+        assertFalse(similarCompareShouldLeave(SimilarPhase.Ready, hasGroup = true))
+        assertFalse(similarCompareShouldLeave(SimilarPhase.Failed, hasGroup = false))
+    }
+
+    @Test
+    fun `照片表加载失败不变成空结果_再次开始能扫出来`() = runTest(dispatcher) {
+        photos.beforeEnsure = { throw IllegalStateException("Volume external_primary not found") }
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(SimilarPhase.Failed, vm.uiState.value.phase)
+        assertTrue(vm.uiState.value.groups.isEmpty())
+        assertFalse(similarCompareShouldLeave(vm.uiState.value.phase, hasGroup = false))
+        assertEquals(1, photos.ensureLoadedCalls)
+        photos.beforeEnsure = {}
+        photos.onEnsureLoaded = { photos.setPhotos(listOf(shot(1, 1_000), shot(2, 2_000))) }
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(SimilarPhase.Ready, vm.uiState.value.phase)
+        assertEquals(1, vm.uiState.value.groups.size)
+        assertEquals(2, photos.ensureLoadedCalls)
+    }
+
+    @Test
+    fun `加载被取消时不当成失败也不当成扫完`() = runTest(dispatcher) {
+        photos.beforeEnsure = { throw CancellationException("stop") }
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(SimilarPhase.Loading, vm.uiState.value.phase)
+        assertTrue(vm.uiState.value.groups.isEmpty())
+        assertFalse(similarCompareShouldLeave(vm.uiState.value.phase, hasGroup = false))
+        val calls = photos.ensureLoadedCalls
+        vm.start()
+        advanceUntilIdle()
+        assertEquals(calls, photos.ensureLoadedCalls)
+        assertEquals(SimilarPhase.Loading, vm.uiState.value.phase)
+    }
+
+    @Test
+    fun `过了截止时间再撤回不会恢复`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        vm.onCommit(vm.uiState.value.groups.single().key)
+        advanceUntilIdle()
+        val deadline = vm.uiState.value.undo!!.deadlineUptimeMillis
+        now = deadline
+        vm.onUndo()
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.undo)
+        assertTrue(review.batchCalls.none { it.first == "restore" })
+    }
+
     private fun calls(kind: String): List<Long> =
         review.batchCalls.filter { it.first == kind }.map { it.second }.flatten()
 
@@ -233,6 +328,8 @@ class SimilarViewModelTest {
             batchMovePhotosToTrashUseCase = BatchMovePhotosToTrashUseCase(review, seen),
             undoBatchActionUseCase = UndoBatchActionUseCase(review),
             similarResolvedRepository = resolved,
+            ensurePhotosLoadedUseCase = EnsurePhotosLoadedUseCase(photos),
+            uptimeClock = UptimeClock { now },
         )
     }
 

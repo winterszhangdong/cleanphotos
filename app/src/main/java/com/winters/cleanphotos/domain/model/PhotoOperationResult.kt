@@ -31,7 +31,7 @@ enum class SystemMediaActionType {
     RestoreFromTrash,
     /** 永久删除（仅用于清空垃圾桶） */
     DeletePermanently,
-    /** 装进相册前拿写权限（Android 11+ createWriteRequest，整批一次） */
+    /** 装进相册前拿写权限（Android 11+ createWriteRequest，每批最多 2000） */
     MoveToAlbum,
     /** 装袋时顺带加系统收藏（Android 11+ createFavoriteRequest，系统确认后自己写入） */
     SystemFavorite,
@@ -49,7 +49,12 @@ data class SystemMediaActionRequest(
     val photos: List<PhotoItem>,
     val actionType: SystemMediaActionType,
     val requestToken: String,
-    val intentSender: IntentSender
+    val intentSender: IntentSender,
+    /**
+     * 这一批之后还没交给系统的照片。
+     * 用户拒绝本批时这些不再请求，也不能记成已经删除、装袋或系统收藏。
+     */
+    val remaining: List<PhotoItem> = emptyList(),
 )
 
 /**

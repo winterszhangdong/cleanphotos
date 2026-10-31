@@ -5,7 +5,7 @@ Cloudflare Workers + 静态资源。下载由 Cloudflare 直接提供，访问�
 ```
 site/
 ├── wrangler.jsonc          Worker 配置：自定义域名 cleanphotos.winters.click，静态资源目录 dist/
-├── src/worker.js           /download/*、/api/*、首页语言跳转；其余交给静态资源
+├── src/worker.js           /download、/download/*、/api/*、首页语言跳转；其余交给静态资源
 ├── build.mjs               static/ + release/ + ../CHANGELOG.md + ../PRIVACY.md → dist/
 ├── static/                 提交进仓库的素材：css、js、字体、宣传片、截图、示例照片、图标
 ├── tools/                  make-media.py（重新生成 static/ 素材）、shoot.mjs（截图）、record-demo.mjs（录屏）
@@ -20,9 +20,9 @@ site/
 
 | 地址 | 内容 |
 | --- | --- |
-| `/` | 中文首页；没选过语言且浏览器首选不是中文时 302 到 `/en/`（手动切换后记在 `lang` Cookie） |
+| `/` | 中文首页；没选手动语言时，按 Accept-Language 里权重最高的一条，不是中文就 302 到 `/en/`（`lang` Cookie 优先于请求头） |
 | `/en/` · `/changelog/` · `/en/changelog/` · `/privacy/` · `/en/privacy/` | 英文首页、更新日志、隐私政策 |
-| `/download/latest`、`/download/CleanPhotos-latest.apk` | 最新版 APK，文件名 `CleanPhotos-x.y.z.apk`，`Cache-Control: no-cache` |
+| `/download`、`/download/latest`、`/download/CleanPhotos-latest.apk` | 最新版 APK，文件名 `CleanPhotos-x.y.z.apk`，`Cache-Control: no-cache` |
 | `/download/CleanPhotos-x.y.z.apk` | 指定版本；官网保留最近 `KEEP`（默认 2）个版本，更早的 302 到 GitHub Release |
 | `/api/latest.json` | 最新版：version、file、size、sha256、certSha256、date、url、github、notes.zh / notes.en |
 | `/api/releases.json` | 官网保存的全部版本 |

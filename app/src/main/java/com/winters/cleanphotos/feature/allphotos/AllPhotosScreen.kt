@@ -151,6 +151,7 @@ fun AllPhotosScreen(
     similarState: SimilarUiState,
     onSimilarOpen: (String, Long) -> Unit,
     onSimilarCommit: (String) -> Unit,
+    onSimilarRetry: () -> Unit,
     onSimilarUndo: () -> Unit,
     onSimilarUndoExpired: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -385,6 +386,7 @@ fun AllPhotosScreen(
                     onShowUnseenChanged = onShowUnseenChanged,
                     onSimilarOpen = onSimilarOpen,
                     onSimilarCommit = onSimilarCommit,
+                    onSimilarRetry = onSimilarRetry,
                     selection = selection,
                     selectionActions = selectionActions,
                 )
@@ -591,6 +593,7 @@ private fun RowScope.PhotosHeaderCount(
                 modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp - Dimens.CountGap),
             )
         }
+        headerScope == LibraryScope.Similar && similarState.phase == SimilarPhase.Failed -> Unit
         headerScope == LibraryScope.Similar && similarState.phase != SimilarPhase.Ready -> {
             SkeletonBlock(96.dp, 24.dp, modifier = Modifier.align(Alignment.CenterVertically))
             if (similarState.compareTotal > 0) {
@@ -639,6 +642,7 @@ private fun ScopePageBody(
     onShowUnseenChanged: (Boolean) -> Unit,
     onSimilarOpen: (String, Long) -> Unit,
     onSimilarCommit: (String) -> Unit,
+    onSimilarRetry: () -> Unit,
     selection: PhotoSelectionState,
     selectionActions: PhotoSelectionActions,
 ) {
@@ -664,6 +668,7 @@ private fun ScopePageBody(
                     contentPadding = PaddingValues(top = chromeTop + Dimens.FreeTop, bottom = dockListBottomPadding()),
                     onOpen = if (settled) onSimilarOpen else { _, _ -> },
                     onCommit = if (settled) onSimilarCommit else { _ -> },
+                    onRetry = onSimilarRetry,
                 )
                 LibraryContent.AllSeen -> AllSeenContent(
                     uiState = uiState,

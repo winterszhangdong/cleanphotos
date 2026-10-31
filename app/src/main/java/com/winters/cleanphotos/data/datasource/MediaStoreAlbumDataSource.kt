@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
@@ -31,22 +32,43 @@ class MediaStoreAlbumDataSource @Inject constructor(
 ) {
     private val contentResolver: ContentResolver get() = context.contentResolver
 
-    /** Android 11+ 里还没有写权限的那些照片的整批授权；全都有了或系统低于 11 时返回 null。 */
-    fun writeRequest(photos: List<PhotoItem>): IntentSender? {
+    /**
+     * Android 11+ 里还没有写权限的下一批授权（最多 [MEDIA_STORE_REQUEST_LIMIT] 张）。
+     * 全都有了或系统低于 11 时返回 null。其余没授权的在 [MediaStoreAuthBatch.remaining]。
+     */
+    internal fun writeRequest(photos: List<PhotoItem>): MediaStoreAuthBatch? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         val pid = Process.myPid()
         val uid = Process.myUid()
-        val missing = photos.map { it.uri }.filter {
-            context.checkUriPermission(it, pid, uid, Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != PackageManager.PERMISSION_GRANTED
+        val missing = photos.filter {
+            context.checkUriPermission(it.uri, pid, uid, Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) return null
-        return MediaStore.createWriteRequest(contentResolver, missing).intentSender
+        return authBatch(missing) { uris ->
+            MediaStore.createWriteRequest(contentResolver, uris).intentSender
+        }
     }
 
-    /** 系统收藏：系统确认后由系统自己写入。 */
+    /** 系统收藏：系统确认后由系统自己写入。超过上限时只交这一批，其余在 remaining。 */
     @RequiresApi(Build.VERSION_CODES.R)
-    fun favoriteRequest(photos: List<PhotoItem>): IntentSender =
-        MediaStore.createFavoriteRequest(contentResolver, photos.map { it.uri }, true).intentSender
+    internal fun favoriteRequest(photos: List<PhotoItem>): MediaStoreAuthBatch {
+        check(photos.isNotEmpty()) { "系统收藏没有照片" }
+        return authBatch(photos) { uris ->
+            MediaStore.createFavoriteRequest(contentResolver, uris, true).intentSender
+        }
+    }
+
+    private fun authBatch(
+        photos: List<PhotoItem>,
+        senderFor: (List<Uri>) -> IntentSender,
+    ): MediaStoreAuthBatch {
+        val batch = firstMediaStoreBatch(photos)
+        return MediaStoreAuthBatch(
+            current = batch.current,
+            remaining = batch.remaining,
+            intentSender = senderFor(batch.current.map { it.uri }),
+        )
+    }
 
     /**
      * 把 [photo] 移到 [targetPath]（RELATIVE_PATH 格式）。已经在那里时直接算成功。

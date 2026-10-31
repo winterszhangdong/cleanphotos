@@ -102,6 +102,7 @@ fun AllPhotosRoute(
         similarState = similarState,
         onSimilarOpen = onNavigateToSimilar,
         onSimilarCommit = { similarViewModel.onCommit(it) },
+        onSimilarRetry = similarViewModel::start,
         onSimilarUndo = similarViewModel::onUndo,
         onSimilarUndoExpired = similarViewModel::onUndoExpired,
         selection = selection,

@@ -6,7 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.R
 import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
+import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.core.design.FilingMotion
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.AlbumRules
 import com.winters.cleanphotos.domain.model.BatchAction
@@ -16,6 +18,7 @@ import com.winters.cleanphotos.domain.model.PhotoAlbum
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
+import com.winters.cleanphotos.domain.model.SystemMediaActionRequest
 import com.winters.cleanphotos.domain.model.SystemMediaActionType
 import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.usecase.BatchFavoritePhotosUseCase
@@ -43,7 +46,7 @@ import javax.inject.Inject
 
 /**
  * 印样表：圈选这一天的收藏，装进底片袋（系统相册文件夹）或取消收藏。
- * 装袋前先拿写权限（Android 11+ 系统整批确认一次；8–10 要存储写权限），授权通过后才移动并播飞入。
+ * 装袋前先拿写权限（Android 11+ 按最多 2000 张依次确认，全部同意后才移动；8–10 要存储写权限）。
  */
 @HiltViewModel
 class ContactSheetViewModel @Inject constructor(
@@ -57,6 +60,7 @@ class ContactSheetViewModel @Inject constructor(
     private val requestSystemFavorite: RequestSystemFavoriteUseCase,
     private val batchFavorite: BatchFavoritePhotosUseCase,
     private val undoBatch: UndoBatchActionUseCase,
+    private val uptimeClock: UptimeClock,
     @DefaultDispatcher private val computeDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -89,7 +93,8 @@ class ContactSheetViewModel @Inject constructor(
     }
 
     private var pending: Pending? = null
-    private var awaiting: SystemMediaActionType? = null
+    /** 正在等用户确认的这一批。写授权拒绝则整次取消；系统收藏拒绝则停在已经确认的批次。 */
+    private var awaitingRequest: SystemMediaActionRequest? = null
     private var seq = 0L
 
     /** 撤回能撤的最后一次动作。 */
@@ -226,7 +231,13 @@ class ContactSheetViewModel @Inject constructor(
                     it.copy(
                         busy = false,
                         circled = emptySet(),
-                        undo = SheetUndo(++seq, photos.first(), UiText.Plural(R.plurals.batch_undo_unfavorite, action.count), favorite = true),
+                        undo = SheetUndo(
+                            ++seq,
+                            photos.first(),
+                            UiText.Plural(R.plurals.batch_undo_unfavorite, action.count),
+                            favorite = true,
+                            deadlineUptimeMillis = uptimeClock.uptimeMillis() + MotionDurations.UNDO_COUNTDOWN,
+                        ),
                     ).withSummary()
                 }
             } else {
@@ -237,7 +248,12 @@ class ContactSheetViewModel @Inject constructor(
 
     fun onUndo() {
         val state = _uiState.value
-        if (state.busy || state.undo == null) return
+        val undo = state.undo ?: return
+        if (uptimeClock.uptimeMillis() >= undo.deadlineUptimeMillis) {
+            _uiState.update { if (it.undo?.seq == undo.seq) it.copy(undo = null) else it }
+            return
+        }
+        if (state.busy) return
         val filing = lastFiling
         val unfav = lastUnfavorite
         _uiState.update { it.copy(undo = null) }
@@ -260,11 +276,25 @@ class ContactSheetViewModel @Inject constructor(
     }
 
     fun onSystemMediaActionResult(approved: Boolean) {
-        val type = awaiting ?: return
-        awaiting = null
-        // 系统收藏：系统确认后自己写入，结果不影响 App 里的任何状态
-        if (type == SystemMediaActionType.SystemFavorite) return
-        if (approved) execute() else cancel()
+        val request = awaitingRequest ?: return
+        awaitingRequest = null
+        // 系统收藏：系统确认后自己写入。拒绝或后面没有了就停，不把没确认的记成已收藏。
+        if (request.actionType == SystemMediaActionType.SystemFavorite) {
+            if (approved && request.remaining.isNotEmpty()) {
+                viewModelScope.launch { launchSystemFavorite(request.remaining) }
+            }
+            return
+        }
+        // 写授权只是拿权限。任一批被拒就整次取消，全部通过后才移动原来那一批。
+        if (!approved) {
+            cancel()
+            return
+        }
+        if (request.remaining.isNotEmpty()) {
+            viewModelScope.launch { authorize(request.remaining) }
+        } else {
+            execute()
+        }
     }
 
     fun onWritePermissionResult(granted: Boolean) {
@@ -273,6 +303,7 @@ class ContactSheetViewModel @Inject constructor(
 
     private fun start(p: Pending) {
         pending = p
+        awaitingRequest = null
         _uiState.update { it.copy(busy = true) }
         prepare()
     }
@@ -284,23 +315,27 @@ class ContactSheetViewModel @Inject constructor(
             execute()
             return
         }
-        viewModelScope.launch {
-            when (val r = prepareMove(toMove)) {
-                PhotoOperationResult.Success -> execute()
-                is PhotoOperationResult.NeedSystemApproval -> {
-                    awaiting = r.request.actionType
-                    _effects.send(ContactSheetEffect.LaunchSystemAction(r.request))
-                }
-                is PhotoOperationResult.Failure -> {
-                    check(r.reason == PhotoOperationFailureReason.WritePermissionRequired) { "未预期的授权结果：${r.reason}" }
-                    _effects.send(ContactSheetEffect.RequestWritePermission)
-                }
+        viewModelScope.launch { authorize(toMove) }
+    }
+
+    /** 只为 [toMove] 要下一批写授权。全部批次通过后才执行原来的整批移动。 */
+    private suspend fun authorize(toMove: List<PhotoItem>) {
+        when (val r = prepareMove(toMove)) {
+            PhotoOperationResult.Success -> execute()
+            is PhotoOperationResult.NeedSystemApproval -> {
+                awaitingRequest = r.request
+                _effects.send(ContactSheetEffect.LaunchSystemAction(r.request))
+            }
+            is PhotoOperationResult.Failure -> {
+                check(r.reason == PhotoOperationFailureReason.WritePermissionRequired) { "未预期的授权结果：${r.reason}" }
+                _effects.send(ContactSheetEffect.RequestWritePermission)
             }
         }
     }
 
     private fun cancel() {
         pending = null
+        awaitingRequest = null
         _uiState.update { it.copy(busy = false) }
         _effects.trySend(ContactSheetEffect.Bounce)
     }
@@ -308,6 +343,7 @@ class ContactSheetViewModel @Inject constructor(
     private fun execute() {
         val p = pending ?: return
         pending = null
+        awaitingRequest = null
         viewModelScope.launch {
             when (p) {
                 is Pending.File -> file(p)
@@ -320,6 +356,7 @@ class ContactSheetViewModel @Inject constructor(
         val outcome = filePhotos(p.photos, p.relativePath)
         val failedIds = outcome.failed.mapTo(HashSet()) { it.id }
         val moved = outcome.moved.map { it.photo }
+        val movedIds = moved.mapTo(HashSet()) { it.id }
         if (moved.isNotEmpty()) {
             acted = true
             filed.merge(p.relativePath, moved.size, Int::plus)
@@ -334,19 +371,29 @@ class ContactSheetViewModel @Inject constructor(
         _uiState.update { s ->
             s.copy(
                 busy = false,
-                circled = s.circled.filterTo(HashSet()) { it in failedIds },
-                undo = if (moved.isEmpty()) s.undo else SheetUndo(++seq, moved.first(), UiText.Plural(R.plurals.sheet_undo_filed, moved.size, listOf(moved.size, name)), favorite = false),
+                circled = s.circled.filterTo(HashSet()) { it !in movedIds },
+                undo = if (moved.isEmpty()) s.undo else SheetUndo(
+                    ++seq,
+                    moved.first(),
+                    UiText.Plural(R.plurals.sheet_undo_filed, moved.size, listOf(moved.size, name)),
+                    favorite = false,
+                    deadlineUptimeMillis = uptimeClock.uptimeMillis() + MotionDurations.UNDO_COUNTDOWN,
+                ),
                 message = if (failedIds.isEmpty()) s.message else SheetMessage(++seq, UiText.Plural(R.plurals.sheet_filing_failed, failedIds.size)),
             ).withSummary()
         }
         if (moved.isNotEmpty() && _uiState.value.systemFavorite) {
             // 等飞入、合盖播完再弹系统确认，别把动画盖住
             delay(FilingMotion.TOTAL.toLong())
-            requestSystemFavorite(moved)?.let { r ->
-                check(r is PhotoOperationResult.NeedSystemApproval) { "系统收藏请求异常：$r" }
-                awaiting = r.request.actionType
-                _effects.send(ContactSheetEffect.LaunchSystemAction(r.request))
-            }
+            launchSystemFavorite(moved)
+        }
+    }
+
+    private suspend fun launchSystemFavorite(photos: List<PhotoItem>) {
+        requestSystemFavorite(photos)?.let { r ->
+            check(r is PhotoOperationResult.NeedSystemApproval) { "系统收藏请求异常：$r" }
+            awaitingRequest = r.request
+            _effects.send(ContactSheetEffect.LaunchSystemAction(r.request))
         }
     }
 

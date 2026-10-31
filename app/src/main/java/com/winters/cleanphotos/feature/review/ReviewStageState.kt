@@ -16,6 +16,7 @@ import com.winters.cleanphotos.core.design.GestureTokens
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.MotionSprings
+import com.winters.cleanphotos.core.util.ReviewTrace
 import com.winters.cleanphotos.domain.model.ReviewPage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -225,8 +226,37 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     var onExitStarted: (ExitKind) -> Unit = {}
     var exitTarget: (ExitKind) -> Offset = { Offset.Zero }
     var verticalEnabled: () -> Boolean = { true }
-    /** 最后一张被处理、没有下一页：不再回退到 ViewModel 的旧 currentKey。撤回时清掉。 */
+    /** 最后一张被处理、没有下一页：不再回退到 ViewModel 的旧 currentKey。撤回或失败恢复序号变化时清掉。 */
     var sessionEndedLocally: Boolean = false
+    private var lastVmPages: List<ReviewPage>? = null
+    private var lastVmKey: String? = null
+    private var seenRestoreEpoch = 0L
+
+    /**
+     * 本地页优先。ViewModel 的页或 key 变了，且本地 key 已经不在序列里，才改跟 ViewModel。
+     * 失败把照片还回有效页时 [restoreEpoch] 递增。序号变了只说明这次失败恢复过：撤掉「已经滑完」，
+     * 然后仍走下面的判断。本地 key 还在序列里就留在这一页，不因为序号变了跳回 ViewModel。
+     * 末张已经滑成空白时本地 key 无效，才会采用 ViewModel 还回来的那张。
+     * 计算线程还没发布空页时，界面仍是滑之前的 pages 和 key，序号没变，不能把刚滑走的末张拉回来。
+     */
+    fun syncFromViewModel(pages: List<ReviewPage>, vmKey: String?, restoreEpoch: Long) {
+        if (this.pages !== pages) this.pages = pages
+        val epochChanged = restoreEpoch != seenRestoreEpoch
+        if (epochChanged) {
+            seenRestoreEpoch = restoreEpoch
+            sessionEndedLocally = false
+        }
+        if (!epochChanged && lastVmPages === pages && lastVmKey == vmKey) return
+        lastVmPages = pages
+        lastVmKey = vmKey
+        val localValid = currentKey != null && pages.any { it.key == currentKey }
+        if (!localValid && !sessionEndedLocally && vmKey != null) {
+            ReviewTrace.log("vmSync", "local" to currentKey, "vm" to vmKey, "pages" to pages.size)
+            currentKey = vmKey
+            noteCurrentDay(tick = false)
+            markPlaybackIdle()
+        }
+    }
 
     private var settleJob: Job? = null
     /** 上下拖动开始时残留横向位移的回弹（独立于 settleJob，竖拖期间继续）。 */

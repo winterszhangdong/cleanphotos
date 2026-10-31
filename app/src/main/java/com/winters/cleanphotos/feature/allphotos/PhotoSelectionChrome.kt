@@ -144,7 +144,10 @@ fun BatchUndoBar(
     UndoBar(
         content = undo?.let {
             val first = it.action.photos.first()
-            UndoCapsuleContent(it.seq, first.id, first.uri, it.action.type != BatchActionType.MoveToTrash, it.title.asString(), subtitle = null)
+            UndoCapsuleContent(
+                it.seq, first.id, first.uri, it.action.type != BatchActionType.MoveToTrash,
+                it.title.asString(), subtitle = null, deadlineUptimeMillis = it.deadlineUptimeMillis,
+            )
         },
         visible = visible,
         onUndo = onUndo,

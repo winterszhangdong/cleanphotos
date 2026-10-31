@@ -6,7 +6,8 @@
     "sync": "../scripts/site-sync-release.sh",
     "build": "node build.mjs",
     "dev": "node build.mjs && wrangler dev",
-    "deploy": "node build.mjs && wrangler deploy"
+    "deploy": "node build.mjs && wrangler deploy",
+    "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.152.0"

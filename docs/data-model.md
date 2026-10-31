@@ -109,7 +109,7 @@ autoplay = animationsEnabled
 `MotionPhotoLocator` 对随机读接口做纯解析。JPEG 在 SOS 之前读段（上限约 512KB，Latin-1），同时认属性 `ns:Key="v"` 和元素 `<ns:Key>v</ns:Key>`。顺序：
 
 ```text
-1. Google Motion Photo v1：Camera:MotionPhoto="1" 或 GCamera:MotionPhoto="1"。每一份 Container:Directory 单独算：Semantic=MotionPhoto 的 Length，加上该项之后、这份目录里其余项的 Length，起点 = 文件大小 − 这个和。Item:Padding 不参与。同一份 XMP 同时出现在 Exif 0x02BC 和 APP1 时不把两份 Length 加在一起。校验通过的第一份就用。
+1. Google Motion Photo v1：Camera:MotionPhoto="1" 或 GCamera:MotionPhoto="1"。每一份 Container:Directory 单独算：Semantic=MotionPhoto 的 Length，加上该项之后、这份目录里其余项的 Length，起点 = 文件大小 − 这个和。Item:Padding 不参与。同一份 XMP 同时出现在 Exif 0x02BC 和 APP1 时不把两份 Length 加在一起。校验通过的第一份就用。带 Semantic 的 Item / li 才是目录项。Semantic 和 Length 只看该元素，属性和子元素谁先谁后都行；该项没有 Length 时这份目录失败，不能借用相邻项的 Length。没有这种目录项时（vivo 把属性写在 Description 上；dc:subject 里无关的 rdf:li 不算目录项）每个 Length 只就近配一次。
 2. 旧 MicroVideo：GCamera:MicroVideo="1" + GCamera:MicroVideoOffset。起点 = 文件大小 − offset。
 3. OPPO / 一加 / realme：命名空间 ns.oplus.com/photo/1.0/camera/ 或 ns.oppo.com/photo/1.0/camera/，OpCamera:OLivePhotoVersion + OpCamera:VideoLength。起点 = 文件大小 − VideoLength。校验失败再扫。
 4. 尾标。三星 SEF：末 8 字节是 u32LE(backOffset) + SEFT，SEFH 在 size − 8 − backOffset，type 0x0A30 的记录前 64 字节里找 `ftyp`，起点 = 命中处 − 4（有 mpv2 / mpv3 头时 ftyp 在头后面，同样命中）。荣耀 / 华为：末 20 字节 ASCII LIVE_<n>（右侧填充），先试起点 size − 20 − n；校验不过（华为样本视频与尾标之间多一段 20 字节记录，起点会晚 20 字节）就从该点前 64 字节起往后扫 ftyp。
@@ -387,22 +387,22 @@ Failure：操作失败，不能切换照片
 
 ```kotlin
 enum class SystemMediaActionType {
-    SetFavorite,
-    RemoveFavorite,
     MoveToTrash,
     RestoreFromTrash,
-    DeletePermanently
+    DeletePermanently,
+    MoveToAlbum,
+    SystemFavorite,
 }
 ```
 
 说明：
 
 ```text
-SetFavorite：收藏照片（触发系统授权）
-RemoveFavorite：取消收藏（触发系统授权）
-DeletePermanently：永久删除（触发系统授权）
-MoveToTrash：保留枚举值，运行时不再触发 NeedSystemApproval（App 内垃圾桶仅写 DataStore）
-RestoreFromTrash：保留枚举值，运行时不再触发 NeedSystemApproval（App 内垃圾桶仅写 DataStore）
+DeletePermanently：永久删除。Android 11+ 每批最多 2000 张，确认后系统已经删掉；拒绝则停止后续，前批保留
+MoveToAlbum：装袋前的写授权。每批最多 2000 张。写授权只是拿权限，全部批次同意后才移动原来那一整批；任一批拒绝则整次取消，不移动文件
+SystemFavorite：装袋后的系统收藏。每批最多 2000 张。拒绝只停止后续，不撤销已经完成的移动或前批系统收藏
+MoveToTrash：App 内垃圾桶只写 DataStore，不触发 NeedSystemApproval
+RestoreFromTrash：从 App 内垃圾桶恢复只写 DataStore，不触发 NeedSystemApproval
 ```
 
 ```kotlin
@@ -410,17 +410,19 @@ data class SystemMediaActionRequest(
     val photos: List<PhotoItem>,
     val actionType: SystemMediaActionType,
     val requestToken: String,
-    val intentSender: IntentSender
+    val intentSender: IntentSender,
+    val remaining: List<PhotoItem> = emptyList(),
 )
 ```
 
 字段说明：
 
 ```text
-photos：需要执行系统媒体操作的照片列表
+photos：这一次交给系统确认的照片，最多 2000 张
 actionType：本次系统媒体操作类型
 requestToken：ViewModel 用于关联系统授权回调和待继续操作的标识
 intentSender：data 层通过 MediaStore 创建的系统授权入口，ViewModel 只转发给 UI 层启动
+remaining：这一批之后还没交给系统的照片。用户拒绝本批时不再请求，也不能记成已经删除、装袋或系统收藏
 ```
 
 实现说明：
@@ -744,7 +746,7 @@ removeFavorite：移除 AppFavoriteStore 条目 + 标记已看过
 movePhotoToTrash：快照 wasFavorited → 写入 AppTrashStore → 移除 AppFavoriteStore 条目 → 标记已看过，直接返回 Success
 restorePhotoFromTrash：读取垃圾桶快照恢复 AppFavoriteStore → 移除 AppTrashStore 条目 → 标记已看过，直接返回 Success
 restorePhotosFromTrash：批量恢复收藏快照 + 移除 AppTrashStore 条目，直接返回 Success
-deletePhotosPermanently 通过 MediaStore 操作，可能返回 NeedSystemApproval，成功后清理三 Store
+deletePhotosPermanently 通过 MediaStore 操作，可能返回 NeedSystemApproval。Android 11+ 每批最多 2000 张，request.remaining 是还没交出去的。用户拒绝则停，只把刷新后确实不在的 id 记入已释放空间。直接删除没有 2000 上限。成功后清理三 Store
 ```
 
 ***
@@ -1057,7 +1059,7 @@ observeEntries：观察所有垃圾桶条目，按 movedToTrashAt 倒序排列
 upsertEntry：新增或更新一条垃圾桶条目，同一 photoId 重复写入时覆盖旧值
 removeEntry：删除单条垃圾桶条目
 removeEntries：批量删除垃圾桶条目
-removeMissingEntries：清理失效条目，移除所有不在 existingPhotoIds 中的条目（用于 MediaStore 刷新后检测外部删除导致的不一致；只有部分照片访问权时 refreshPhotos 不调用，查询结果不是整个图库）
+removeMissingEntries：清理失效条目，移除所有不在 existingPhotoIds 中的条目。传入的 id 来自存在性查询，不是展示列表。Android 12+ 用包含最近卸载卷的查询（普通和系统垃圾桶都查）；Android 11 在最近卷都仍挂载时用在线 id 加系统垃圾桶；更老的系统、查询失败或部分照片权限不调用。离线照片留在 DataStore，重新出现在展示查询后才回到列表
 ```
 
 存储格式：
@@ -1322,10 +1324,10 @@ interface AlbumRepository {
 }
 ```
 
-*   `prepareMove`：8–10 没有写权限 → `Failure(WritePermissionRequired)`；11+ 有还没授权的 → `NeedSystemApproval(MoveToAlbum)`；否则 `Success`。ViewModel 只把真要换文件夹的照片传进来（已经在目标里的不传），一张都不用移时不调用。
+*   `prepareMove`：8–10 没有写权限 → `Failure(WritePermissionRequired)`；11+ 有还没授权的 → `NeedSystemApproval(MoveToAlbum)`，photos 是这一批（最多 2000），remaining 是剩下的；否则 `Success`。ViewModel 只把真要换文件夹的照片传进来（已经在目标里的不传），一张都不用移时不调用。需要多批时依次确认，全部同意后才移动原来的整批；任一批拒绝则整次取消，不调用移动或撤回。
 *   `fileToAlbum`：逐张移动（没有 relativePath 的不动，算失败）；成功的在同一次 DataStore edit 里移出收藏、记下收藏时间、写装袋记录；然后刷新照片。
 *   `undoFiling`：逐张移回 `fromPath`；成功的写回收藏时间、删掉记录；然后刷新照片。
-*   `PhotoRepositoryImpl.refreshPhotos` 在完整授权时把失效 id 的装袋记录也清掉（Favorite → Seen → Trash → 装袋记录）。
+*   `PhotoRepositoryImpl.refreshPhotos` 在完整授权且存在性查询完整时把失效 id 的装袋记录也清掉（Favorite → Seen → Trash → 装袋记录）。id 集合不是展示列表。证据不足时整次跳过。
 
 ### UseCase
 
@@ -1343,7 +1345,7 @@ RequestSystemFavoriteUseCase：Android 10 及以下返回 null
 
 *   `AppFilingLogDataSource`：`observeEntries`（按 filedAt 倒序）、`upsertIn` / `removeIn` / `removeMissingIn`（在调用方的 DataStore edit 里改）。
 *   `MediaStoreAlbumDataSource`：
-    *   `writeRequest(photos)`：11+ 只为还没有写授权的 uri 建 `createWriteRequest`，全有了返回 null。
-    *   `favoriteRequest(photos)`：11+ `createFavoriteRequest(..., true)`。
+    *   `writeRequest(photos)`：11+ 只为还没有写授权的 uri 建这一批 `createWriteRequest`（最多 2000），全有了返回 null，其余在 remaining。
+    *   `favoriteRequest(photos)`：11+ 这一批 `createFavoriteRequest(..., true)`（最多 2000），其余在 remaining。拒绝后续批次不撤销前批。
     *   `move(photo, targetPath)`：已经在目标（忽略大小写）直接 true。10+ 改 `RELATIVE_PATH` 后读回确认；8–9 `File.renameTo` 后写回 `DATA` + `DISPLAY_NAME`，写媒体库失败或抛错时把文件改回原处。目标有同名文件时另起「名字 (1).jpg」（10+ 媒体库自己起名，8–9 用 `freeFileName`）。任何异常记日志返回 false，不影响同批其它照片。
 

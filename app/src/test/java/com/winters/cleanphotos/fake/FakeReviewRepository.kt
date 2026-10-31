@@ -20,6 +20,10 @@ class FakeReviewRepository : ReviewRepository {
     var deletePermanentlyResult: PhotoOperationResult = PhotoOperationResult.Success
     /** 删除时的副作用，模拟 MediaStore 变化在返回结果前就刷新了列表（Android 8–10 直接删除） */
     var onDeletePermanently: (() -> Unit)? = null
+    /** 按本次传入的照片决定结果。空则用 [deletePermanentlyResult]。 */
+    var deleteHandler: ((List<PhotoItem>) -> PhotoOperationResult)? = null
+    /** 每次永久删除调用传入的 id，按调用顺序。 */
+    val deletedIds = mutableListOf<List<Long>>()
 
     /** 每次单张操作带过来的滑动附带写入（验证合并成一次写入时没丢）。 */
     val effectsLog = mutableListOf<SwipeSideEffects>()
@@ -55,7 +59,8 @@ class FakeReviewRepository : ReviewRepository {
         forgotten += photoIds
     }
     override suspend fun deletePhotosPermanently(photos: List<PhotoItem>): PhotoOperationResult {
+        deletedIds += photos.map { it.id }
         onDeletePermanently?.invoke()
-        return deletePermanentlyResult
+        return deleteHandler?.invoke(photos) ?: deletePermanentlyResult
     }
 }

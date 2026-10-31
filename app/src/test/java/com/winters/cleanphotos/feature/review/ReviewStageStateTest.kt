@@ -66,6 +66,53 @@ class ReviewStageStateTest {
         assertEquals("p3", s.nextPage?.key)
     }
 
+    @Test fun `快滑到的本地页在恢复序号未变时不被盖掉`() {
+        val s = stage(three, null)
+        s.syncFromViewModel(three, "p3", 0L)
+        assertEquals("p3", s.currentKey)
+        s.currentKey = "p2"
+        s.syncFromViewModel(three, "p3", 0L)
+        assertEquals("p2", s.currentKey)
+        val kept = listOf(photo(1), photo(2))
+        s.syncFromViewModel(kept, "p2", 0L)
+        assertEquals("p2", s.currentKey)
+    }
+
+    @Test fun `相同旧页和key且恢复序号未变时滑走末张仍结束`() {
+        val pages = listOf(photo(1))
+        val s = stage(pages, null)
+        s.syncFromViewModel(pages, "p1", 0L)
+        assertEquals("p1", s.currentKey)
+        s.sessionEndedLocally = true
+        s.currentKey = null
+        s.syncFromViewModel(pages, "p1", 0L)
+        assertNull(s.currentKey)
+        assertTrue(s.sessionEndedLocally)
+    }
+
+    @Test fun `恢复序号变化时相同页和key也回到失败的那张`() {
+        val pages = listOf(photo(1))
+        val s = stage(pages, null)
+        s.syncFromViewModel(pages, "p1", 0L)
+        s.sessionEndedLocally = true
+        s.currentKey = null
+        s.syncFromViewModel(pages, "p1", 1L)
+        assertEquals("p1", s.currentKey)
+        assertEquals("p1", s.currentPage?.key)
+        assertEquals(false, s.sessionEndedLocally)
+    }
+
+    @Test fun `恢复序号变化但本地页仍有效时保留本地页`() {
+        val s = stage(three, null)
+        s.syncFromViewModel(three, "p2", 0L)
+        assertEquals("p2", s.currentKey)
+        s.currentKey = "p3"
+        s.sessionEndedLocally = true
+        s.syncFromViewModel(three, "p2", 1L)
+        assertEquals("p3", s.currentKey)
+        assertEquals(false, s.sessionEndedLocally)
+    }
+
     @Test fun `空序列_没有任何页`() {
         val s = stage(emptyList(), null)
         assertNull(s.currentPage); assertNull(s.previousPage); assertNull(s.nextPage)

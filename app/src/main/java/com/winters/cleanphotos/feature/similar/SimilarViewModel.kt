@@ -4,6 +4,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.R
+import com.winters.cleanphotos.core.coroutines.UptimeClock
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.BatchAction
 import com.winters.cleanphotos.domain.model.PhotoItem
@@ -13,6 +15,7 @@ import com.winters.cleanphotos.domain.model.SimilarMark
 import com.winters.cleanphotos.domain.model.SimilarScan
 import com.winters.cleanphotos.domain.repository.SimilarResolvedRepository
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
+import com.winters.cleanphotos.domain.usecase.EnsurePhotosLoadedUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveSimilarGroupsUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,6 +37,8 @@ class SimilarViewModel @Inject constructor(
     private val batchMovePhotosToTrashUseCase: BatchMovePhotosToTrashUseCase,
     private val undoBatchActionUseCase: UndoBatchActionUseCase,
     private val similarResolvedRepository: SimilarResolvedRepository,
+    private val ensurePhotosLoadedUseCase: EnsurePhotosLoadedUseCase,
+    private val uptimeClock: UptimeClock,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SimilarUiState())
@@ -44,12 +49,30 @@ class SimilarViewModel @Inject constructor(
     private var started = false
 
     /**
-     * 第一次切到「相似」才开始比对。再调一次什么都不做，切走再回来不重算。
+     * 第一次切到「相似」才开始比对。成功之后再调一次什么都不做，切走再回来不重算。
+     * 照片表加载失败时可以再调：那次不算扫完。
      */
     fun start() {
         if (started) return
         started = true
         viewModelScope.launch {
+            // 冷启动直接进对比页时内存照片表是空的。先加载再订阅，避免空表立刻 Ready 把页面弹走。
+            // 重试耗尽会抛出。这不是「没有相似照片」，不能当成 Ready(empty)；取消必须继续抛。
+            if (_uiState.value.phase == SimilarPhase.Failed) {
+                _uiState.update { it.copy(phase = SimilarPhase.Loading) }
+            }
+            try {
+                ensurePhotosLoadedUseCase()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "加载照片失败", e)
+                started = false
+                _uiState.update {
+                    it.copy(phase = SimilarPhase.Failed, compared = 0, compareTotal = 0, groups = emptyList(), marks = emptyMap())
+                }
+                return@launch
+            }
             observeSimilarGroupsUseCase().collect { scan ->
                 when (scan) {
                     // 出过一次结果后，图库或垃圾桶变了会整轮重跑：不再回到比对中，算完静默换掉
@@ -117,6 +140,7 @@ class SimilarViewModel @Inject constructor(
                         title = undoTitle(remove),
                         trashed = trashed,
                         resolvedIds = resolved,
+                        deadlineUptimeMillis = uptimeClock.uptimeMillis() + MotionDurations.UNDO_COUNTDOWN,
                     ),
                 )
             }
@@ -126,6 +150,10 @@ class SimilarViewModel @Inject constructor(
 
     fun onUndo() {
         val undo = _uiState.value.undo ?: return
+        if (uptimeClock.uptimeMillis() >= undo.deadlineUptimeMillis) {
+            if (_uiState.value.undo?.seq == undo.seq) _uiState.update { it.copy(undo = null) }
+            return
+        }
         _uiState.update { it.copy(undo = null) }
         viewModelScope.launch {
             try {

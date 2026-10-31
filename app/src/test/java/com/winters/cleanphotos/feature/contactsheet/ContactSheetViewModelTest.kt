@@ -3,6 +3,8 @@ package com.winters.cleanphotos.feature.contactsheet
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.winters.cleanphotos.TestPhotoData.createTestPhoto
+import com.winters.cleanphotos.core.coroutines.UptimeClock
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.domain.model.FilingRecord
 import com.winters.cleanphotos.domain.model.PhotoAlbum
 import com.winters.cleanphotos.domain.model.PhotoItem
@@ -45,6 +47,7 @@ class ContactSheetViewModelTest {
     private val review = FakeReviewRepository()
     private val day = "October 24, 2026"
     private val travel = "Pictures/旅行/"
+    private var now = 1_000L
 
     private fun photo(id: Long, d: String = day): PhotoItem =
         createTestPhoto(id = id, dateGroup = d, isFavorite = true).copy(relativePath = "DCIM/Camera/")
@@ -76,7 +79,16 @@ class ContactSheetViewModelTest {
         requestSystemFavorite = RequestSystemFavoriteUseCase(albums),
         batchFavorite = BatchFavoritePhotosUseCase(ResolveBatchFavoriteUseCase(), review, FakeSeenStateRepository()),
         undoBatch = UndoBatchActionUseCase(review),
+        uptimeClock = UptimeClock { now },
         computeDispatcher = dispatcher,
+    )
+
+    private fun approval(
+        photos: List<PhotoItem>,
+        remaining: List<PhotoItem> = emptyList(),
+        type: SystemMediaActionType = SystemMediaActionType.MoveToAlbum,
+    ) = PhotoOperationResult.NeedSystemApproval(
+        SystemMediaActionRequest(photos, type, "t", mockk(relaxed = true), remaining),
     )
 
     private fun ContactSheetViewModel.travelAlbum(): PhotoAlbum = uiState.value.albums.first { it.relativePath == travel }
@@ -325,5 +337,141 @@ class ContactSheetViewModelTest {
         val vm = vm()
         advanceUntilIdle()
         assertEquals(travel, vm.uiState.value.tray.first().relativePath)
+    }
+
+    @Test
+    fun `撤回超过截止时间则清掉并且不执行`() = runTest(dispatcher) {
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onToggle(1)
+        vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+        advanceUntilIdle()
+        val deadline = requireNotNull(vm.uiState.value.undo).deadlineUptimeMillis
+        assertEquals(now + MotionDurations.UNDO_COUNTDOWN, deadline)
+        now = deadline
+        vm.onUndo()
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.undo)
+        assertTrue(albums.undone.isEmpty())
+    }
+
+    @Test
+    fun `第二批写授权被拒_不移动也不撤回_圈选保留`() = runTest(dispatcher) {
+        albums.prepareQueue = listOf(
+            approval(listOf(photo(1)), listOf(photo(2))),
+            approval(listOf(photo(2))),
+        )
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onToggle(1)
+        vm.onToggle(2)
+        vm.effects.test {
+            vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+            advanceUntilIdle()
+            val first = awaitItem() as ContactSheetEffect.LaunchSystemAction
+            assertEquals(listOf(1L), first.request.photos.map { it.id })
+            assertEquals(listOf(2L), first.request.remaining.map { it.id })
+            vm.onSystemMediaActionResult(approved = true)
+            advanceUntilIdle()
+            awaitItem()
+            assertTrue(albums.filed.isEmpty())
+            assertTrue(albums.undone.isEmpty())
+            vm.onSystemMediaActionResult(approved = false)
+            assertEquals(ContactSheetEffect.Bounce, awaitItem())
+        }
+        assertTrue(albums.filed.isEmpty())
+        assertTrue(albums.undone.isEmpty())
+        assertEquals(setOf(1L, 2L), vm.uiState.value.circled)
+        assertTrue(!vm.uiState.value.busy)
+    }
+
+    @Test
+    fun `全部写授权通过后才移动整批`() = runTest(dispatcher) {
+        albums.prepareQueue = listOf(
+            approval(listOf(photo(1)), listOf(photo(2))),
+            approval(listOf(photo(2))),
+        )
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onToggle(1)
+        vm.onToggle(2)
+        vm.effects.test {
+            vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+            advanceUntilIdle()
+            awaitItem()
+            vm.onSystemMediaActionResult(approved = true)
+            advanceUntilIdle()
+            awaitItem()
+            assertTrue("第二批还没点同意时不能移动", albums.filed.isEmpty())
+            vm.onSystemMediaActionResult(approved = true)
+            advanceUntilIdle()
+            val flight = awaitItem() as ContactSheetEffect.Flight
+            assertEquals(listOf(1L, 2L), flight.photos.map { it.id })
+        }
+        assertEquals(listOf(listOf(1L, 2L) to travel), albums.filed)
+    }
+
+    @Test
+    fun `撤回的第二批写授权被拒_不调用移回`() = runTest(dispatcher) {
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onToggle(1)
+        vm.onToggle(2)
+        vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+        advanceUntilIdle()
+        assertEquals(1, albums.filed.size)
+        albums.prepareQueue = listOf(
+            approval(listOf(photo(1)), listOf(photo(2))),
+            approval(listOf(photo(2))),
+        )
+        vm.effects.test {
+            val flight = awaitItem() as ContactSheetEffect.Flight
+            assertEquals(listOf(1L, 2L), flight.photos.map { it.id })
+            assertEquals(travel, flight.relativePath)
+            vm.onUndo()
+            advanceUntilIdle()
+            val first = awaitItem() as ContactSheetEffect.LaunchSystemAction
+            assertEquals(listOf(1L), first.request.photos.map { it.id })
+            assertEquals(listOf(2L), first.request.remaining.map { it.id })
+            vm.onSystemMediaActionResult(approved = true)
+            advanceUntilIdle()
+            val second = awaitItem() as ContactSheetEffect.LaunchSystemAction
+            assertEquals(listOf(2L), second.request.photos.map { it.id })
+            assertTrue(second.request.remaining.isEmpty())
+            vm.onSystemMediaActionResult(approved = false)
+            assertEquals(ContactSheetEffect.Bounce, awaitItem())
+        }
+        assertTrue(albums.undone.isEmpty())
+        assertEquals(1, albums.filed.size)
+    }
+
+    @Test
+    fun `系统收藏分批_拒绝后一批就停_不撤销已移动`() = runTest(dispatcher) {
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onSystemFavoriteToggle()
+        albums.favoriteQueue = listOf(
+            approval(listOf(photo(1)), listOf(photo(2)), SystemMediaActionType.SystemFavorite),
+            approval(listOf(photo(2)), emptyList(), SystemMediaActionType.SystemFavorite),
+        )
+        vm.onToggle(1)
+        vm.onToggle(2)
+        vm.effects.test {
+            vm.onFile(SheetTarget.Existing(vm.travelAlbum()))
+            advanceUntilIdle()
+            assertTrue(awaitItem() is ContactSheetEffect.Flight)
+            val first = awaitItem() as ContactSheetEffect.LaunchSystemAction
+            assertEquals(SystemMediaActionType.SystemFavorite, first.request.actionType)
+            assertEquals(listOf(listOf(1L, 2L)), albums.favoriteCalls)
+            vm.onSystemMediaActionResult(approved = true)
+            advanceUntilIdle()
+            val second = awaitItem() as ContactSheetEffect.LaunchSystemAction
+            assertEquals(listOf(2L), second.request.photos.map { it.id })
+            vm.onSystemMediaActionResult(approved = false)
+            advanceUntilIdle()
+            expectNoEvents()
+        }
+        assertEquals(listOf(listOf(1L, 2L), listOf(2L)), albums.favoriteCalls)
+        assertEquals(listOf(listOf(1L, 2L) to travel), albums.filed)
     }
 }

@@ -54,6 +54,7 @@ import kotlinx.coroutines.delay
  * 撤回胶囊的内容。[seq] 每次有效操作递增，用来重启 4 秒倒计时；[favorite] 决定琥珀 / 中性灰。
  * [subtitle] 为 null 时只有一行主文案（照片页批量操作）。
  * [keepColor]：中性小样但不去色（印样表装袋：照片只是换了文件夹，不是离开）。
+ * [deadlineUptimeMillis]：这次操作的到期时刻（单调时钟）。由持有撤回的状态写入，离开组合不再重算。
  */
 data class UndoCapsuleContent(
     val seq: Long,
@@ -63,6 +64,7 @@ data class UndoCapsuleContent(
     val title: String,
     val subtitle: String?,
     val keepColor: Boolean = false,
+    val deadlineUptimeMillis: Long,
 )
 
 /**
@@ -79,35 +81,43 @@ fun UndoBar(
 ) {
     val last = remember { arrayOfNulls<UndoCapsuleContent>(1) }
     if (content != null) last[0] = content
-    // 4 秒截止按 seq 记在 AnimatedVisibility 外面：胶囊暂时隐藏（上下拖动、教学、小结页）再出现时
-    // 内容会重新进入组合，计时若放在里面会从头再算，撤回条能一直续命。这里只按真实时间算一次。
+    // 截止跟操作走，不跟这次组合。切 tab / 范围会拆掉胶囊；从操作时刻换算剩余，不再在这里记起点。
     val seq = content?.seq
-    val startedAt = remember(seq) { SystemClock.uptimeMillis() }
+    val deadline = content?.deadlineUptimeMillis
+    val total = MotionDurations.UNDO_COUNTDOWN
     val expired by rememberUpdatedState(onExpired)
-    if (seq != null) {
-        LaunchedEffect(seq) {
-            // 真实时间：Compose 动画会乘系统动画缩放，「移除动画」时 tween 立刻结束；过期用不受缩放影响的 delay 计时
-            delay(MotionDurations.UNDO_COUNTDOWN.toLong())
+    val undo by rememberUpdatedState(onUndo)
+    if (seq != null && deadline != null) {
+        LaunchedEffect(seq, deadline) {
+            // 真实时间：Compose 动画会乘系统动画缩放，「移除动画」时 tween 立刻结束；过期用不受缩放影响的 delay
+            val wait = undoRemainingMillis(deadline - total, SystemClock.uptimeMillis(), total)
+            if (wait > 0L) delay(wait)
             expired(seq)
         }
     }
+    val open = deadline != null && undoRemainingMillis(deadline - total, SystemClock.uptimeMillis(), total) > 0L
     AnimatedVisibility(
-        visible = content != null && visible,
+        visible = content != null && visible && open,
         modifier = modifier,
         enter = undoCapsuleEnter(),
         exit = undoCapsuleExit(),
     ) {
+        // content 变 null 时外层 deadline 也是 null。退出 200ms 仍要画上次的胶囊，截止用这次操作自己的时刻。
         val info = content ?: last[0] ?: return@AnimatedVisibility
-        UndoCapsule(info, if (info.seq == seq) startedAt else null, onUndo)
+        val barDeadline = info.deadlineUptimeMillis
+        UndoCapsule(info, barDeadline) {
+            val wait = undoRemainingMillis(barDeadline - total, SystemClock.uptimeMillis(), total)
+            if (wait > 0L) undo() else expired(info.seq)
+        }
     }
 }
 
 @Composable
-private fun UndoCapsule(info: UndoCapsuleContent, startedAt: Long?, onUndo: () -> Unit) {
+private fun UndoCapsule(info: UndoCapsuleContent, deadlineUptimeMillis: Long, onUndo: () -> Unit) {
     val fav = info.favorite
     val total = MotionDurations.UNDO_COUNTDOWN
-    // 重新出现时细线从剩余比例接着走，不回到满格
-    val remainingMs = startedAt?.let { undoRemainingMillis(it, SystemClock.uptimeMillis(), total) } ?: 0L
+    // 重新出现时细线从剩余比例接着走，不回到满格。动画关掉时细线保持满格，过期仍由外层 delay 按真实时间走
+    val remainingMs = undoRemainingMillis(deadlineUptimeMillis - total, SystemClock.uptimeMillis(), total)
     val animations = LocalAnimationsEnabled.current
     val countdown = remember(info.seq) { Animatable(if (animations) remainingMs.toFloat() / total else 1f) }
     LaunchedEffect(info.seq) {

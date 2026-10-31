@@ -29,4 +29,6 @@ xcodebuild -project CleanPhotos.xcodeproj -scheme CleanPhotos \
 - `CleanPhotos/Data`：PhotoKit 读取与删除，收藏 / 已看 / 垃圾桶本地存储
 - `CleanPhotos/Domain`：与 UI 无关的规则（审阅账本、小结页、垃圾桶溶解时钟），有单元测试
 - `CleanPhotos/Features`：Auth / Photos / Review / Favorites / Trash
+
+图库还在分批读取时，照片页和收藏页先不进入清理，避免会话停在首屏那一批。垃圾桶预览在列表被系统相册缩短后仍用夹紧后的下标画邻页。
 - `scripts/`：模拟器截图、录屏、性能采集等开发脚本（`perf-device.sh` / `perf-exit.sh` 需设置 `DEV` 与 `TEAM`）

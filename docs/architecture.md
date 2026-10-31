@@ -112,6 +112,7 @@ MediaStore / DataStore
 * 将需要系统媒体授权的操作转换为明确的操作结果。
 * MediaStore 查询 / 更新（ContentResolver，binder 调用）一律在 `Dispatchers.IO` 上执行，不依赖调用方所在线程：ViewModel 从 viewModelScope（主线程）调用，单次整库查询在真机上就要 11–17ms。
 * 打开进程时系统图库可能还没就绪。主查询失败（例如 `Volume external_primary not found`、查询返回 null）会在加载态里短重试，仍失败才向上抛，并且不会把这次记成已经加载过。null 游标不是空图库，避免失效清理把收藏和垃圾桶记录删掉。
+* 失效清理不用展示用的默认查询。展示列表只含当前挂载的卷，卸载的 SD 卡上的照片不能出现在可操作列表里。Android 12+ 另做带 `QUERY_ARG_INCLUDE_RECENTLY_UNMOUNTED_VOLUMES` 的 id 查询（未进系统垃圾桶和系统垃圾桶各一次），这组 id 才用来清理。Android 11 要最近出现过的卷都还挂着，才用默认查询的 id 加上系统垃圾桶 id。Android 10 及以下证明不了查询完整，不清理。存在性查询失败、只有部分照片权限、或还有卸载卷对不上时，整次跳过清理。离线记录留在 DataStore，卷重新挂上并出现在展示查询后才回到列表。
 
 ---
 
@@ -570,7 +571,7 @@ Android 8–10 永久删除（maxSdkVersion 29，配合 `requestLegacyExternalSt
 <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 ```
 
-清空垃圾桶时 `MediaStoreTrashDataSource` 若缺这项权限，返回 `Failure(WritePermissionRequired)`；`TrashViewModel` 发出 `RequestWritePermission`，同意后重试一次，拒绝则提示错误。Android 11+ 仍走 `createDeleteRequest` 系统确认。
+清空垃圾桶时 `MediaStoreTrashDataSource` 若缺这项权限，返回 `Failure(WritePermissionRequired)`；`TrashViewModel` 发出 `RequestWritePermission`，同意后重试一次，拒绝则提示错误。Android 11+ 走 `createDeleteRequest`。targetSdk 36 下 `createDeleteRequest`、`createWriteRequest`、`createFavoriteRequest` 每次最多 2000 个 URI，多出来的下一次系统确认再交，不能丢掉。用户拒绝当前这批删除后，后面的不再请求，已经删掉的前批保留，未确认的仍在垃圾桶；释放空间只累计刷新后确实消失的照片。直接 `ContentResolver.delete`（Android 8–10）没有这道 2000 上限。
 
 权限状态必须在首页处理。
 
@@ -661,16 +662,21 @@ Compose
 
 ```text
 SystemMediaActionRequest(
-    photos: List<PhotoItem>,
-    type: SetFavorite / RemoveFavorite / DeletePermanently
+    photos: List<PhotoItem>,          // 这一批，最多 2000
+    actionType: DeletePermanently / MoveToAlbum / SystemFavorite / MoveToTrash / RestoreFromTrash,
+    requestToken: String,
+    intentSender: IntentSender,
+    remaining: List<PhotoItem> = emptyList()  // 这一批之后还没交给系统的
 )
 ```
 
 说明：
 
-* `photos` 改为 `List<PhotoItem>`，支持批量操作。
-* 系统媒体授权用于永久删除（DeletePermanently）和印样表：装袋前的写授权（MoveToAlbum，createWriteRequest）、装袋后顺带的系统收藏（SystemFavorite，createFavoriteRequest），都只在 Android 11+。收藏和取消收藏使用 App DataStore，不触发系统授权。
-* `SetFavorite`、`RemoveFavorite`、`MoveToTrash` 和 `RestoreFromTrash` 保留在 `SystemMediaActionType` 枚举中但运行时不再触发 `NeedSystemApproval`。
+* `photos` 是这一次系统确认的照片。`remaining` 是还没交出去的，不能丢掉，也不能在用户拒绝本批时记成已经完成。
+* 系统媒体授权用于永久删除（DeletePermanently）和印样表：装袋前的写授权（MoveToAlbum，createWriteRequest）、装袋后顺带的系统收藏（SystemFavorite，createFavoriteRequest），都只在 Android 11+。收藏和取消收藏使用 App DataStore，不触发系统授权。`MoveToTrash` 和 `RestoreFromTrash` 不触发 `NeedSystemApproval`。
+* 永久删除：每批系统确认后就已经删掉。拒绝则停止后续，前批保留，只把刷新后不在的 id 计入释放空间。
+* 写授权只是拿权限。需要多批时依次确认，全部同意后才执行本次整批移动；任一批拒绝则整次取消，不移动文件，圈选保留。
+* 系统收藏在装袋完成之后按批确认。拒绝只停止后续系统收藏，不撤销已经完成的移动或前批系统收藏。
 * ViewModel 将请求包装为一次性 UI effect，Compose 启动系统授权页。
 * 授权结果返回后 ViewModel 继续处理对应操作。
 
@@ -681,7 +687,7 @@ SystemMediaActionRequest(
 装袋 = 真的移动照片文件到另一个相册文件夹，同一 MediaStore 行，_ID 不变，所以收藏 / 看过 / 垃圾桶记录不受影响。
 
 ```text
-Android 11+（30+）：createWriteRequest 整批一次（只含还没写授权的 uri）→ update RELATIVE_PATH → 读回确认
+Android 11+（30+）：createWriteRequest 按最多 2000 张依次确认（只含还没写授权的 uri）；全部同意后才 update RELATIVE_PATH → 读回确认。任一批拒绝则整次取消，不移动文件
 Android 10（29）：清单 requestLegacyExternalStorage + WRITE_EXTERNAL_STORAGE(maxSdk 29) → update RELATIVE_PATH，不逐张确认
 Android 8–9（26–28）：WRITE_EXTERNAL_STORAGE → File.renameTo → update DATA + DISPLAY_NAME；失败把文件改回原处
 ```

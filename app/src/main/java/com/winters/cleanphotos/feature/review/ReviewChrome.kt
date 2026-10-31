@@ -355,7 +355,10 @@ internal fun ReviewUndoBar(
 ) {
     UndoBar(
         content = undo?.let {
-            UndoCapsuleContent(it.seq, it.photo.id, it.photo.uri, it.type != PhotoActionType.MoveToTrash, it.title.asString(), it.subtitle.asString())
+            UndoCapsuleContent(
+                it.seq, it.photo.id, it.photo.uri, it.type != PhotoActionType.MoveToTrash,
+                it.title.asString(), it.subtitle.asString(), deadlineUptimeMillis = it.deadlineUptimeMillis,
+            )
         },
         visible = visible,
         onUndo = onUndo,

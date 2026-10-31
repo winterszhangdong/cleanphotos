@@ -490,7 +490,10 @@ internal fun ContactSheetScreen(
         val undo = state.undo
         UndoBar(
             content = undo?.let {
-                UndoCapsuleContent(it.seq, it.thumb.id, it.thumb.uri, it.favorite, it.title.asString(), subtitle = null, keepColor = !it.favorite)
+                UndoCapsuleContent(
+                    it.seq, it.thumb.id, it.thumb.uri, it.favorite, it.title.asString(),
+                    subtitle = null, keepColor = !it.favorite, deadlineUptimeMillis = it.deadlineUptimeMillis,
+                )
             },
             visible = visuals.drag == null && visuals.flight?.released != false && !sheetOpen,
             onUndo = onUndo,

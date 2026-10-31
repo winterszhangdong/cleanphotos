@@ -12,4 +12,15 @@ class UndoDeadlineTest {
         assertEquals(2500L, undoRemainingMillis(startedAt = 1_000, now = 2_500, total = 4000))
         assertEquals(0L, undoRemainingMillis(startedAt = 1_000, now = 9_000, total = 4000))
     }
+
+    @Test
+    fun `从到期时刻反推起点_到点后剩余为 0`() {
+        val total = 4000
+        val deadline = 5_000L
+        val startedAt = deadline - total
+        assertEquals(4000L, undoRemainingMillis(startedAt, now = 1_000, total = total))
+        assertEquals(1500L, undoRemainingMillis(startedAt, now = 3_500, total = total))
+        assertEquals(0L, undoRemainingMillis(startedAt, now = deadline, total = total))
+        assertEquals(0L, undoRemainingMillis(startedAt, now = deadline + 1, total = total))
+    }
 }

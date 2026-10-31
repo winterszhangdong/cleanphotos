@@ -58,6 +58,10 @@ internal object MotionPhotoLocator {
     private val DIRECTORY_BLOCK = Regex(
         """(?s)<(?:[\w.]+:)?Directory\b[^>]*>(.*?)</(?:[\w.]+:)?Directory>""",
     )
+    /** 本地名恰好是 Item 或 li。Item:Semantic 这种带后缀的名字不是 Item 元素。 */
+    private val ITEM_ELEMENT = Regex(
+        """(?s)<(?:[\w.]+:)?(?:Item|li)(?![\w:-])([^>]*?)(?:/>|>(.*?)</(?:[\w.]+:)?(?:Item|li)(?![\w:-])>)""",
+    )
 
     fun locate(source: RandomBytes): MotionPhotoVideo? {
         if (source.size < 12) return null
@@ -260,18 +264,57 @@ internal object MotionPhotoLocator {
     private data class DirItem(val semantic: String, val length: Long?)
 
     private fun directoryItems(xml: String): List<DirItem> {
+        // 无关的 rdf:li（例如 dc:subject）没有 Semantic。只有真实目录项非空才在这里返回；
+        // 否则 vivo 写在 Description 上的属性仍要按项边界读取。真实项缺 Length 时保留 null，不改走就近配对。
+        val real = ITEM_ELEMENT.findAll(xml).mapNotNull { match ->
+            val chunk = match.groupValues[1] + match.groupValues[2]
+            val semantic = semanticOf(chunk) ?: return@mapNotNull null
+            DirItem(semantic, lengthOf(chunk))
+        }.toList()
+        if (real.isNotEmpty()) return real
+        return looseItems(xml)
+    }
+
+    /** 没有带 Semantic 的 Item / li 时（vivo 把属性直接写在 Description 上），按就近配对，不跟下一个 Semantic 抢 Length。 */
+    private fun looseItems(xml: String): List<DirItem> {
         val semantics = SEMANTIC.findAll(xml).map { match ->
             val semantic = match.groupValues[1].ifEmpty { match.groupValues[2] }.trim()
             match.range.first to semantic
         }.filter { it.second.isNotEmpty() }.toList()
-        return semantics.mapIndexed { index, (at, semantic) ->
-            val end = semantics.getOrNull(index + 1)?.first ?: xml.length
-            val window = xml.substring(at, end)
-            val length = LENGTH.find(window)?.let { found ->
-                found.groupValues[1].ifEmpty { found.groupValues[2] }.toLong()
+        if (semantics.isEmpty()) return emptyList()
+        val lengths = LENGTH.findAll(xml).map { match ->
+            match.range.first to match.groupValues[1].ifEmpty { match.groupValues[2] }.toLong()
+        }.toList()
+        val used = BooleanArray(lengths.size)
+        return semantics.map { (at, semantic) ->
+            var best = -1
+            var bestDistance = Int.MAX_VALUE
+            lengths.forEachIndexed { index, (position, _) ->
+                if (used[index]) return@forEachIndexed
+                val distance = kotlin.math.abs(position - at)
+                if (distance < bestDistance) {
+                    bestDistance = distance
+                    best = index
+                }
+            }
+            val length = if (best >= 0) {
+                used[best] = true
+                lengths[best].second
+            } else {
+                null
             }
             DirItem(semantic, length)
         }
+    }
+
+    private fun semanticOf(xml: String): String? {
+        val match = SEMANTIC.find(xml) ?: return null
+        return match.groupValues[1].ifEmpty { match.groupValues[2] }.trim().ifEmpty { null }
+    }
+
+    private fun lengthOf(xml: String): Long? {
+        val found = LENGTH.find(xml) ?: return null
+        return found.groupValues[1].ifEmpty { found.groupValues[2] }.toLong()
     }
 
     /** 没有 Directory 元素时，整段 XMP 就是一份目录（属性形式）。 */

@@ -73,8 +73,8 @@ class TrashViewModel @Inject constructor(
     private val _effects = Channel<TrashEffect>(Channel.BUFFERED)
     val effects = _effects.receiveAsFlow()
 
-    // 系统授权后待继续的操作
-    private var pendingSystemAction: (suspend () -> Unit)? = null
+    /** 正在等系统确认的这一批永久删除，以及还没提交的后续照片。 */
+    private var pendingDelete: PendingPermanentDelete? = null
 
     // 本轮清空已申请过写权限（Android 8–10）：重试仍缺权限时直接提示，不再循环申请
     private var writePermissionRequested = false
@@ -388,7 +388,12 @@ class TrashViewModel @Inject constructor(
                     handleEmptyTrashSuccess(snapshot)
                 }
                 is PhotoOperationResult.NeedSystemApproval -> {
-                    pendingSystemAction = { handleEmptyTrashSuccess(snapshot) }
+                    pendingDelete = PendingPermanentDelete(
+                        batch = result.request.photos,
+                        remaining = result.request.remaining,
+                        original = snapshot.photos,
+                        originalBytes = snapshot.totalBytes,
+                    )
                     _effects.send(TrashEffect.LaunchSystemMediaAction(result.request))
                 }
                 is PhotoOperationResult.Failure -> {
@@ -434,19 +439,100 @@ class TrashViewModel @Inject constructor(
      */
     fun onSystemMediaActionResult(authorized: Boolean) {
         viewModelScope.launch {
-            if (authorized) {
-                val pending = pendingSystemAction
-                if (pending != null) {
-                    pending()
-                } else {
+            val pending = pendingDelete
+            pendingDelete = null
+            if (pending == null) {
+                if (authorized) {
                     // 系统删除确认期间进程被回收：重建后没有快照可溶解，至少刷新列表并给出结果提示
                     handleEmptyTrashAfterRecreate()
+                } else {
+                    _uiState.value = _uiState.value.copy(isProcessingAction = false)
                 }
-            } else {
-                // 用户取消系统授权：静默处理，列表保持不变
-                _uiState.value = _uiState.value.copy(isProcessingAction = false)
+                return@launch
             }
-            pendingSystemAction = null
+            if (!authorized) {
+                // 这一批没删。前面已经确认消失的保留，后面的不再请求，也不记成成功。
+                _uiState.value = _uiState.value.copy(isProcessingAction = false)
+                return@launch
+            }
+            val last = pending.remaining.isEmpty()
+            if (last) {
+                // 先挂上溶解，避免最后一批刷新后空状态闪一帧
+                _uiState.value = _uiState.value.copy(
+                    dissolving = TrashDissolve(pending.original, pending.originalBytes),
+                    justFreedBytes = pending.originalBytes,
+                )
+            }
+            accountDeleted(pending.batch)
+            if (last) {
+                finishPermanentDelete(pending.original, pending.originalBytes)
+            } else {
+                requestNextDelete(pending)
+            }
+        }
+    }
+
+    /** 只结算这一批里刷新后确实不在垃圾桶的照片。 */
+    private suspend fun accountDeleted(batch: List<PhotoItem>) {
+        refreshPhotoLists()
+        forgetVanished(batch)
+    }
+
+    private suspend fun requestNextDelete(pending: PendingPermanentDelete) {
+        when (val next = safeWrite { deletePhotosPermanentlyUseCase(pending.remaining) }) {
+            is PhotoOperationResult.Success -> {
+                // 这一路没有系统弹窗，溶解还没挂过。先挂上再刷新；收尾不再重写同一个快照。
+                _uiState.value = _uiState.value.copy(
+                    dissolving = TrashDissolve(pending.original, pending.originalBytes),
+                    justFreedBytes = pending.originalBytes,
+                )
+                accountDeleted(pending.remaining)
+                finishPermanentDelete(pending.original, pending.originalBytes)
+            }
+            is PhotoOperationResult.NeedSystemApproval -> {
+                check(next.request.photos.isNotEmpty()) { "下一批永久删除没有照片" }
+                pendingDelete = pending.copy(
+                    batch = next.request.photos,
+                    remaining = next.request.remaining,
+                )
+                _effects.send(TrashEffect.LaunchSystemMediaAction(next.request))
+            }
+            is PhotoOperationResult.Failure -> {
+                _uiState.value = _uiState.value.copy(
+                    isProcessingAction = false,
+                    errorMessage = getFailureMessage(next.reason),
+                    dissolving = null,
+                )
+            }
+        }
+    }
+
+    /** 全部批次结束后，只按原始快照里仍然留在垃圾桶的照片判断是不是清空。 */
+    private suspend fun finishPermanentDelete(original: List<PhotoItem>, originalBytes: Long) {
+        val still = observeTrashedPhotosUseCase().first().mapTo(HashSet()) { it.id }
+        if (original.none { it.id in still }) {
+            writePermissionRequested = false
+            _uiState.value = _uiState.value.copy(
+                screenMode = TrashScreenMode.Grid,
+                selectedPhotoIds = emptySet(),
+                previewPhotoId = null,
+                isProcessingAction = false,
+                actionMessage = UiText.Res(R.string.msg_trash_emptied),
+                // dissolving 已在刷新前挂上。动画关闭时会在刷新挂起期间播完并清空，
+                // 这里再写同一个快照会被 StateFlow 合并成没变，LaunchedEffect 不重启，透明层卡住。
+                justFreedBytes = originalBytes,
+            )
+        } else {
+            Log.w(TAG, "清空垃圾桶后仍有残留")
+            _uiState.value = _uiState.value.copy(
+                screenMode = TrashScreenMode.Grid,
+                selectedPhotoIds = emptySet(),
+                previewPhotoId = null,
+                isProcessingAction = false,
+                errorMessage = UiText.Res(R.string.error_partial_delete),
+                dissolving = null,
+                justFreedBytes = null,
+            )
         }
     }
 
@@ -654,6 +740,13 @@ class TrashViewModel @Inject constructor(
         }
     }
 }
+
+private data class PendingPermanentDelete(
+    val batch: List<PhotoItem>,
+    val remaining: List<PhotoItem>,
+    val original: List<PhotoItem>,
+    val originalBytes: Long,
+)
 
 /**
  * 预览中的照片从列表消失后，还要停在哪一张。

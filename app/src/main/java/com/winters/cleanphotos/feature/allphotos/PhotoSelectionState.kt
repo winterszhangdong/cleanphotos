@@ -5,8 +5,8 @@ import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.BatchAction
 import com.winters.cleanphotos.domain.model.BatchActionType
 
-/** 照片页撤回胶囊：seq 每次批量动作递增，UI 用它重启 4 秒倒计时。 */
-data class BatchUndo(val seq: Long, val action: BatchAction, val title: UiText)
+/** 照片页撤回胶囊。 [deadlineUptimeMillis] 是这次批量动作的到期时刻，切范围或切 tab 不重新计算。 */
+data class BatchUndo(val seq: Long, val action: BatchAction, val title: UiText, val deadlineUptimeMillis: Long)
 
 /**
  * 照片页多选状态。选中集合非空即为多选模式；取消到一张不剩就退出。

@@ -94,20 +94,30 @@ fun SimilarCompareRoute(
     viewModel: SimilarViewModel = hiltViewModel(parentEntry),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    // 进程被系统回收后栈顶可能就是对比页，照片页的 LaunchedEffect 不会跑。这里再调一次，start 自己保证不重扫。
+    LaunchedEffect(Unit) {
+        viewModel.start()
+    }
     val group = uiState.groups.firstOrNull { it.key == groupKey }
     LaunchedEffect(group, uiState.phase) {
-        if (group == null && uiState.phase == SimilarPhase.Ready) onBack()
+        if (similarCompareShouldLeave(uiState.phase, group != null)) onBack()
     }
     SimilarCompareScreen(
         group = group,
         photoId = photoId,
         marks = uiState.marks[groupKey].orEmpty(),
         moving = uiState.moving,
+        loadFailed = uiState.phase == SimilarPhase.Failed,
         onBack = onBack,
+        onRetry = viewModel::start,
         onMark = viewModel::onMark,
         onCommit = { viewModel.onCommit(groupKey, onBack) },
     )
 }
+
+/** 只有扫描真正结束且这组不在结果里才离开。加载、比对中、照片表加载失败都不是「组没了」。 */
+internal fun similarCompareShouldLeave(phase: SimilarPhase, hasGroup: Boolean): Boolean =
+    phase == SimilarPhase.Ready && !hasGroup
 
 @Composable
 private fun SimilarCompareScreen(
@@ -115,13 +125,16 @@ private fun SimilarCompareScreen(
     photoId: Long,
     marks: Map<Long, SimilarMark>,
     moving: Boolean,
+    loadFailed: Boolean,
     onBack: () -> Unit,
+    onRetry: () -> Unit,
     onMark: (String, Long, SimilarMark) -> Unit,
     onCommit: () -> Unit,
 ) {
     AppDockEffect(DockMode.Hidden)
     if (group == null) {
         Box(Modifier.fillMaxSize().background(DarkroomColors.Room)) {
+            if (loadFailed) SimilarLoadFailed(onRetry)
             GlassIconButton(
                 onClick = onBack,
                 modifier = Modifier.statusBarsPadding().padding(Dimens.ScreenSide),

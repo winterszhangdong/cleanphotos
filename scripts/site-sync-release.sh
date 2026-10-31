@@ -59,11 +59,13 @@ for r in rels:
     a = next((a for a in r['assets'] if a['name'].startswith('CleanPhotos-') and a['name'].endswith('.apk')), None)
     if not a: continue
     rows.append((r['tag_name'], r['published_at'], a['browser_download_url'], (a.get('digest') or '').removeprefix('sha256:'), str(a['size'])))
-for row in rows[:keep]: print('\t'.join(row))
+# 字段之间用单位分隔符。Tab 是 IFS 空白，连续 Tab 会被 read 折成一个分隔符，空 digest 会把 size 读进来。
+for row in rows[:keep]: print('\x1f'.join(row))
 PY
 
 entries=()
-while IFS=$'\t' read -r tag date url digest size; do
+while IFS=$'\x1f' read -r tag date url digest size || [[ -n ${tag:-} ]]; do
+  [[ -z ${tag:-} ]] && break
   v="${tag#v}"; f="CleanPhotos-$v.apk"; dst="$OUT/$f"
   echo "== $tag"
   if [[ -n "$local_apk" && "$tag" == "$local_tag" ]]; then
@@ -79,6 +81,7 @@ while IFS=$'\t' read -r tag date url digest size; do
   check_cert "$dst"
   bytes="$(wc -c < "$dst" | tr -d ' ')"
   entries+=("$v"$'\t'"$f"$'\t'"$bytes"$'\t'"$got"$'\t'"$date"$'\t'"$url")
+  tag=
 done < "$tmp/plan.tsv"
 [[ ${#entries[@]} -gt 0 ]] || { echo "error: no release with an APK found" >&2; exit 1; }
 

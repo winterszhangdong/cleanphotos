@@ -78,9 +78,8 @@ export function preferred(header) {
     const q = params.map(p => p.trim()).find(p => p.startsWith('q='));
     return { tag, q: q ? parseFloat(q.slice(2)) || 0 : 1 };
   }).filter(l => l.tag && l.q > 0).sort((a, b) => b.q - a.q);
-  for (const { tag } of langs) {
-    if (tag.startsWith('zh')) return 'zh';
-    if (tag.startsWith('en')) return 'en';
-  }
-  return langs.length ? 'en' : 'zh';   // 其他语言的访客看英文
+  // 只看权重最高的一条。fr-FR,zh-CN;q=0.9 的首选是法语，不是中文，去英文页。
+  const top = langs[0];
+  if (!top) return 'zh';
+  return top.tag === 'zh' || top.tag.startsWith('zh-') ? 'zh' : 'en';
 }

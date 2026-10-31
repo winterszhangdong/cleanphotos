@@ -13,7 +13,7 @@
     "not_found_handling": "404-page",
     "html_handling": "auto-trailing-slash",
     // 下载、接口、首页（按语言跳转）先过 Worker，其余直接走静态资源
-    "run_worker_first": ["/", "/download/*", "/api/*", "/apk/*"]
+    "run_worker_first": ["/", "/download", "/download/*", "/api/*", "/apk/*"]
   },
   "observability": { "enabled": false }
 }

@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class FakeAlbumRepository : AlbumRepository {
     val log = MutableStateFlow<List<FilingRecord>>(emptyList())
     var prepareResult: PhotoOperationResult = PhotoOperationResult.Success
+    /** 按调用顺序返回；用完再调用会直接抛错。空则用 [prepareResult]。 */
+    var prepareQueue: List<PhotoOperationResult>? = null
+    private var prepareAt = 0
     var failIds: Set<Long> = emptySet()
     val filed = mutableListOf<Pair<List<Long>, String>>()
     val undone = mutableListOf<FilingOutcome>()
@@ -26,6 +29,8 @@ class FakeAlbumRepository : AlbumRepository {
 
     override suspend fun prepareMove(photos: List<PhotoItem>): PhotoOperationResult {
         prepared += photos.map { it.id }
+        val queue = prepareQueue
+        if (queue != null) return queue[prepareAt++]
         return prepareResult
     }
 
@@ -41,5 +46,16 @@ class FakeAlbumRepository : AlbumRepository {
         return emptyList()
     }
 
-    override suspend fun systemFavoriteRequest(photos: List<PhotoItem>): PhotoOperationResult? = null
+    var favoriteResult: PhotoOperationResult? = null
+    /** 按调用顺序返回；用完再调用会直接抛错。空则用 [favoriteResult]。 */
+    var favoriteQueue: List<PhotoOperationResult?>? = null
+    private var favoriteAt = 0
+    val favoriteCalls = mutableListOf<List<Long>>()
+
+    override suspend fun systemFavoriteRequest(photos: List<PhotoItem>): PhotoOperationResult? {
+        favoriteCalls += photos.map { it.id }
+        val queue = favoriteQueue
+        if (queue != null) return queue[favoriteAt++]
+        return favoriteResult
+    }
 }

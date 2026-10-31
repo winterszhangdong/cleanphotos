@@ -48,6 +48,9 @@ import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.DevelopProfile
 import com.winters.cleanphotos.core.design.Dimens
+import com.winters.cleanphotos.core.design.EmptyStateArea
+import com.winters.cleanphotos.core.design.EmptyTitleAndBody
+import com.winters.cleanphotos.core.design.GhostButton
 import com.winters.cleanphotos.core.design.GlassSpecs
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
@@ -86,8 +89,13 @@ fun SimilarList(
     contentPadding: PaddingValues,
     onOpen: (groupKey: String, photoId: Long) -> Unit,
     onCommit: (groupKey: String) -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (uiState.phase == SimilarPhase.Failed) {
+        SimilarLoadFailed(onRetry, modifier.padding(contentPadding))
+        return
+    }
     when {
         uiState.groups.isNotEmpty() || uiState.phase != SimilarPhase.Ready -> {
             val firstScreen = if (uiState.groups.isNotEmpty()) {
@@ -142,6 +150,18 @@ fun SimilarList(
                 )
             }
         }
+    }
+}
+
+/** 照片表加载失败。文案和照片页同一套，重试再走 [SimilarViewModel.start]。 */
+@Composable
+internal fun SimilarLoadFailed(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyStateArea(modifier) {
+        EmptyTitleAndBody(
+            stringResource(R.string.photos_error_title),
+            stringResource(R.string.error_load_photos),
+        )
+        GhostButton(stringResource(R.string.retry), onClick = onRetry)
     }
 }
 
@@ -346,6 +366,7 @@ fun SimilarUndoBar(
                 favorite = false,
                 title = it.title.asString(),
                 subtitle = null,
+                deadlineUptimeMillis = it.deadlineUptimeMillis,
             )
         },
         visible = visible,

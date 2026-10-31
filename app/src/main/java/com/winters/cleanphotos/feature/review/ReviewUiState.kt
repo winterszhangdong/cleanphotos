@@ -9,13 +9,15 @@ import com.winters.cleanphotos.domain.model.ReviewPage
 import com.winters.cleanphotos.domain.model.ReviewScope
 import com.winters.cleanphotos.domain.model.SessionDayProgress
 
-/** 撤回胶囊：seq 每次有效操作递增，UI 用它重启 4 秒倒计时。 */
+/** 撤回胶囊。 [version] 是这次操作的单调序号，失败回滚只认它。[deadlineUptimeMillis] 是单调时钟上的到期时刻。 */
 data class UndoInfo(
     val seq: Long,
     val photo: PhotoItem,
     val type: PhotoActionType,
     val title: UiText,
     val subtitle: UiText,
+    val version: Long,
+    val deadlineUptimeMillis: Long,
 )
 
 data class ReviewUiState(
@@ -37,6 +39,8 @@ data class ReviewUiState(
     val loadFailed: Boolean = false,
     /** 照片全部处理完且没有小结：回到入口页。 */
     val isCompleted: Boolean = false,
+    /** 失败把照片还回有效页时递增。没变就不是恢复，不能拿旧 key 把刚滑走的末张拉回来。 */
+    val restoreEpoch: Long = 0,
     /** 当前页可播放的视频或动态照片。静态图为 null。 */
     val playback: PlaybackTarget? = null,
     /** 这次进入清理页的静音。默认静音，不写入 DataStore。 */

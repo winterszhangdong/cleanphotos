@@ -477,12 +477,12 @@ struct TrashPreview: View {
                 DarkroomColors.room.ignoresSafeArea()
                 // 照片：三页并排跟手
                 ZStack {
-                    ForEach(max(0, index - 1)...min(max(0, items.count - 1), index + 1), id: \.self) { i in
-                        if items.indices.contains(i) {
-                            photo(items[i], side: w)
-                                .scaleEffect(i == index ? zoom : 1)
-                                .offset(x: CGFloat(i - index) * w + dx)
-                        }
+                    // 列表被外部一次删短时，先夹到有效下标再取邻页。不能用旧 index 拼闭区间，onChange 来不及挡住这次 body。
+                    let shown = TrashPreviewWindow.clampedIndex(index, count: items.count)
+                    ForEach(TrashPreviewWindow.neighbors(index: index, count: items.count), id: \.self) { i in
+                        photo(items[i], side: w)
+                            .scaleEffect(i == shown ? zoom : 1)
+                            .offset(x: CGFloat(i - (shown ?? 0)) * w + dx)
                     }
                 }
                 .frame(width: w, height: w)
@@ -497,15 +497,15 @@ struct TrashPreview: View {
                 .onTapGesture(count: 2) {
                     withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoom = zoom > 1.01 ? 1 : 2 }
                 }
-                if items.indices.contains(index) {
+                if let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) {
                     if land {
-                        meta(items[index])
+                        meta(items[shown])
                             .frame(width: column)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                             .padding(.trailing, 16)
                             .padding(.top, 64)
                     } else {
-                        meta(items[index])
+                        meta(items[shown])
                             .padding(.top, 144 + w + 16)
                     }
                 }
@@ -514,8 +514,8 @@ struct TrashPreview: View {
                     .padding(.horizontal, 12)
                 VStack(spacing: 0) {
                     Spacer()
-                    if items.indices.contains(index) {
-                        Text(L10n.format("trash_restore_hint", locale: loc, cleanDate(items[index].creationDate)))
+                    if let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) {
+                        Text(L10n.format("trash_restore_hint", locale: loc, cleanDate(items[shown].creationDate)))
                             .font(Font.custom("NotoSansSC-Regular", size: 11))
                             .foregroundStyle(DarkroomColors.faint)
                             .padding(.bottom, 100 - 40 - 52 - 0)
@@ -562,7 +562,7 @@ struct TrashPreview: View {
                     .font(Font.custom("NotoSansSC-Medium", size: 15))
                     .foregroundStyle(DarkroomColors.paper)
                     .frame(height: 20)
-                Text("\(index + 1) / \(items.count)")
+                Text(items.isEmpty ? "0 / 0" : "\((TrashPreviewWindow.clampedIndex(index, count: items.count) ?? 0) + 1) / \(items.count)")
                     .font(DarkroomFonts.plexMono(size: 10.5))
                     .foregroundStyle(DarkroomColors.dim)
                     .frame(height: 16)
@@ -611,35 +611,44 @@ struct TrashPreview: View {
         DragGesture(minimumDistance: 8)
             .onChanged { v in
                 guard zoom <= 1.01 else { return }
-                let raw = v.translation.width
-                let atEdge = (raw > 0 && index == 0) || (raw < 0 && index >= items.count - 1)
-                dx = atEdge ? ReviewMath.edgeResistance(raw, length: width * 0.3) : raw
+                dx = previewDX(v.translation.width, width: width)
             }
             .onEnded { v in
                 guard zoom <= 1.01 else { return }
+                let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) ?? 0
+                dx = previewDX(v.translation.width, width: width)
                 let dir = ReviewMath.horizontalRelease(dx: dx, vx: v.velocity.width, width: width)
                 withAnimation(reduceMotion ? nil : SpringToken.snappy.animation()) {
-                    if dir == -1 && index < items.count - 1 { index += 1 }
-                    else if dir == 1 && index > 0 { index -= 1 }
+                    if dir == -1 && shown < items.count - 1 { index = shown + 1 }
+                    else if dir == 1 && shown > 0 { index = shown - 1 }
                     dx = 0
                 }
             }
     }
 
+    /// 用最终 translation 和夹紧后的下标算横向位移，末段越过阈值的快滑不会停在上一次 onChanged。
+    private func previewDX(_ raw: CGFloat, width: CGFloat) -> CGFloat {
+        let i = TrashPreviewWindow.clampedIndex(index, count: items.count) ?? 0
+        let atEdge = items.isEmpty || (raw > 0 && i == 0) || (raw < 0 && i >= items.count - 1)
+        return atEdge ? ReviewMath.edgeResistance(raw, length: width * 0.3) : raw
+    }
+
     private func restore() {
-        guard items.indices.contains(index) else { return }
-        let id = items[index].id
+        guard let i = TrashPreviewWindow.clampedIndex(index, count: items.count) else { return }
+        let id = items[i].id
         if library.restoreFromTrash(ids: [id], showUndo: false) > 0 { onRestored() }
         onClose()
     }
 
     private func load() {
-        AssetSizeCache.shared.prefetch((max(0, index - 2)...max(0, index + 2)).compactMap { items.indices.contains($0) ? items[$0].asset : nil })
+        let prefetch = TrashPreviewWindow.span(index: index, count: items.count, radius: 2)
+        AssetSizeCache.shared.prefetch(prefetch.map { items[$0].asset })
         // 只留当前和前后各一张（每张全屏图 ~9MB，之前翻过的都一直留着）；窗口外还没回来的请求取消
-        let keep = Set((max(0, index - 1)...max(0, index + 1)).compactMap { items.indices.contains($0) ? items[$0].id : nil })
+        let near = TrashPreviewWindow.span(index: index, count: items.count, radius: 1)
+        let keep = Set(near.map { items[$0].id })
         for (id, req) in requests where !keep.contains(id) { library.cancelThumbnail(req); requests[id] = nil }
         for id in images.keys where !keep.contains(id) { images[id] = nil }
-        for i in max(0, index - 1)...max(0, index + 1) where items.indices.contains(i) {
+        for i in near {
             let item = items[i]
             if images[item.id] != nil || requests[item.id] != nil { continue }
             // 方框按 fill 裁切：短边要铺满屏宽 × scale，所以长边按比例放大请求（否则非方图短边不足，发虚）；

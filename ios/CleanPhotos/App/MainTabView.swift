@@ -127,13 +127,14 @@ struct MainTabView: View {
     /// 大图在清理页里的位置：与 ReviewView.pageContent 相同的 fit + 上下安全区居中偏移。
     private func fitRect(for id: String) -> CGRect? {
         guard let item = library.item(id: id) else { return nil }
-        let box = CGSize(width: screen.width, height: screen.height - safe.top - safe.bottom)
-        let fit = ReviewMath.fitSize(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, in: box)
-        let cy = screen.height / 2 + (safe.top - safe.bottom) / 2
-        return CGRect(x: (screen.width - fit.width) / 2, y: cy - fit.height / 2, width: fit.width, height: fit.height)
+        let fitted = ZoomClamp.fit(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, screen: screen, top: safe.top, bottom: safe.bottom)
+        let cy = screen.height / 2 + fitted.centerShiftY
+        return CGRect(x: (screen.width - fitted.size.width) / 2, y: cy - fitted.size.height / 2, width: fitted.size.width, height: fitted.size.height)
     }
 
     private func open(_ launch: ReviewLaunch) {
+        // 首屏 240 张还没补全时不建会话，否则账本会停在这批照片上。已打开的会话也不换队列。
+        guard ReviewOpenGate.allows(partial: library.isPartial, sessionOpen: reviewLaunch != nil) else { return }
         transitionToken += 1
         let token = transitionToken
         let id = launch.startPhotoId

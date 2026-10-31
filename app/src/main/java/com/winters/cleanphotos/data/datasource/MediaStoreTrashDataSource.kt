@@ -85,17 +85,18 @@ class MediaStoreTrashDataSource @Inject constructor(
     private fun createDeleteRequest(photos: List<PhotoItem>): PhotoOperationResult {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val uris = photos.map { it.uri }
+                val batch = firstMediaStoreBatch(photos)
                 val pendingIntent = MediaStore.createDeleteRequest(
                     contentResolver,
-                    uris
+                    batch.current.map { it.uri },
                 )
                 PhotoOperationResult.NeedSystemApproval(
                     SystemMediaActionRequest(
-                        photos = photos,
+                        photos = batch.current,
                         actionType = SystemMediaActionType.DeletePermanently,
                         requestToken = UUID.randomUUID().toString(),
-                        intentSender = pendingIntent.intentSender
+                        intentSender = pendingIntent.intentSender,
+                        remaining = batch.remaining,
                     )
                 )
             } else {

@@ -6,7 +6,7 @@ import com.winters.cleanphotos.domain.model.BatchAction
 import com.winters.cleanphotos.domain.model.SimilarGroup
 import com.winters.cleanphotos.domain.model.SimilarMark
 
-enum class SimilarPhase { Loading, Comparing, Ready }
+enum class SimilarPhase { Loading, Comparing, Ready, Failed }
 
 /**
  * 一次提交的撤回。移走和已处理记录一起撤。
@@ -18,6 +18,8 @@ data class SimilarUndo(
     val title: UiText,
     val trashed: BatchAction?,
     val resolvedIds: Set<Long>?,
+    /** 单调时钟上的到期时刻。离开相似再回来不重新计算。 */
+    val deadlineUptimeMillis: Long,
 )
 
 data class SimilarUiState(

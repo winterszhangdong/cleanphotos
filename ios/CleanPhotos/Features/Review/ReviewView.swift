@@ -88,8 +88,8 @@ struct ReviewView: View {
                     }
                     .contentShape(Rectangle())
                     .gesture(dragGesture(size: size, insets: insets).updating($dragLive) { _, live, _ in live = true })
-                    .simultaneousGesture(pinchGesture(size: size).updating($pinchLive) { _, live, _ in live = true })
-                    .onTapGesture(count: 2, coordinateSpace: .local) { loc in doubleTap(at: loc, size: size) }
+                    .simultaneousGesture(pinchGesture(size: size, insets: insets).updating($pinchLive) { _, live, _ in live = true })
+                    .onTapGesture(count: 2, coordinateSpace: .local) { loc in doubleTap(at: loc, size: size, insets: insets) }
                     .modifier(StageAccessibility(
                         photo: session.isOnSummary ? nil : session.currentPhoto,
                         favorites: session.scope == .favorites,
@@ -130,7 +130,7 @@ struct ReviewView: View {
             .onDisappear { FrameMonitor.shared.stop("review"); library.endReview() }
             .onChange(of: session.index) { _, _ in prepareSoon(size: size, insets: insets); markSeenCurrent(); resetZoom() }
             .onChange(of: dragLive) { _, live in if !live { DispatchQueue.main.async { dragCancelledIfNeeded(size: size) } } }
-            .onChange(of: pinchLive) { _, live in if !live { DispatchQueue.main.async { pinchCancelledIfNeeded(size: size) } } }
+            .onChange(of: pinchLive) { _, live in if !live { DispatchQueue.main.async { pinchCancelledIfNeeded(size: size, insets: insets) } } }
             .onChange(of: zoom > 1.01) { _, z in
                 if z, let p = session.currentPhoto { images.ensureZoom(p, library: library, side: max(size.width, size.height)) }
             }
@@ -385,10 +385,11 @@ struct ReviewView: View {
 
     @ViewBuilder
     private func photoPage(_ photo: PhotoItem, size: CGSize, insets: EdgeInsets, rim: RimKey?, useZoom: Bool) -> some View {
+        let fitted = ZoomClamp.fit(pixelWidth: photo.asset.pixelWidth, pixelHeight: photo.asset.pixelHeight, screen: size, top: insets.top, bottom: insets.bottom)
+        let fit = fitted.size
         let box = CGSize(width: size.width, height: size.height - insets.top - insets.bottom)
-        let fit = ReviewMath.fitSize(pixelWidth: photo.asset.pixelWidth, pixelHeight: photo.asset.pixelHeight, in: box)
         let letterboxed = fit.width < box.width - 1 || fit.height < box.height - 1
-        let centerShift = (insets.top - insets.bottom) / 2
+        let centerShift = fitted.centerShiftY
         ZStack {
             DarkroomColors.room
             if let img = images.image(photo.id) {
@@ -779,7 +780,7 @@ struct ReviewView: View {
                     axis = .pan; panBase = zoomOffset
                 }
                 if axis == .pan {
-                    zoomOffset = clampZoomOffset(CGSize(width: panBase.width + t.width, height: panBase.height + t.height), zoom, size: size)
+                    zoomOffset = clampZoomOffset(ReviewGestureEnd.panOffset(base: panBase, translation: t), zoom, size: size, insets: insets)
                     return
                 }
                 if axis == nil {
@@ -789,17 +790,25 @@ struct ReviewView: View {
                 update(t, size: size)
             }
             .onEnded { v in
-                if pinched { pinched = false; if axis == .pan { axis = nil }; return }
-                if axis == .pan { axis = nil; return }
-                if axis == nil {
-                    // 抬起前还没定方向但总位移已过 slop：补一次开始拖动（快速连滑不丢）
-                    guard let a = decideAxis(v.translation) else { return }
-                    begin(a, v.translation)
+                // 方向已经定过时，最后一段只出现在 onEnded 的 translation 里，也要并进 dx/dy 再判定。
+                switch ReviewGestureEnd.finish(pinched: pinched, axis: endAxis, translation: v.translation, panBase: panBase) {
+                case .pinch(let clearPan):
+                    pinched = false
+                    if clearPan { axis = nil }
+                case .pan(let raw):
+                    zoomOffset = clampZoomOffset(raw, zoom, size: size, insets: insets)
+                    axis = nil
+                case .sample:
+                    if axis == nil {
+                        // 抬起前还没定方向但总位移已过 slop：补一次开始拖动（快速连滑不丢）
+                        guard let a = decideAxis(v.translation) else { return }
+                        begin(a, v.translation)
+                    }
                     update(v.translation, size: size)
+                    let vel = v.velocity
+                    if axis == .horizontal { releaseHorizontal(vx: vel.width, size: size) }
+                    else { releaseVertical(vy: vel.height, size: size, insets: insets) }
                 }
-                let vel = v.velocity
-                if axis == .horizontal { releaseHorizontal(vx: vel.width, size: size) }
-                else { releaseVertical(vy: vel.height, size: size, insets: insets) }
             }
     }
 
@@ -863,6 +872,15 @@ struct ReviewView: View {
         }
     }
 
+    private var endAxis: ReviewGestureEnd.Axis? {
+        switch axis {
+        case .horizontal: return .horizontal
+        case .vertical: return .vertical
+        case .pan: return .pan
+        case nil: return nil
+        }
+    }
+
     private func decideAxis(_ t: CGSize) -> DragAxis? {
         let ax = abs(t.width), ay = abs(t.height)
         if ax >= ay * ReviewTokens.directionRatio && ax > 0 { return .horizontal }
@@ -888,7 +906,7 @@ struct ReviewView: View {
     private func update(_ t: CGSize, size: CGSize) {
         switch axis {
         case .horizontal:
-            let raw = t.width - slop
+            let raw = ReviewGestureEnd.displacement(raw: t.width, slop: slop)
             let hasPrev = page(at: session.index - 1) != nil
             let hasNext = page(at: session.index + 1) != nil
             if (raw > 0 && !hasPrev) || (raw < 0 && !hasNext) {
@@ -897,7 +915,7 @@ struct ReviewView: View {
                 dx = raw
             }
         case .vertical:
-            dy = t.height - slop
+            dy = ReviewGestureEnd.displacement(raw: t.height, slop: slop)
             guard !session.isOnSummary else { return }
             let nowPast = abs(dy) > ReviewTokens.verticalThreshold
             if nowPast != past { setPast(nowPast) }
@@ -924,9 +942,9 @@ struct ReviewView: View {
     }
 
     /// 捏合被系统取消：onEnded 没来，pinchBase 还在 —— 按正常松手收尾（低于 1× 弹回）。
-    private func pinchCancelledIfNeeded(size: CGSize) {
+    private func pinchCancelledIfNeeded(size: CGSize, insets: EdgeInsets) {
         guard pinchBase != nil else { return }
-        pinchEnded(size: size)
+        pinchEnded(size: size, insets: insets)
     }
 
     private func setPast(_ p: Bool) {
@@ -1093,7 +1111,7 @@ struct ReviewView: View {
 
     // MARK: - Zoom（Android ReviewStageState.onPinch / onDoubleTap / clampZoomOffset）
 
-    private func pinchGesture(size: CGSize) -> some Gesture {
+    private func pinchGesture(size: CGSize, insets: EdgeInsets) -> some Gesture {
         MagnifyGesture(minimumScaleDelta: 0.01)
             .onChanged { v in
                 guard session.currentPhoto != nil, !session.isOnSummary else { return }
@@ -1119,10 +1137,10 @@ struct ReviewView: View {
                 zoomOffset = CGSize(width: (base.offset.width - c.width) * k + c.width, height: (base.offset.height - c.height) * k + c.height)
                 zoom = newZoom
             }
-            .onEnded { _ in pinchEnded(size: size) }
+            .onEnded { _ in pinchEnded(size: size, insets: insets) }
     }
 
-    private func pinchEnded(size: CGSize) {
+    private func pinchEnded(size: CGSize, insets: EdgeInsets) {
         pinchBase = nil
         // 捏合期间单指拖动没被识别（两指对称张合，重心没动）：拖动的 onEnded 不会来清 pinched，下一次滑动会被整个吞掉
         if !dragLive { pinched = false }
@@ -1130,25 +1148,24 @@ struct ReviewView: View {
             withAnimation(reduceMotion ? nil : SpringToken.bouncy.animation()) { zoom = 1; zoomOffset = .zero }
             rawZoom = 1
         } else {
-            withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoomOffset = clampZoomOffset(zoomOffset, zoom, size: size) }
+            withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoomOffset = clampZoomOffset(zoomOffset, zoom, size: size, insets: insets) }
         }
     }
 
-    private func doubleTap(at loc: CGPoint, size: CGSize) {
+    private func doubleTap(at loc: CGPoint, size: CGSize, insets: EdgeInsets) {
         guard session.currentPhoto != nil, !tutorialVisible else { return }
         let target: CGFloat = zoom > 1.01 ? 1 : GestureTokensIOS.doubleTapScale
         let off: CGSize = target == 1 ? .zero : clampZoomOffset(
-            CGSize(width: (loc.x - size.width / 2) * (1 - target), height: (loc.y - size.height / 2) * (1 - target)), target, size: size)
+            CGSize(width: (loc.x - size.width / 2) * (1 - target), height: (loc.y - size.height / 2) * (1 - target)), target, size: size, insets: insets)
         withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoom = target; zoomOffset = off }
         rawZoom = target
     }
 
-    /// 放大后没超出屏幕的那一轴不能拖，超出的拖到照片边缘为止（不拖出上下环境光）。
-    private func clampZoomOffset(_ o: CGSize, _ z: CGFloat, size: CGSize) -> CGSize {
+    /// 放大后没超出屏幕的那一轴不能拖，超出的拖到照片边缘为止。矩形与 photoPage 同一个安全区 fit。
+    private func clampZoomOffset(_ o: CGSize, _ z: CGFloat, size: CGSize, insets: EdgeInsets) -> CGSize {
         guard z > 1, let photo = session.currentPhoto else { return .zero }
-        let fit = ReviewMath.fitSize(pixelWidth: photo.asset.pixelWidth, pixelHeight: photo.asset.pixelHeight, in: size)
-        let mx = max(0, (fit.width * z - size.width) / 2), my = max(0, (fit.height * z - size.height) / 2)
-        return CGSize(width: min(mx, max(-mx, o.width)), height: min(my, max(-my, o.height)))
+        let fitted = ZoomClamp.fit(pixelWidth: photo.asset.pixelWidth, pixelHeight: photo.asset.pixelHeight, screen: size, top: insets.top, bottom: insets.bottom)
+        return ZoomClamp.offset(proposed: o, zoom: z, fit: fitted.size, screen: size, centerShiftY: fitted.centerShiftY)
     }
 
     private func resetZoom() {

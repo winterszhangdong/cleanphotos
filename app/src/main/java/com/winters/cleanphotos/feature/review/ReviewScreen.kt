@@ -137,21 +137,8 @@ fun ReviewScreen(
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var size by remember { mutableStateOf(IntSize.Zero) }
 
-    // —— 同步 ViewModel 序列（本地 currentKey 优先，见 ReviewStageState）——
-    if (stage.pages !== uiState.pages) stage.pages = uiState.pages
-    val lastVm = remember { arrayOfNulls<Any>(2) }
-    if (lastVm[0] !== uiState.pages || lastVm[1] != uiState.currentKey) {
-        // ViewModel 状态变了：本地 key 在新序列里仍然有效就保留（本地先切页的情况）；否则采用 ViewModel 的 key
-        lastVm[0] = uiState.pages
-        lastVm[1] = uiState.currentKey
-        val localValid = stage.currentKey != null && uiState.pages.any { it.key == stage.currentKey }
-        if (!localValid && !stage.sessionEndedLocally && uiState.currentKey != null) {
-            com.winters.cleanphotos.core.util.ReviewTrace.log("vmSync", "local" to stage.currentKey, "vm" to uiState.currentKey, "pages" to uiState.pages.size)
-            stage.currentKey = uiState.currentKey
-            stage.noteCurrentDay(tick = false)
-            stage.markPlaybackIdle()
-        }
-    }
+    // —— 同步 ViewModel 序列（本地 currentKey 优先，见 ReviewStageState.syncFromViewModel）——
+    stage.syncFromViewModel(uiState.pages, uiState.currentKey, uiState.restoreEpoch)
     val playbackPinned = stage.playbackPinnedKey
     val playback = uiState.playback
     val currentPhotoForPlayback = (stage.currentPage as? ReviewPage.Photo)?.photo

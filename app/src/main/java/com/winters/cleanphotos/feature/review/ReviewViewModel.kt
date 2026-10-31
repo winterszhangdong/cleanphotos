@@ -6,6 +6,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.winters.cleanphotos.core.coroutines.DefaultDispatcher
+import com.winters.cleanphotos.core.coroutines.UptimeClock
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.domain.model.PhotoAction
@@ -89,6 +91,8 @@ class ReviewViewModel @Inject constructor(
     private val observeShowDirectionHintsUseCase: ObserveShowDirectionHintsUseCase,
     private val observeTrashSummaryUseCase: ObserveTrashSummaryUseCase,
     private val locateMotionPhotoVideoUseCase: LocateMotionPhotoVideoUseCase,
+    private val operationQueue: ReviewOperationQueue,
+    private val uptimeClock: UptimeClock,
     @DefaultDispatcher computeDispatcher: CoroutineDispatcher,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -106,6 +110,12 @@ class ReviewViewModel @Inject constructor(
         val tutorialDismissed: Boolean = false,
         /** 会话没能建立（照片表加载失败 / 起点照片已不存在）：页面提示后返回入口。 */
         val loadFailed: Boolean = false,
+        /** 每张照片当前乐观状态属于哪一次操作。过期失败不能拿它去回滚后来的动作。 */
+        val photoVersion: Map<Long, Long> = emptyMap(),
+        /** 已接纳、还没跑完的写入。最后一张在这些写完之前不能当成会话结束。 */
+        val pendingOps: Int = 0,
+        /** 只在这次写入失败、并且照片被还回有效页时递增。舞台靠它认出恢复，不靠旧的 currentKey。 */
+        val restoreEpoch: Long = 0,
     )
 
     private val core = MutableStateFlow(Core())
@@ -113,10 +123,12 @@ class ReviewViewModel @Inject constructor(
     private val _effects = Channel<ReviewEffect>(Channel.BUFFERED)
     val effects = _effects.receiveAsFlow()
 
-    /** 串行执行的 UseCase 队列。 */
-    private val operations = Channel<suspend () -> Unit>(Channel.UNLIMITED)
     private var pendingApproval: CompletableDeferred<Boolean>? = null
     private var undoSeq = 0L
+    private var nextVersion = 1L
+    /** 串行队列里记下每次操作是否真的写成了。撤回要看原动作，不能无条件做逆操作。 */
+    private val settledAct = HashMap<Long, Boolean>()
+    private var alive = true
     private var initialized = false
 
     /** 上一次发出的界面状态，只在下面的 combine 里读写（单协程顺序执行）。 */
@@ -148,18 +160,6 @@ class ReviewViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ReviewUiState())
 
     init {
-        viewModelScope.launch {
-            for (op in operations) {
-                // 兜底：单个操作异常不能结束整个队列（否则之后的滑动都不再落盘）
-                try {
-                    op()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "清理操作执行失败", e)
-                }
-            }
-        }
         // 记住正在看的照片：进程被回收后回到清理页从这张接着看，而不是回到入口那张（小结页不覆盖）
         viewModelScope.launch {
             core.map { photoIdOf(it.currentKey) }.distinctUntilChanged().collect { id ->
@@ -169,6 +169,14 @@ class ReviewViewModel @Inject constructor(
         viewModelScope.launch {
             core.map { it.currentKey }.distinctUntilChanged().collect { resolvePlayback(it) }
         }
+    }
+
+    override fun onCleared() {
+        // 系统授权还在等用户时，页面已经没了。结束等待，后面已经接纳的写入才能继续，队列不会停在这次授权上。
+        alive = false
+        pendingApproval?.complete(false)
+        pendingApproval = null
+        super.onCleared()
     }
 
     /** 这次进入清理页记住静音，不写 DataStore。 */
@@ -286,11 +294,15 @@ class ReviewViewModel @Inject constructor(
         dismissTutorial()
     }
 
-    /** 撤回最近一次操作：照片插回原位并切回它。返回切到的页 key。 */
+    /** 撤回最近一次操作：照片插回原位并切回它。返回切到的页 key。过了截止时间的不再执行。 */
     fun onUndo(): String? {
         val c = core.value
         val ledger = c.ledger ?: return null
         val undo = c.undo ?: return null
+        if (uptimeClock.uptimeMillis() >= undo.deadlineUptimeMillis) {
+            core.update { if (it.undo?.version == undo.version) it.copy(undo = null) else it }
+            return null
+        }
         val photo = undo.photo
         if (photo.id !in c.removed) return null
         val previousOutcome = ledger.outcomes[photo.id]
@@ -299,14 +311,20 @@ class ReviewViewModel @Inject constructor(
             newLedger = newLedger.copy(summarizedDays = newLedger.summarizedDays - photo.dateGroup)
         }
         val key = ReviewPage.keyOf(photo.id)
+        val actVersion = undo.version
+        val undoVersion = nextVersion++
         core.value = c.copy(
             ledger = newLedger, removed = c.removed - photo.id, currentKey = key,
             activeSummaryDay = null, undo = null,
+            photoVersion = c.photoVersion + (photo.id to undoVersion),
         )
         enqueue {
+            // 原动作还在这条队列前面。它失败时会话里的乐观撤回就是终态，不能再做一次逆写入。
+            if (settledAct[actVersion] != true) return@enqueue
             val result = safeOperation { undoPhotoActionUseCase(PhotoAction(photo, undo.type, 0, System.currentTimeMillis())) }
             if (!awaitSuccess(result)) {
                 core.update { s ->
+                    if (s.photoVersion[photo.id] != undoVersion) return@update s
                     val l = s.ledger ?: return@update s
                     s.copy(
                         ledger = previousOutcome?.let { l.recordOutcome(photo.id, it) } ?: l,
@@ -352,10 +370,15 @@ class ReviewViewModel @Inject constructor(
         var newLedger = ledger.recordOutcome(photoId, outcomeOf(type))
         val summaryDay = (next as? ReviewPage.Summary)?.dayKey
         if (summaryDay != null) newLedger = newLedger.markSummarized(summaryDay)
-        val undo = UndoInfo(++undoSeq, photo, type, undoTitle(type), undoSubtitle(ledger, photo, type))
+        val version = nextVersion++
+        val undo = UndoInfo(
+            ++undoSeq, photo, type, undoTitle(type), undoSubtitle(ledger, photo, type),
+            version, uptimeClock.uptimeMillis() + MotionDurations.UNDO_COUNTDOWN,
+        )
         core.value = c.copy(
             ledger = newLedger, removed = c.removed + photoId, currentKey = next?.key,
             activeSummaryDay = summaryDay, undo = undo,
+            photoVersion = c.photoVersion + (photoId to version),
         )
         val nextPhotoId = (next as? ReviewPage.Photo)?.photo?.id
         dismissTutorial()
@@ -369,17 +392,27 @@ class ReviewViewModel @Inject constructor(
                     PhotoActionType.MoveToTrash -> movePhotoToTrashUseCase(photo, effects)
                 }
             }
-            if (!awaitSuccess(result)) {
+            val ok = awaitSuccess(result)
+            settledAct[version] = ok
+            if (!ok) {
                 // 操作没写成，附带写入也没落盘：下一张照样记为看过（它已经显示出来了），计数不加
                 nextPhotoId?.let { id -> runCatchingNonCancel { markPhotoSeenUseCase(id) } }
-                // 插回原位（序列按会话初始顺序生成，移出 removed 即回到原位置）
+                // 只收回仍属于这次操作的乐观状态。撤回后又滑了一次时，photoVersion 已经换成新动作。
                 core.update { s ->
+                    if (s.photoVersion[photoId] != version) return@update s
                     val l = s.ledger ?: return@update s
+                    var ledgerNow = l.undoOutcome(photoId)
+                    if (summaryDay != null) ledgerNow = ledgerNow.copy(summarizedDays = ledgerNow.summarizedDays - summaryDay)
+                    val summaryKey = summaryDay?.let { "s$it" }
+                    val restoreHere = s.currentKey == null || (summaryKey != null && s.currentKey == summaryKey)
                     s.copy(
-                        ledger = l.undoOutcome(photoId),
+                        ledger = ledgerNow,
                         removed = s.removed - photoId,
-                        undo = if (s.undo?.photo?.id == photoId) null else s.undo,
+                        currentKey = if (restoreHere) ReviewPage.keyOf(photoId) else s.currentKey,
+                        activeSummaryDay = if (restoreHere) null else s.activeSummaryDay,
+                        undo = if (s.undo?.version == version) null else s.undo,
                         error = failureMessage(result, type),
+                        restoreEpoch = if (restoreHere) s.restoreEpoch + 1 else s.restoreEpoch,
                     )
                 }
             }
@@ -388,7 +421,14 @@ class ReviewViewModel @Inject constructor(
     }
 
     private fun enqueue(op: suspend () -> Unit) {
-        operations.trySend(op)
+        core.update { it.copy(pendingOps = it.pendingOps + 1) }
+        operationQueue.enqueue {
+            try {
+                op()
+            } finally {
+                core.update { it.copy(pendingOps = it.pendingOps - 1) }
+            }
+        }
     }
 
     /** 写入失败（存储满等）按普通失败处理：照片插回原位并提示，而不是让异常打断队列或闪退。 */
@@ -413,14 +453,21 @@ class ReviewViewModel @Inject constructor(
     }
 
     /** NeedSystemApproval 时等用户在系统页的结果；取消算失败但不提示。 */
-    private suspend fun awaitSuccess(result: PhotoOperationResult): Boolean = when (result) {
-        is PhotoOperationResult.Success -> true
-        is PhotoOperationResult.Failure -> false
-        is PhotoOperationResult.NeedSystemApproval -> {
-            val deferred = CompletableDeferred<Boolean>()
-            pendingApproval = deferred
-            _effects.send(ReviewEffect.LaunchSystemMediaAction(result.request))
-            deferred.await()
+    private suspend fun awaitSuccess(result: PhotoOperationResult): Boolean {
+        return when (result) {
+            is PhotoOperationResult.Success -> true
+            is PhotoOperationResult.Failure -> false
+            is PhotoOperationResult.NeedSystemApproval -> {
+                if (!alive) return false
+                val deferred = CompletableDeferred<Boolean>()
+                pendingApproval = deferred
+                if (!alive) {
+                    pendingApproval = null
+                    return false
+                }
+                _effects.send(ReviewEffect.LaunchSystemMediaAction(result.request))
+                deferred.await()
+            }
         }
     }
 
@@ -480,7 +527,8 @@ class ReviewViewModel @Inject constructor(
             trashCount = trashCount,
             errorMessage = c.error,
             loadFailed = c.loadFailed,
-            isCompleted = !c.loading && ledger != null && c.currentKey == null,
+            isCompleted = !c.loading && ledger != null && c.currentKey == null && c.pendingOps == 0,
+            restoreEpoch = c.restoreEpoch,
         )
     }
 

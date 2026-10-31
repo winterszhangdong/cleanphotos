@@ -1,6 +1,7 @@
 package com.winters.cleanphotos.feature.allphotos
 
 import com.winters.cleanphotos.R
+import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.core.text.UiText
 import android.app.Application
 import android.content.Context
@@ -65,6 +66,9 @@ class AllPhotosViewModelTest {
     /** 测试用的协程调度器 */
     private val testDispatcher: TestDispatcher = StandardTestDispatcher()
 
+    /** 撤回截止用的单调时钟。现有用例停在 0，只有过期用例往前拨。 */
+    private var now = 0L
+
     /** Fake 仓库，提供可控的测试数据 */
     private lateinit var fakePhotoRepository: FakePhotoRepository
 
@@ -124,6 +128,7 @@ class AllPhotosViewModelTest {
             batchFavoritePhotosUseCase = BatchFavoritePhotosUseCase(ResolveBatchFavoriteUseCase(), fakeReviewRepository, mockSeenDataSource),
             batchMovePhotosToTrashUseCase = BatchMovePhotosToTrashUseCase(fakeReviewRepository, mockSeenDataSource),
             undoBatchActionUseCase = UndoBatchActionUseCase(fakeReviewRepository),
+            uptimeClock = UptimeClock { now },
             computeDispatcher = testDispatcher,
         )
     }
@@ -260,6 +265,18 @@ class AllPhotosViewModelTest {
         assertEquals(seq, vm.selection.value.undo?.seq)
         vm.onUndoExpired(seq)
         assertNull(vm.selection.value.undo)
+    }
+
+    @Test
+    fun `过了截止时间再撤回批量操作不会调用仓库`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createTestPhotos(3))
+        val vm = createViewModel(); advanceUntilIdle()
+        vm.onLongPressPhoto(1L); vm.onBatchFavorite(); advanceUntilIdle()
+        val calls = fakeReviewRepository.batchCalls.size
+        now = vm.selection.value.undo!!.deadlineUptimeMillis
+        vm.onUndoBatch(); advanceUntilIdle()
+        assertNull(vm.selection.value.undo)
+        assertEquals(calls, fakeReviewRepository.batchCalls.size)
     }
 
     // ====== 测试用例 ======

@@ -33,8 +33,14 @@ data class ContactSheetUiState(
     val message: SheetMessage? = null,
 )
 
-/** [favorite] 为 true 是取消收藏（琥珀小样），否则是装袋（中性、保留颜色）。 */
-data class SheetUndo(val seq: Long, val thumb: PhotoItem, val title: UiText, val favorite: Boolean)
+/** [favorite] 为 true 是取消收藏（琥珀小样），否则是装袋（中性、保留颜色）。[deadlineUptimeMillis] 是单调时钟上的到期时刻。 */
+data class SheetUndo(
+    val seq: Long,
+    val thumb: PhotoItem,
+    val title: UiText,
+    val favorite: Boolean,
+    val deadlineUptimeMillis: Long,
+)
 
 data class SheetMessage(val seq: Long, val text: UiText)
 

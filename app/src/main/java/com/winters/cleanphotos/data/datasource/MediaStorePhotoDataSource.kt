@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import androidx.annotation.RequiresApi
+import kotlin.coroutines.cancellation.CancellationException
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.domain.model.DayKey
 import com.winters.cleanphotos.domain.model.MediaType
@@ -73,6 +75,88 @@ class MediaStorePhotoDataSource @Inject constructor(
             Log.e(TAG, "垃圾桶 MediaStore 查询失败", e)
             throw e
         }
+    }
+
+    /**
+     * 失效清理用的存在性，不进入展示列表。
+     * 展示仍走 [queryAllPhotos]：默认查询不含暂时卸载的卷，离线照片不能出现在可操作列表里。
+     */
+    internal fun queryPresence(onlinePhotos: List<PhotoItem>): MediaPresence {
+        return try {
+            queryPresenceOrThrow(onlinePhotos)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "存在性查询失败，跳过失效清理", e)
+            MediaPresence(emptySet(), authoritative = false)
+        }
+    }
+
+    private fun queryPresenceOrThrow(onlinePhotos: List<PhotoItem>): MediaPresence {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return presenceIncludingUnmounted()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return presenceWhenVolumesKnown(onlinePhotos)
+        return MediaPresence(emptySet(), authoritative = false)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun presenceIncludingUnmounted(): MediaPresence {
+        val ids = HashSet<Long>()
+        ids += queryExistingIds(trashedOnly = false)
+        ids += queryExistingIds(trashedOnly = true)
+        return MediaPresenceRules.decide(
+            sdkInt = Build.VERSION.SDK_INT,
+            onlineIds = emptySet(),
+            trashedIds = emptySet(),
+            unmountedInclusiveIds = ids,
+            recentVolumes = null,
+            mountedVolumes = null,
+        )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun presenceWhenVolumesKnown(onlinePhotos: List<PhotoItem>): MediaPresence {
+        val recent = MediaStore.getRecentExternalVolumeNames(context)
+        val mounted = MediaStore.getExternalVolumeNames(context)
+        val trashed = queryTrashedPhotos().mapTo(HashSet()) { it.id }
+        return MediaPresenceRules.decide(
+            sdkInt = Build.VERSION.SDK_INT,
+            onlineIds = onlinePhotos.mapTo(HashSet()) { it.id },
+            trashedIds = trashed,
+            unmountedInclusiveIds = null,
+            recentVolumes = recent,
+            mountedVolumes = mounted,
+        )
+    }
+
+    /** 只取 id。null 游标是查询失败，不是空图库。 */
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun queryExistingIds(trashedOnly: Boolean): Set<Long> {
+        val ids = HashSet<Long>()
+        for (video in booleanArrayOf(false, true)) {
+            if (video && !PermissionChecker.canReadVideos(context)) continue
+            val collection = if (video) {
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            } else {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
+            val args = Bundle().apply {
+                putBoolean(MediaStore.QUERY_ARG_INCLUDE_RECENTLY_UNMOUNTED_VOLUMES, true)
+                if (trashedOnly) putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+            }
+            val cursor = contentResolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                args,
+                null,
+            ) ?: throw IllegalStateException(
+                "存在性查询没有返回游标 video=$video trashedOnly=$trashedOnly",
+            )
+            cursor.use {
+                val idColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                while (it.moveToNext()) ids += it.getLong(idColumn)
+            }
+        }
+        return ids
     }
 
     private fun query(mediaType: MediaType, trashedOnly: Boolean): List<PhotoItem> {
