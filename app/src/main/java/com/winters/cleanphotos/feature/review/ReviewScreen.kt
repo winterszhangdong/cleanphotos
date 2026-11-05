@@ -205,7 +205,8 @@ fun ReviewScreen(
             onNavigateBack()
         }
     }
-    // 预取大图和环境光：往后 3 张（连续快滑时每 ~180ms 前进一张，只预取 2 张会被追上）、往回 2 张。当前页的环境光也在这里先做好。
+    // 预取一倍图和环境光：往后 3 张（连续快滑时每 ~180ms 前进一张，只预取 2 张会被追上）、往回 2 张。
+    // 当前页的环境光也在这里先做好。不预取放大用的原图，那只在用户放大当前这一张时才解码。
     val imageSize = remember(size) { IntSize(size.width.coerceAtLeast(1), size.height.coerceAtLeast(1)) }
     LaunchedEffect(stage.currentKey, uiState.pages, imageSize) {
         val i = uiState.pages.indexOfFirst { it.key == stage.currentKey }

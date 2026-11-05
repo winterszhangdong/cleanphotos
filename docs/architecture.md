@@ -193,7 +193,7 @@ com.example.photocleaner
 * 启动时后台预载全部字重（`CleanPhotosApp`），避免首次用到某个中文字重时主线程同步加载
 * 动画中的色调（清理页压暗 / 去色、显影）用 `graphicsLayer` 的 `colorFilter`，不用每帧 `saveLayer`：内容在离屏层里只画一次，之后每帧只改合成参数。会随动画每帧变化的绘制（如清理页的过阈值描边、导航下划线）放在色调层 / 玻璃模糊层之外的独立层里，否则会让整层每帧重画
 * 动效是否流畅以 release 包为准（`make install-release`，R8 + 库自带基线配置）；debug 包同样的动画会明显更卡
-* Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，网格、小结页、清理页和垃圾桶预览的静态层用视频 uri 画首帧；网格缩略图和清理页大图都用 `RGB_565`。播放是另一层 TextureView，不改静态图请求。清理页环境光把 96px 小图按屏幕上的 36dp 折算半径做一次盒式模糊并缓存，当前页、左右邻页、离场页和撤回让位页直接画这张图。alpha 为 0 的垫底页不画。不再对整页做实时 RenderEffect
+* Coil：内存缓存 30%，解码限 2 个并发；注册 coil-video 的 `VideoFrameDecoder`，网格、小结页、清理页和垃圾桶预览的静态层用视频 uri 画首帧；网格缩略图和 JPEG / HEIC 的清理页大图都用 `RGB_565`。网格缩略图走 `GridThumbFetcher`（系统 `loadThumbnail`）。RAW 和 PNG 在清理页、相似对比的一倍图和环境光上不解码原图，请求 `StillPreview`，同样走系统缩略图；缩略图失败才打开原文件，并且不把原文件写进 Coil 磁盘缓存。放大超过 1 倍时只给当前这一张解码约 3 倍屏幕边长的原图（仍是 `RGB_565`），一倍图先跟着放大，解码成功并进内存缓存后才换上，失败就留在一倍图。不预取这张大图。放回 1 倍后它留在内存里。Android 8–9 没有 `loadThumbnail`，退回按目标尺寸采样原图。播放是另一层 TextureView，不改静态图请求。清理页环境光把 96px 小图按屏幕上的 36dp 折算半径做一次盒式模糊并缓存，当前页、左右邻页、离场页和撤回让位页直接画这张图。alpha 为 0 的垫底页不画。不再对整页做实时 RenderEffect
 * 通用组件：玻璃按钮 `GlassIconButton`、底部导航胶囊 `AppBottomBar`、里程表数字 `OdometerText`、显影 `Modifier.develop`、范围刻度 `ScopeDial`
 * 间距
 * 通用组件

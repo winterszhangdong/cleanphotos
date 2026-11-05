@@ -21,11 +21,32 @@ private val RAW_EXTENSIONS = setOf(
     "gpr",
 )
 
-fun isRawFileName(displayName: String?): Boolean {
-    if (displayName.isNullOrEmpty()) return false
+fun isRawFileName(displayName: String?): Boolean = fileExtension(displayName) in RAW_EXTENSIONS
+
+/**
+ * 清理页一倍时不解原图的静态图。
+ * JPEG / HEIC 可以边解码边缩小；相机 RAW 会整张去马赛克，PNG 要整文件解压。
+ * 只看最后一个扩展名，不看 MIME。没有扩展名时不是。
+ */
+fun isHeavyStill(displayName: String?): Boolean {
+    val ext = fileExtension(displayName) ?: return false
+    return ext in RAW_EXTENSIONS || ext == "png"
+}
+
+/**
+ * 放大到上限时要的解码边长。3 和清理页缩放上限（`GestureTokens.ZOOM_MAX`）一致，领域层不引用设计 token。
+ * 边长至少 1。
+ */
+const val SHARP_STILL_SCALE = 3
+
+fun sharpStillSize(width: Int, height: Int, scale: Int = SHARP_STILL_SCALE): Pair<Int, Int> =
+    (width * scale).coerceAtLeast(1) to (height * scale).coerceAtLeast(1)
+
+private fun fileExtension(displayName: String?): String? {
+    if (displayName.isNullOrEmpty()) return null
     val dot = displayName.lastIndexOf('.')
-    if (dot < 0 || dot == displayName.lastIndex) return false
-    return displayName.substring(dot + 1).lowercase() in RAW_EXTENSIONS
+    if (dot < 0 || dot == displayName.lastIndex) return null
+    return displayName.substring(dot + 1).lowercase()
 }
 
 /**

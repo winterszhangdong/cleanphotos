@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -46,7 +48,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.winters.cleanphotos.core.navigation.sharedPhoto
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.memory.MemoryCache
+import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.SuccessResult
 import coil.size.Precision
 import coil.size.Scale
 import com.winters.cleanphotos.R
@@ -60,10 +66,14 @@ import com.winters.cleanphotos.core.design.PhotoMarkText
 import com.winters.cleanphotos.core.design.develop
 import com.winters.cleanphotos.core.design.rememberDevelopState
 import com.winters.cleanphotos.core.design.requiresDevelop
+import com.winters.cleanphotos.core.image.StillPreview
 import com.winters.cleanphotos.domain.model.DaySummary
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.ReviewPage
+import com.winters.cleanphotos.domain.model.SHARP_STILL_SCALE
+import com.winters.cleanphotos.domain.model.isHeavyStill
 import com.winters.cleanphotos.domain.model.isRawFileName
+import com.winters.cleanphotos.domain.model.sharpStillSize
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
@@ -311,7 +321,13 @@ private fun ReviewPhotoImage(
     videoOverlay: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val request = remember(photo.id, photo.uri, imageSize) { reviewImageRequest(context, photo, imageSize) }
+    // 只在越过 1 倍时重组一次。JPEG 不读 zoom，捏合的每一帧不进组合。
+    val sharpen by remember(photo.id, role) {
+        derivedStateOf {
+            isHeavyStill(photo.displayName) && role == PageRole.Current && state.handler.isZoomed
+        }
+    }
+    val request = rememberReviewImageRequest(photo, imageSize, sharpen)
     val scope = rememberCoroutineScope()
     val roleNow = androidx.compose.runtime.rememberUpdatedState(role)
     // 照片保持原比例：按宽高比 Fit 居中；宽高未知时铺满容器、内容按 Fit 画
@@ -327,8 +343,10 @@ private fun ReviewPhotoImage(
     )
     // 决定 7：只在「第一次从磁盘解码」时显影。组合时就能判断：大图不在内存缓存 → 这次一定走磁盘。
     // 若此刻它就是当前页，立即开始显影（同一帧压暗），解码期间显示网格缩略图占位，避免空帧，也不会「亮一帧再变暗」。
-    val memoryCache = remember { coil.Coil.imageLoader(context).memoryCache }
-    val diskDecode = remember(photo.id, imageSize) { memoryCache?.get(request.memoryCacheKey!!) == null }
+    val memoryCache = remember { context.imageLoader.memoryCache }
+    val screenKey = reviewScreenMemoryKey(photo.id, imageSize)
+    // 显影只看一倍图。放大后换上的原图不在这里，也不在 onSuccess 里再显影一次。
+    val diskDecode = remember(photo.id, imageSize) { memoryCache?.get(MemoryCache.Key(screenKey)) == null }
     val hadThumb = remember(photo.id) { memoryCache?.get(coil.memory.MemoryCache.Key(com.winters.cleanphotos.core.design.photoThumbKey(photo.id))) != null }
     // 被共享元素从网格带进来时不显影——缩略图长成大图的过程中亮度不能变
     val navEntering = com.winters.cleanphotos.core.navigation.isNavEntering()
@@ -371,6 +389,7 @@ private fun ReviewPhotoImage(
                 .sharedPhoto(photo.id, expandsHere = true, enabled = role == PageRole.Current)
                 .develop(developState),
             onSuccess = { success ->
+                if (success.result.request.memoryCacheKey?.key != screenKey) return@AsyncImage
                 val firstDiskDecode = success.result.dataSource.requiresDevelop()
                 // 组合时已开始显影的不再重复；组合时还不是当前页、后来才在当前页完成磁盘解码的，在这里补显影
                 val develop = firstDiskDecode && !developStarted && !skipDevelop && roleNow.value == PageRole.Current && state.axis != DragAxis.Horizontal
@@ -391,20 +410,89 @@ private fun ReviewPhotoImage(
     }
 }
 
-internal fun reviewImageRequest(context: android.content.Context, photo: PhotoItem, size: IntSize): ImageRequest =
-    ImageRequest.Builder(context)
-        .data(photo.uri)
+internal fun reviewScreenMemoryKey(photoId: Long, size: IntSize): String =
+    "review-$photoId-${size.width}x${size.height}"
+
+internal fun reviewImageRequest(context: android.content.Context, photo: PhotoItem, size: IntSize): ImageRequest {
+    val heavy = isHeavyStill(photo.displayName)
+    val builder = ImageRequest.Builder(context)
+        .data(if (heavy) StillPreview(photo.uri) else photo.uri)
         .size(size.width.coerceAtLeast(1), size.height.coerceAtLeast(1))
         .precision(Precision.INEXACT)
         // 照片按原比例 Fit 显示，解码不必大过屏幕。
         // 清理页同时有当前页、邻页和离场页，每张都是接近屏幕大小的位图；RGB_565 把每张的内存和带宽减半。
+        // RAW / PNG 一倍时不走这条解码：StillPreview 取系统缩略图，原图只在放大当前张时再解。
         .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
         .scale(Scale.FIT)
-        .memoryCacheKey("review-${photo.id}-${size.width}x${size.height}")
-        .diskCacheKey(photo.uri.toString())
+        .memoryCacheKey(reviewScreenMemoryKey(photo.id, size))
         .placeholderMemoryCacheKey(com.winters.cleanphotos.core.design.photoThumbKey(photo.id))
         .crossfade(false)
+    if (heavy) {
+        // 缩略图失败才会打开原文件。不要把 RAW / PNG 拷进只有 2% 的磁盘缓存。
+        builder.diskCachePolicy(CachePolicy.DISABLED)
+    } else {
+        builder.diskCacheKey(photo.uri.toString())
+    }
+    return builder.build()
+}
+
+/** 放大到上限仍清楚的那张。只解码这一张，不预取邻页。失败就留在一倍图上。 */
+internal fun reviewSharpRequest(context: android.content.Context, photo: PhotoItem, screen: IntSize): ImageRequest {
+    val (w, h) = sharpStillSize(screen.width, screen.height, SHARP_STILL_SCALE)
+    return ImageRequest.Builder(context)
+        .data(photo.uri)
+        .size(w, h)
+        .precision(Precision.INEXACT)
+        .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+        .scale(Scale.FIT)
+        .memoryCacheKey("review-${photo.id}-${w}x${h}")
+        .diskCachePolicy(CachePolicy.DISABLED)
+        .placeholderMemoryCacheKey(reviewScreenMemoryKey(photo.id, screen))
+        .crossfade(false)
         .build()
+}
+
+/**
+ * 一倍图一直是 [reviewImageRequest]。RAW / PNG 放大超过 1 倍时，在后台解码 [reviewSharpRequest]；
+ * 只有解码成功并且已经在内存缓存里，才把 AsyncImage 换成它。失败、取消、还没好，都继续显示一倍图。
+ * 放回 1 倍后位图留在内存里，再放大不用重新解码。
+ */
+@Composable
+internal fun rememberReviewImageRequest(
+    photo: PhotoItem,
+    screen: IntSize,
+    sharpen: Boolean,
+): ImageRequest {
+    val context = LocalContext.current
+    val heavy = isHeavyStill(photo.displayName)
+    val screenRequest = remember(photo.id, photo.uri, screen) { reviewImageRequest(context, photo, screen) }
+    val sharpRequest = remember(photo.id, photo.uri, screen, heavy) {
+        if (heavy) reviewSharpRequest(context, photo, screen) else null
+    }
+    var ready by remember(photo.id, photo.uri, screen.width, screen.height) {
+        mutableStateOf(sharpRequest != null && reviewBitmapReady(context, sharpRequest))
+    }
+    LaunchedEffect(sharpRequest, sharpen) {
+        val sharp = sharpRequest ?: return@LaunchedEffect
+        if (!sharpen) return@LaunchedEffect
+        if (!reviewBitmapReady(context, sharp)) ready = false
+        if (reviewBitmapReady(context, sharp)) {
+            ready = true
+            return@LaunchedEffect
+        }
+        val result = context.imageLoader.execute(sharp)
+        // 失败、或成功但没留在内存里：保持一倍图。不能先把 AsyncImage 指到这张请求上，失败会把占位清掉。
+        ready = result is SuccessResult && reviewBitmapReady(context, sharp)
+    }
+    val sharp = sharpRequest
+    val showSharp = sharpen && ready && sharp != null && reviewBitmapReady(context, sharp)
+    return if (showSharp) sharp else screenRequest
+}
+
+private fun reviewBitmapReady(context: android.content.Context, request: ImageRequest): Boolean {
+    val key = request.memoryCacheKey ?: return false
+    return context.imageLoader.memoryCache?.get(key) != null
+}
 
 /** 上滑底部琥珀显影光（未过阈值约 38%），下滑四周极淡中性暗角。 */
 @Composable

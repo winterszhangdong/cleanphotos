@@ -37,4 +37,32 @@ class RawFileTest {
         assertNull(photoMarkLine(null, null, null))
         assertNull(photoMarkLine("", "", ""))
     }
+
+    @Test
+    fun `RAW 和 PNG 是重图，JPEG 和没有扩展名不是`() {
+        assertTrue(isHeavyStill("a.dng"))
+        assertTrue(isHeavyStill("a.DNG"))
+        assertTrue(isHeavyStill("a.CR2"))
+        assertTrue(isHeavyStill("shot.png"))
+        assertTrue(isHeavyStill("shot.PNG"))
+        assertFalse(isHeavyStill("a.jpg"))
+        assertFalse(isHeavyStill("a.JPEG"))
+        assertFalse(isHeavyStill("a.heic"))
+        assertFalse(isHeavyStill("a.HEIF"))
+        assertFalse(isHeavyStill("archive.dng.jpg"))
+        assertFalse(isHeavyStill("photo.png.jpg"))
+        assertFalse(isHeavyStill("clip.mp4"))
+        assertFalse(isHeavyStill("photo"))
+        assertFalse(isHeavyStill("photo."))
+        assertFalse(isHeavyStill(null))
+        assertFalse(isHeavyStill(""))
+    }
+
+    @Test
+    fun `清楚图边长是屏幕的 3 倍，至少 1`() {
+        assertEquals(3240 to 7200, sharpStillSize(1080, 2400))
+        assertEquals(3 to 3, sharpStillSize(1, 1))
+        assertEquals(1 to 1, sharpStillSize(0, 0))
+        assertEquals(20 to 10, sharpStillSize(10, 5, scale = 2))
+    }
 }

@@ -17,11 +17,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import android.graphics.drawable.BitmapDrawable
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Precision
 import com.winters.cleanphotos.core.design.ApiTier
+import com.winters.cleanphotos.core.image.StillPreview
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.isHeavyStill
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -148,15 +151,20 @@ private object ReviewAmbientCache {
     }
 }
 
-private fun ambientRequest(context: Context, photo: PhotoItem) = ImageRequest.Builder(context)
-    .data(photo.uri)
-    .size(AMBIENT_SOURCE_PX)
-    .precision(Precision.INEXACT)
-    .bitmapConfig(Bitmap.Config.RGB_565)
-    .allowHardware(false)
-    .memoryCacheKey("review-amb-${photo.id}")
-    .crossfade(false)
-    .build()
+private fun ambientRequest(context: Context, photo: PhotoItem): ImageRequest {
+    val heavy = isHeavyStill(photo.displayName)
+    return ImageRequest.Builder(context)
+        .data(if (heavy) StillPreview(photo.uri) else photo.uri)
+        .size(AMBIENT_SOURCE_PX)
+        .precision(Precision.INEXACT)
+        .bitmapConfig(Bitmap.Config.RGB_565)
+        .allowHardware(false)
+        .memoryCacheKey("review-amb-${photo.id}")
+        // 缩略图失败时会退回原文件。不要把 RAW / PNG 拷进 Coil 的磁盘缓存。
+        .diskCachePolicy(if (heavy) CachePolicy.DISABLED else CachePolicy.ENABLED)
+        .crossfade(false)
+        .build()
+}
 
 /** 解码 96px 并模糊一次。已经缓存过的直接返回。失败（文件不在）返回 null，页面露出暗房底色。 */
 internal suspend fun loadReviewAmbient(

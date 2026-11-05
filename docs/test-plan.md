@@ -60,7 +60,7 @@
 清理页可以正确显示当前照片
 清理页可以左右滑动切换照片
 清理页照片保持原始宽高比
-清理页 pinch / 双击缩放过程中不能闪烁、重载或退回占位
+清理页 pinch / 双击缩放过程中不能闪烁、重载或退回占位。RAW / PNG 超过 1 倍时当前张换成更清楚的，等待中仍是缩略图，换上时位置不跳；失败不退成空白
 横滑轮转动画中当前页和进入页必须同时可见，任意图片比例下动画参数一致
 向上滑动可以写入 App 内收藏状态（DataStore，不触发系统授权）
 向下滑动可以移动到 App 内垃圾桶（DataStore 软删除，不触发系统授权）
@@ -122,7 +122,7 @@ AppTrashStateDataSource 编码与解析（encodeEntry / parseEntry）
 AppTrashStateDataSource CRUD（upsert / remove / removeEntries / removeMissingEntries）
 PhotoPager 的轮播过渡参数（pageScale、pageAlpha、zIndex）、切页位置连续性、任意图片比例验证和稳定请求键
 视频时长格式（DurationFormatter：m:ss / h:mm:ss）
-RAW 扩展名与左下角一行（RawFileTest：dng / CR3 大小写、jpeg / heic / 无扩展名不是；RAW、动态、大小按有的用「 · 」连起来）
+RAW 扩展名与左下角一行（RawFileTest：dng / CR3 大小写、jpeg / heic / 无扩展名不是；RAW、动态、大小按有的用「 · 」连起来；`isHeavyStill` 只把 RAW 和 PNG 当重图；`sharpStillSize` 是屏幕边长的 3 倍，至少 1）
 Android 8–9 DATA → relativePath（relativePathFromData / normalizeRelativePath）
 权限判定（图片可用、13+ 完整访问要图片+视频、请求列表、补请求视频权限、能否读视频）
 动态照片识别（MotionPhotoLocatorTest：Google 属性与元素、Padding 不计入、多项 Length 相加、同一份 XMP 出现两次不把 Length 加两遍、MicroVideo、vivo Exif 0x02BC 与 uuid 越界尾、vivo Description 夹无关 rdf:li、属性反序、目录项缺 Length 不借用相邻项、OPPO VideoLength 截尾、OPPO 长度失败后的 EOI 扫描、三星 SEFT 有 mpv2 头和无 mpv2 头、荣耀 LIVE_、LIVE_ 起点晚 20 字节时就近扫描、HEIC mpvd、华为 Make 扫描、普通 JPEG null、偏移不是 ftyp null、moov 越出文件 null）

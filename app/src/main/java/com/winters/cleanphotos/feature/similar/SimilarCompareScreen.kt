@@ -46,7 +46,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -74,11 +73,12 @@ import com.winters.cleanphotos.core.navigation.DockMode
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarGroup
 import com.winters.cleanphotos.domain.model.SimilarMark
+import com.winters.cleanphotos.domain.model.isHeavyStill
 import com.winters.cleanphotos.domain.model.isRawFileName
 import com.winters.cleanphotos.feature.review.ReviewGestureMath
 import com.winters.cleanphotos.feature.review.ReviewThresholds
 import com.winters.cleanphotos.feature.review.detectReviewGestures
-import com.winters.cleanphotos.feature.review.reviewImageRequest
+import com.winters.cleanphotos.feature.review.rememberReviewImageRequest
 import com.winters.cleanphotos.feature.review.tone
 import kotlin.math.abs
 import kotlinx.coroutines.flow.first
@@ -315,8 +315,11 @@ private fun ComparePage(
     motion: SimilarCompareMotion,
     imageSize: IntSize,
 ) {
-    val context = LocalContext.current
-    val request = remember(photo.id, photo.uri, imageSize) { reviewImageRequest(context, photo, imageSize) }
+    // 和清理页同一条：一倍用屏幕大小的图；RAW / PNG 放大时只给当前这张换更清楚的。邻页不读 zoom。
+    val sharpen by remember(photo.id, slot) {
+        derivedStateOf { isHeavyStill(photo.displayName) && slot == 0 && motion.isZoomed }
+    }
+    val request = rememberReviewImageRequest(photo, imageSize, sharpen)
     if (slot == 0) {
         SideEffect {
             motion.fit = ReviewGestureMath.fitSize(photo.width, photo.height, motion.width, motion.height)

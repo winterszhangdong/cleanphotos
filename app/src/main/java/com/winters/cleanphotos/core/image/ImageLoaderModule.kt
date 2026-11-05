@@ -18,7 +18,8 @@ import javax.inject.Singleton
  * Coil ImageLoader 的 Hilt 模块。
  *
  * 内存缓存 30%、磁盘缓存 2%。解码限在 2 个线程：大图解码是 CPU 活，
- * 和默认的线程池抢在一起会让翻页那几帧掉帧。网格缩略图用 [GridThumbFetcher]（自己关掉 Crossfade）。
+ * 和默认的线程池抢在一起会让翻页那几帧掉帧。网格缩略图用 [GridThumbFetcher]，
+ * RAW / PNG 的一倍图用 [StillPreviewFetcher]（自己关掉 Crossfade）。
  * [VideoFrameDecoder] 让清理页、小结页、垃圾桶预览里直接用 photo.uri 的 AsyncImage 能画出视频首帧。
  */
 @Module
@@ -34,6 +35,7 @@ object ImageLoaderModule {
             .components {
                 add(VideoFrameDecoder.Factory())
                 add(GridThumbFetcher.Factory())
+                add(StillPreviewFetcher.Factory())
             }
             .memoryCache {
                 MemoryCache.Builder(context)
