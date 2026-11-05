@@ -110,7 +110,7 @@ internal fun ReviewStage(
             .background(DarkroomColors.Room)
             .pointerInput(state) { detectReviewGestures(state.handler) }
             // 读屏用户没法做上下滑 / 左右翻页手势：同样的操作以自定义操作提供。
-            // 视频页的单击语义走和照片单击同一条路径，中心键本身不可点。
+            // 视频播放中，单击只显隐暂停键和进度行。暂停和继续在中心键上。
             .semantics {
                 customActions = accessibilityActions
                 if (videoTapLabel != null) {

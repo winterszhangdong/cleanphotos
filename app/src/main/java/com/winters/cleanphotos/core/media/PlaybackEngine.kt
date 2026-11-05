@@ -240,10 +240,11 @@ class PlaybackEngine(context: Context) {
         player.play()
     }
 
-    fun seekFraction(fraction: Float) {
-        if (released) return
+    /** @return 时长还没有时不跳，调用方据此决定要不要收回控件。 */
+    fun seekFraction(fraction: Float): Boolean {
+        if (released) return false
         val duration = player.duration
-        if (duration <= 0L) return
+        if (duration <= 0L) return false
         // 先改成播放态再 seek。拖到结尾若同步进入 STATE_ENDED，监听器会暂停并回到第 0 帧，这时不再 play。
         val pose = poseAfterUserSeek()
         ended = pose.ended
@@ -251,9 +252,10 @@ class PlaybackEngine(context: Context) {
         started = pose.started
         val at = (duration * fraction.coerceIn(0f, 1f)).toLong()
         player.seekTo(at)
-        if (ended) return
+        if (ended) return true
         positionMs = at
         player.play()
+        return true
     }
 
     fun refreshPosition(allowPosition: Boolean) {

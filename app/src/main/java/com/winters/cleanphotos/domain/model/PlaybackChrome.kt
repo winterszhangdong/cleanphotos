@@ -17,6 +17,10 @@ enum class DetailsMode {
 
 data class PlaybackChrome(
     val showCenter: Boolean,
+    /** 底部播放进度行。和中心键一起出现。 */
+    val showProgress: Boolean,
+    /** 中心键画暂停。否则画播放。 */
+    val showPauseIcon: Boolean,
     val details: DetailsMode,
 )
 
@@ -53,32 +57,49 @@ fun playbackChrome(
     gestureActive: Boolean,
     pinnedOrExiting: Boolean,
     awaitingAutoplay: Boolean = false,
+    /** 播放中用户点出了暂停键和进度行。没在播时中心键自己会出来，不看这个。 */
+    transportShown: Boolean = false,
 ): PlaybackChrome {
     val warmingUp = awaitingAutoplay && phase == PlaybackPhase.NotStarted
-    val showCenter = isVideo && !gestureActive && !pinnedOrExiting && phase != PlaybackPhase.Playing && !warmingUp
+    val blocked = gestureActive || pinnedOrExiting
+    val showPause = isVideo && !blocked && phase == PlaybackPhase.Playing && transportShown
+    val showPlay = isVideo && !blocked && phase != PlaybackPhase.Playing && !warmingUp
     val details = when {
         !isVideo -> DetailsMode.Keep
-        gestureActive || pinnedOrExiting -> DetailsMode.Hidden
+        blocked -> DetailsMode.Hidden
         phase == PlaybackPhase.Playing -> DetailsMode.Hidden
         phase == PlaybackPhase.UserPaused -> DetailsMode.Shown
         else -> DetailsMode.Keep
     }
-    return PlaybackChrome(showCenter, details)
+    return PlaybackChrome(
+        showCenter = showPause || showPlay,
+        showProgress = showPause || showPlay,
+        showPauseIcon = showPause,
+        details = details,
+    )
 }
 
 sealed interface ReviewPhotoTap {
-    /** 视频单击：切换播放。 [showDetails] 是切换前是否正在播放，也就是切换后的用户暂停。 */
-    data class TogglePlay(val showDetails: Boolean) : ReviewPhotoTap
+    /** 视频播放中单击：只切换暂停键和进度行，不改播放。 */
+    data class ToggleTransport(val show: Boolean) : ReviewPhotoTap
 
     /** 静态图 / 动态照片单击：只切换详情。 */
     data class ToggleDetails(val showDetails: Boolean) : ReviewPhotoTap
 }
 
-fun reviewPhotoTap(isVideo: Boolean, playing: Boolean, detailsOpen: Boolean): ReviewPhotoTap =
-    if (isVideo) {
-        ReviewPhotoTap.TogglePlay(showDetails = playing)
-    } else {
-        ReviewPhotoTap.ToggleDetails(showDetails = !detailsOpen)
+/**
+ * 视频没在播时返回 null：开播和继续只走中心键，单击空白不暂停也不播放。
+ */
+fun reviewPhotoTap(
+    isVideo: Boolean,
+    playing: Boolean,
+    transportShown: Boolean,
+    detailsOpen: Boolean,
+): ReviewPhotoTap? =
+    when {
+        isVideo && playing -> ReviewPhotoTap.ToggleTransport(show = !transportShown)
+        isVideo -> null
+        else -> ReviewPhotoTap.ToggleDetails(showDetails = !detailsOpen)
     }
 
 /** 视频播完：回到第 0 帧并暂停，中心播放键出现。 */

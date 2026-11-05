@@ -144,6 +144,8 @@ fun TrashPreviewOverlay(
     val pageIsVideo = playback is PlaybackTarget.Video && currentPhoto?.uri == playback.uri
     val pageIsMotion = playback is PlaybackTarget.MotionPhoto && currentPhoto?.uri == playback.uri
     val videoOnThisPage = videoHostId != null && videoHostId == currentPhoto?.id
+    var transportShown by remember { mutableStateOf(false) }
+    LaunchedEffect(displayPhotoId) { transportShown = false }
     val trashChrome = playbackChrome(
         isVideo = pageIsVideo,
         phase = playbackPhase(engine.started, engine.userPaused, engine.ended, engine.playing),
@@ -157,8 +159,13 @@ fun TrashPreviewOverlay(
             userPaused = engine.userPaused,
             ended = engine.ended,
         ),
+        transportShown = transportShown,
     )
-    val videoTapLabel = if (pageIsVideo) stringResource(R.string.cd_playback_toggle) else null
+    val videoTapLabel = if (pageIsVideo && engine.playing) {
+        stringResource(if (transportShown) R.string.cd_playback_hide_controls else R.string.cd_playback_show_controls)
+    } else {
+        null
+    }
 
     // 同步外部 currentPhotoId 到本地显示状态
     LaunchedEffect(photos, currentPhotoId) {
@@ -275,6 +282,7 @@ fun TrashPreviewOverlay(
                         onDrag = { delta ->
                             // 垃圾桶预览只支持水平滑动，忽略垂直分量。任一方向的拖动都先停住播放。
                             if (!zoomState.isZoomed) {
+                                transportShown = false
                                 if (playbackSettled) playbackSettled = false
                                 val index = photos.indexOfFirst { it.id == displayPhotoId }
                                 scope.launch {
@@ -333,8 +341,8 @@ fun TrashPreviewOverlay(
                         onSingleTap = {
                             val photo = photos.getOrNull(shownIndex)
                             val playing = engine.media
-                            if (photo != null && playing is PlaybackTarget.Video && playing.uri == photo.uri && videoPinnedId == null) {
-                                engine.togglePlay()
+                            if (photo != null && playing is PlaybackTarget.Video && playing.uri == photo.uri && videoPinnedId == null && engine.playing) {
+                                transportShown = !transportShown
                             }
                         },
                     )
@@ -343,7 +351,7 @@ fun TrashPreviewOverlay(
                     if (videoTapLabel != null) {
                         Modifier.semantics {
                             onClick(label = videoTapLabel) {
-                                engine.togglePlay()
+                                transportShown = !transportShown
                                 true
                             }
                         }
@@ -364,6 +372,11 @@ fun TrashPreviewOverlay(
         ) {
             PlaybackCenterButton(
                 visible = pageIsVideo && videoOnThisPage && trashChrome.showCenter,
+                showPause = trashChrome.showPauseIcon,
+                onClick = {
+                    engine.togglePlay()
+                    transportShown = false
+                },
                 modifier = Modifier.align(Alignment.Center),
             )
         }
@@ -386,12 +399,13 @@ fun TrashPreviewOverlay(
                     .padding(horizontal = Dimens.PreviewSide),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (pageIsVideo && videoPinnedId == null) {
+                if (pageIsVideo && videoPinnedId == null && trashChrome.showProgress) {
                     PlaybackProgressRow(
                         engine = engine,
                         muted = playbackMuted,
                         onMutedChange = onPlaybackMuted,
                         timeStyle = DarkroomText.RvFile,
+                        onSeeked = { transportShown = false },
                     )
                     Spacer(Modifier.height(Dimens.GhostGap))
                 }

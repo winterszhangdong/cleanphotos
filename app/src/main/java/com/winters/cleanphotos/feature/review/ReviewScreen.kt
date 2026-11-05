@@ -226,6 +226,8 @@ fun ReviewScreen(
     val pageIsMotion = playback is PlaybackTarget.MotionPhoto && currentPhoto?.uri == playback.uri
     // 拖动在 onDragEnd 里先清掉，playbackSettled 要等弹簧结束才回来，中心键盖住整段回弹。
     val gestureActive = stage.dragging || !stage.playbackSettled
+    var transportShown by remember { mutableStateOf(false) }
+    LaunchedEffect(currentPhoto?.id) { transportShown = false }
     val phase = playbackPhase(engine.started, engine.userPaused, engine.ended, engine.playing)
     val chrome = playbackChrome(
         isVideo = pageIsVideo,
@@ -240,29 +242,36 @@ fun ReviewScreen(
             userPaused = engine.userPaused,
             ended = engine.ended,
         ),
+        transportShown = transportShown,
     )
     LaunchedEffect(engine.playing, pageIsVideo) {
         if (pageIsVideo && engine.playing) manualDetails = false
     }
     // 视频的详情跟阶段走：播放中收起，用户暂停展开，未开始 / 播完保持手动开关。
-    // 手势取消回弹后，用户暂停会把详情带回来；静态图仍只靠手动开关，取消不自动恢复。
+    // 播放中的单击只打开暂停键和进度行。手势取消回弹后，用户暂停会把详情带回来。
     val showDetails = when {
         !pageIsVideo -> manualDetails
         chrome.details == DetailsMode.Shown -> true
         chrome.details == DetailsMode.Hidden -> false
         else -> manualDetails
     }
+    val playbackProgressVisible = !tutorial && pageIsVideo && stage.playbackPinnedKey == null && chrome.showProgress
     stage.onPhotoTap = {
-        if (!tutorial) when (val tap = reviewPhotoTap(pageIsVideo, engine.playing, manualDetails)) {
-            is ReviewPhotoTap.TogglePlay -> {
-                engine.togglePlay()
-                manualDetails = tap.showDetails
-            }
+        if (!tutorial) when (val tap = reviewPhotoTap(pageIsVideo, engine.playing, transportShown, manualDetails)) {
+            is ReviewPhotoTap.ToggleTransport -> transportShown = tap.show
             is ReviewPhotoTap.ToggleDetails -> manualDetails = tap.showDetails
+            null -> Unit
         }
     }
-    stage.onDetailsDismiss = { manualDetails = false }
-    val videoTapLabel = if (pageIsVideo && !tutorial) stringResource(R.string.cd_playback_toggle) else null
+    stage.onDetailsDismiss = {
+        manualDetails = false
+        transportShown = false
+    }
+    val videoTapLabel = if (pageIsVideo && !tutorial && engine.playing) {
+        stringResource(if (transportShown) R.string.cd_playback_hide_controls else R.string.cd_playback_show_controls)
+    } else {
+        null
+    }
     // 只在「是否竖向拖动 / 方向」翻转时重组整屏；直接读 stage.dy 会让拖动的每一帧都重组 ReviewScreen（P4 卡顿剖析）
     val vertical by remember { derivedStateOf { stage.isVerticalDrag } }
     val upDrag by remember { derivedStateOf { stage.dy < 0f } }
@@ -327,6 +336,11 @@ fun ReviewScreen(
 
             PlaybackCenterButton(
                 visible = !tutorial && pageIsVideo && playbackOnHost is PlaybackTarget.Video && chrome.showCenter,
+                showPause = chrome.showPauseIcon,
+                onClick = {
+                    engine.togglePlay()
+                    transportShown = false
+                },
                 modifier = Modifier.align(Alignment.Center).zIndex(6f),
             )
 
@@ -366,20 +380,20 @@ fun ReviewScreen(
                 }
             }
 
-            // 上下暖黑渐变：只在详情露出来时垫在字下面；拖动时随控件一起退开
+            // 上下暖黑渐变：详情垫上下两头；只唤出进度行时只垫底部，字才看得清
             if (currentPhoto != null && !tutorial && showDetails) {
                 Box(
                     Modifier.zIndex(5f).align(Alignment.TopCenter).fillMaxWidth().height(if (landscape) 96.dp else 160.dp).navChrome()
                         .graphicsLayer { alpha = stage.chromeAlpha.value }
                         .background(Brush.verticalGradient(listOf(DarkroomColors.ScrimTop, Color.Transparent))),
                 )
-                if (!landscape) {
-                    Box(
-                        Modifier.zIndex(5f).align(Alignment.BottomCenter).fillMaxWidth().height(200.dp).navChrome()
-                            .graphicsLayer { alpha = stage.chromeAlpha.value }
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, DarkroomColors.ScrimBottom))),
-                    )
-                }
+            }
+            if (currentPhoto != null && !tutorial && !landscape && (showDetails || (playbackProgressVisible && uiState.undo == null))) {
+                Box(
+                    Modifier.zIndex(5f).align(Alignment.BottomCenter).fillMaxWidth().height(200.dp).navChrome()
+                        .graphicsLayer { alpha = stage.chromeAlpha.value }
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, DarkroomColors.ScrimBottom))),
+                )
             }
 
             // 进度条：教学期间不显示
@@ -473,8 +487,9 @@ fun ReviewScreen(
 
             val undoVisible = uiState.undo != null && !vertical && !tutorial && !onSummary
             if (currentPhoto != null && !tutorial) {
+                val progressVisible = playbackProgressVisible && !undoVisible
                 AnimatedVisibility(
-                    visible = showDetails && !undoVisible,
+                    visible = (showDetails || progressVisible) && !undoVisible,
                     enter = fadeIn(tween(MotionDurations.SHORT)),
                     exit = fadeOut(tween(MotionDurations.MICRO)),
                     modifier = Modifier
@@ -489,16 +504,16 @@ fun ReviewScreen(
                         .graphicsLayer { alpha = stage.chromeAlpha.value },
                 ) {
                     Column {
-                        val progressVisible = pageIsVideo && stage.playbackPinnedKey == null
                         if (progressVisible) {
                             PlaybackProgressRow(
                                 engine = engine,
                                 muted = uiState.playbackMuted,
                                 onMutedChange = onPlaybackMuted,
                                 timeStyle = DarkroomText.RvFile,
+                                onSeeked = { transportShown = false },
                             )
                         }
-                        ReviewMeta(currentPhoto, includeDuration = !progressVisible)
+                        if (showDetails) ReviewMeta(currentPhoto, includeDuration = !progressVisible)
                     }
                 }
             }

@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,7 @@ import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.GlassIconButton
 import com.winters.cleanphotos.core.design.GlassSpecs
+import com.winters.cleanphotos.core.design.plainClickable
 import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
@@ -103,13 +105,18 @@ fun PlaybackAutoplay(engine: PlaybackEngine, settled: Boolean) {
 }
 
 /**
- * 64dp 玻璃中心播放键。只是视觉，没有点击：照片区域的单击才切换播放。
+ * 64dp 玻璃中心键。播放中是暂停，其余是播放。这颗键才切换播放。
  * 底是实色 [DarkroomColors.Glass] 加 [DarkroomColors.GlassRim]，不走模糊：
  * 视频画在 TextureView 上，模糊取样不到画面。
  * 出现 / 消失用 [MotionDurations.SHORT] 淡入淡出 + [MotionScales.REVEAL] 缩放。系统关闭动画时直接显隐。
  */
 @Composable
-fun PlaybackCenterButton(visible: Boolean, modifier: Modifier = Modifier) {
+fun PlaybackCenterButton(
+    visible: Boolean,
+    showPause: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val animations = LocalAnimationsEnabled.current
     val fade = tween<Float>(MotionDurations.SHORT, easing = MotionEasings.Standard)
     AnimatedVisibility(
@@ -131,12 +138,13 @@ fun PlaybackCenterButton(visible: Boolean, modifier: Modifier = Modifier) {
                 .size(Dimens.PlaybackCenter)
                 .clip(CircleShape)
                 .background(DarkroomColors.Glass)
-                .border(Dimens.Hairline, DarkroomColors.GlassRim, CircleShape),
+                .border(Dimens.Hairline, DarkroomColors.GlassRim, CircleShape)
+                .plainClickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = DarkroomIcons.Play,
-                contentDescription = stringResource(R.string.cd_playback_play),
+                imageVector = if (showPause) DarkroomIcons.Pause else DarkroomIcons.Play,
+                contentDescription = stringResource(if (showPause) R.string.cd_playback_pause else R.string.cd_playback_play),
                 tint = DarkroomColors.Paper,
                 modifier = Modifier.size(Dimens.PlaybackCenterIcon),
             )
@@ -155,8 +163,10 @@ fun PlaybackProgressRow(
     onMutedChange: (Boolean) -> Unit,
     timeStyle: TextStyle,
     modifier: Modifier = Modifier,
+    onSeeked: () -> Unit = {},
 ) {
     val playing = engine.playing
+    val seeked = rememberUpdatedState(onSeeked)
     var scrub by remember { mutableFloatStateOf(Float.NaN) }
     val scrubbing = !scrub.isNaN()
     LaunchedEffect(playing, scrubbing, engine.generation) {
@@ -190,7 +200,7 @@ fun PlaybackProgressRow(
                     contentDescription = progressLabel
                     progressBarRangeInfo = ProgressBarRangeInfo(fraction.coerceIn(0f, 1f), 0f..1f)
                     setProgress { value ->
-                        engine.seekFraction(value)
+                        if (engine.seekFraction(value)) seeked.value()
                         true
                     }
                 }
@@ -209,8 +219,9 @@ fun PlaybackProgressRow(
                             }
                         } finally {
                             if (!scrub.isNaN()) {
-                                engine.seekFraction(scrub)
+                                val fraction = scrub
                                 scrub = Float.NaN
+                                if (engine.seekFraction(fraction)) seeked.value()
                             }
                         }
                     }

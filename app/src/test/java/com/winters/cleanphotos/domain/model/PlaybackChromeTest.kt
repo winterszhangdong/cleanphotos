@@ -34,19 +34,54 @@ class PlaybackChromeTest {
 
         val playing = playbackChrome(isVideo = true, phase = PlaybackPhase.Playing, gestureActive = false, pinnedOrExiting = false)
         assertFalse(playing.showCenter)
+        assertFalse(playing.showProgress)
+        assertFalse(playing.showPauseIcon)
         assertEquals(DetailsMode.Hidden, playing.details)
 
         val paused = playbackChrome(isVideo = true, phase = PlaybackPhase.UserPaused, gestureActive = false, pinnedOrExiting = false)
         assertTrue(paused.showCenter)
+        assertTrue(paused.showProgress)
+        assertFalse(paused.showPauseIcon)
         assertEquals(DetailsMode.Shown, paused.details)
 
         val notStarted = playbackChrome(isVideo = true, phase = PlaybackPhase.NotStarted, gestureActive = false, pinnedOrExiting = false)
         assertTrue(notStarted.showCenter)
+        assertTrue(notStarted.showProgress)
+        assertFalse(notStarted.showPauseIcon)
         assertEquals(DetailsMode.Keep, notStarted.details)
 
         val ended = playbackChrome(isVideo = true, phase = PlaybackPhase.Ended, gestureActive = false, pinnedOrExiting = false)
         assertTrue(ended.showCenter)
+        assertTrue(ended.showProgress)
+        assertFalse(ended.showPauseIcon)
         assertEquals(DetailsMode.Keep, ended.details)
+    }
+
+    @Test
+    fun `播放中单击只唤出暂停键和进度行，拖动时收回`() {
+        val shown = playbackChrome(
+            isVideo = true,
+            phase = PlaybackPhase.Playing,
+            gestureActive = false,
+            pinnedOrExiting = false,
+            transportShown = true,
+        )
+        assertTrue(shown.showCenter)
+        assertTrue(shown.showProgress)
+        assertTrue(shown.showPauseIcon)
+        assertEquals(DetailsMode.Hidden, shown.details)
+
+        val dragging = playbackChrome(
+            isVideo = true,
+            phase = PlaybackPhase.Playing,
+            gestureActive = true,
+            pinnedOrExiting = false,
+            transportShown = true,
+        )
+        assertFalse(dragging.showCenter)
+        assertFalse(dragging.showProgress)
+        assertFalse(dragging.showPauseIcon)
+        assertEquals(DetailsMode.Hidden, dragging.details)
     }
 
     @Test
@@ -130,6 +165,7 @@ class PlaybackChromeTest {
             awaitingAutoplay = true,
         )
         assertFalse(waiting.showCenter)
+        assertFalse(waiting.showProgress)
         assertEquals(DetailsMode.Keep, waiting.details)
 
         val animationsOff = playbackChrome(
@@ -140,6 +176,8 @@ class PlaybackChromeTest {
             awaitingAutoplay = false,
         )
         assertTrue(animationsOff.showCenter)
+        assertTrue(animationsOff.showProgress)
+        assertFalse(animationsOff.showPauseIcon)
 
         val ended = playbackChrome(
             isVideo = true,
@@ -163,15 +201,32 @@ class PlaybackChromeTest {
     fun `静态图和动态照片不画中心键，详情保持页面自己的开关`() {
         val chrome = playbackChrome(isVideo = false, phase = PlaybackPhase.UserPaused, gestureActive = true, pinnedOrExiting = true)
         assertFalse(chrome.showCenter)
+        assertFalse(chrome.showProgress)
         assertEquals(DetailsMode.Keep, chrome.details)
     }
 
     @Test
-    fun `单击在视频页切换播放，在动态照片页切换详情`() {
-        assertEquals(ReviewPhotoTap.TogglePlay(showDetails = true), reviewPhotoTap(isVideo = true, playing = true, detailsOpen = false))
-        assertEquals(ReviewPhotoTap.TogglePlay(showDetails = false), reviewPhotoTap(isVideo = true, playing = false, detailsOpen = true))
-        assertEquals(ReviewPhotoTap.ToggleDetails(showDetails = true), reviewPhotoTap(isVideo = false, playing = true, detailsOpen = false))
-        assertEquals(ReviewPhotoTap.ToggleDetails(showDetails = false), reviewPhotoTap(isVideo = false, playing = false, detailsOpen = true))
+    fun `播放中单击只切换控件，没在播的视频单击不改播放，动态照片仍切换详情`() {
+        assertEquals(
+            ReviewPhotoTap.ToggleTransport(show = true),
+            reviewPhotoTap(isVideo = true, playing = true, transportShown = false, detailsOpen = false),
+        )
+        assertEquals(
+            ReviewPhotoTap.ToggleTransport(show = false),
+            reviewPhotoTap(isVideo = true, playing = true, transportShown = true, detailsOpen = true),
+        )
+        assertEquals(
+            null,
+            reviewPhotoTap(isVideo = true, playing = false, transportShown = false, detailsOpen = false),
+        )
+        assertEquals(
+            ReviewPhotoTap.ToggleDetails(showDetails = true),
+            reviewPhotoTap(isVideo = false, playing = true, transportShown = false, detailsOpen = false),
+        )
+        assertEquals(
+            ReviewPhotoTap.ToggleDetails(showDetails = false),
+            reviewPhotoTap(isVideo = false, playing = false, transportShown = false, detailsOpen = true),
+        )
     }
 
     @Test

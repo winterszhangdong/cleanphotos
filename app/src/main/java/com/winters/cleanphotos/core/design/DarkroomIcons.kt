@@ -51,6 +51,8 @@ object DarkroomIcons {
      * 配 [Dimens.PlaybackCenterIcon] 36dp 时，画面上大约宽 24dp、高 29dp。
      */
     val Play = icon("play", "M7.7 2.4l16 9.6-16 9.6z", strokeWidth = 0f, fill = true)
+    /** 两根实心条，和 [Play] 同一高度，在圆钮里居中。 */
+    val Pause = icon("pause", "M7 3.2h3.2v17.6H7zM13.8 3.2h3.2v17.6h-3.2z", strokeWidth = 0f, fill = true)
     /** 同心圆 + 外圈虚线。ImageVector 没有虚线，外圈用八段弧近似。 */
     val Motion = motionIcon()
     val SoundOn = icon("sound-on", "M4.5 9.5v5h3.2l3.8 3V6.5l-3.8 3zM14.6 9.2a3.2 3.2 0 010 5.6M17 7a6 6 0 010 10")
