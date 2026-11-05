@@ -7,6 +7,24 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.6] - 2026-11-05
+
+### Changed
+
+- 安卓：视频播放中单击不再暂停。只唤出中间的暂停键和底部进度条，再单击收回。点暂停键才暂停。拖动或点按进度后，从那个位置继续播放。垃圾桶里的预览同一套。动态照片单击仍然只切换详情。
+- 安卓：RAW 照片可以一眼看出来。照片、收藏、垃圾桶和相似缩略图的左下角写 RAW；大文件和文件大小写在同一行。清理页左下一直写着 RAW，打开文件名、教学或撤回时淡出。不跟着下滑变灰。
+- 安卓：相似对比里，当前这张如果是动态照片，左下写「动态」。同时又是 RAW 时写成一行。胶片条和其他列表不标动态照片。
+- 安卓：清理页和相似对比里，RAW 和 PNG 左右滑时先显示一张够看的小图。放大当前这一张时再换成更清楚的；等的时候照片跟着放大，清楚的好了再换，位置不跳。放回去再放大不用重新等。没换成更清楚的，就还看原来那张。JPEG 和 HEIC 不变。
+
+---
+
+### Changed
+
+- Android: tapping a playing video no longer pauses it. The tap only brings up the pause button in the center and the progress row at the bottom; tap again to hide them. The pause button is what pauses. After dragging or tapping the progress row, playback continues from that position. Trash preview uses the same controls. Tapping a motion photo still only toggles details.
+- Android: RAW photos are visible at a glance. RAW sits at the bottom left of photo, favorite, trash, and similar thumbnails; on large files it shares a line with the file size. Review keeps RAW at the bottom left, and fades it out when the filename, the tutorial, or undo is showing. It does not turn gray on a downward swipe.
+- Android: on the similar-photo compare screen, the current photo shows Motion at the bottom left when it is a motion photo. A RAW motion photo shows both on one line. The filmstrip and other grids do not mark motion photos.
+- Android: in review and similar compare, RAW and PNG photos show a glanceable preview while you swipe. Zooming the current photo loads a sharper image of that photo only; while it loads, the preview follows your fingers, and the sharper image replaces it without jumping. Zooming out and back in does not load it again. If the sharper image does not load, the preview stays. JPEG and HEIC are unchanged.
+
 ## [1.7.5] - 2026-11-01
 
 ### Fixed
@@ -557,7 +575,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.2...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.6...HEAD
+[1.7.6]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.5...v1.7.6
+[1.7.5]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.4...v1.7.5
+[1.7.4]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.3...v1.7.4
+[1.7.3]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/winterszhangdong/cleanphotos/compare/v1.6.1...v1.7.0
