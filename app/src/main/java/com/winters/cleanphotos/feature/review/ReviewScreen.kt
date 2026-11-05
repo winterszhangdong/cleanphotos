@@ -332,6 +332,8 @@ fun ReviewScreen(
                 videoOverlay = { PlaybackSurface(engine, Modifier.fillMaxSize()) },
                 videoTapLabel = videoTapLabel,
                 onVideoTap = { stage.onPhotoTap() },
+                hidePhotoMark = showDetails || tutorial || uiState.undo != null,
+                landscape = landscape,
             )
 
             PlaybackCenterButton(

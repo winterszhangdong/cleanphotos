@@ -198,6 +198,18 @@ object DarkroomText {
     val RvDateMeta = MonoBase.copy(fontSize = 10.5.sp, lineHeight = 16.sp, letterSpacing = 0.04.em, color = DarkroomColors.Paper.copy(alpha = 0.66f)).cssLines()
     /** .rv-meta.mono：10.5，字距 0.02em，相纸白 62%。 */
     val RvFile = MonoBase.copy(fontSize = 10.5.sp, lineHeight = 15.225.sp, letterSpacing = 0.02.em, color = DarkroomColors.Paper.copy(alpha = 0.62f)).cssLines()
+    /** 大图上的 RAW / 动态。字号同 [RvFile]，压在照片上，用角标的相纸白和阴影，没有衬底。 */
+    val ReviewMark = MonoBase.copy(
+        fontSize = 10.5.sp,
+        lineHeight = 15.225.sp,
+        letterSpacing = 0.02.em,
+        color = DarkroomColors.Paper.copy(alpha = 0.88f),
+        shadow = androidx.compose.ui.graphics.Shadow(
+            color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.8f),
+            offset = androidx.compose.ui.geometry.Offset(0f, 1f),
+            blurRadius = 4f,
+        ),
+    ).cssLines()
     /** .cue b（过阈值）：15/20 600，字距 0.04em。 */
     val CueTitle = Sans.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.04.em).cssLines()
     /** .pre .cue b：14/20 500，字距 0.04em。 */

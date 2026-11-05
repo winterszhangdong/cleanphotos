@@ -220,6 +220,7 @@
     <string name="cd_playback_motion">播放动态照片</string>
     <string name="cd_playback_progress">播放进度</string>
     <string name="playback_motion">动态</string>
+    <string name="mark_raw">RAW</string>
     <!-- 印样表 / 底片袋（收藏整理） -->
     <string name="favorites_sort_day">整理</string>
     <string name="favorites_filed_header">已冲洗 · %1$d 张</string>

@@ -39,7 +39,8 @@ import kotlinx.coroutines.launch
 /**
  * 方形缩略图（.tile）：#1c1a18 占位、居中裁切。
  * 视频在右下角用 [DarkroomText.TileSize] 标时长，不画播放图标。
- * 有大小或时长角标时，在照片之上、文字之下铺一条底部淡渐变（[tileBadgeScrim]），没有角标的格子不画。
+ * 左下角 [sizeLabel] 是文件大小、RAW，或两者合成的一行。
+ * 有大小、RAW 或时长角标时，在照片之上、文字之下铺一条底部淡渐变（[tileBadgeScrim]），没有角标的格子不画。
  * 首次从磁盘解码才按 [developProfile] 显影（决定 7），命中内存缓存直接显示。显影不拦截点击。
  * [developCached] 为 true 时命中缓存也显影，并从第一帧压暗（相似列表首次出组：出现的是列表，不是这次解码）。
  */
@@ -50,7 +51,7 @@ fun PhotoTile(
     modifier: Modifier = Modifier,
     isVideo: Boolean = false,
     durationMs: Long? = null,
-    /** 左下角文件大小。大文件平铺用，和右下角时长互不重叠。 */
+    /** 左下角一行：文件大小、RAW，或「RAW · 大小」。和右下角时长互不重叠。 */
     sizeLabel: String? = null,
     /** overlay 里另外画了角标（垃圾桶右下文件大小）时也铺同一条衬底。 */
     overlayBadge: Boolean = false,

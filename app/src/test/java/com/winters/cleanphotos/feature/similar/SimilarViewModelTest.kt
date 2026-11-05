@@ -3,17 +3,20 @@ package com.winters.cleanphotos.feature.similar
 import com.winters.cleanphotos.R
 import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.core.text.UiText
+import com.winters.cleanphotos.domain.model.MotionPhotoVideo
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
 import com.winters.cleanphotos.domain.model.SimilarHashProgress
 import com.winters.cleanphotos.domain.model.SimilarMark
 import com.winters.cleanphotos.domain.model.SimilarSharpnessProgress
+import com.winters.cleanphotos.domain.repository.MotionPhotoRepository
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
 import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.EnsurePhotosLoadedUseCase
 import com.winters.cleanphotos.domain.usecase.GroupSimilarPhotosUseCase
+import com.winters.cleanphotos.domain.usecase.LocateMotionPhotoVideoUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveAllPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveSimilarGroupsUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
@@ -21,6 +24,7 @@ import com.winters.cleanphotos.fake.FakePhotoRepository
 import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
 import com.winters.cleanphotos.fake.FakeSimilarResolvedRepository
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +52,21 @@ class SimilarViewModelTest {
     private val review = FakeReviewRepository()
     private val seen = FakeSeenStateRepository()
     private val resolved = FakeSimilarResolvedRepository()
+    private val motion = FakeMotionPhotos()
     private var now = 0L
+
+    private class FakeMotionPhotos : MotionPhotoRepository {
+        val motionIds = mutableSetOf<Long>()
+        var hang: CompletableDeferred<Unit>? = null
+        var error: Exception? = null
+        var calls = 0
+        override suspend fun locate(photo: PhotoItem): MotionPhotoVideo? {
+            calls++
+            hang?.await()
+            error?.let { throw it }
+            return if (photo.id in motionIds) MotionPhotoVideo(0, 8) else null
+        }
+    }
 
     @Before
     fun setUp() {
@@ -303,6 +321,47 @@ class SimilarViewModelTest {
         assertTrue(review.batchCalls.none { it.first == "restore" })
     }
 
+    @Test
+    fun `对比页动态照片标在当前张上，换走就清掉`() = runTest(dispatcher) {
+        motion.motionIds += 1L
+        val vm = viewModel()
+        vm.watchComparePhoto(shot(1, 1_000))
+        advanceUntilIdle()
+        assertEquals(1L, vm.uiState.value.compareMotionId)
+        vm.watchComparePhoto(shot(2, 2_000))
+        assertNull(vm.uiState.value.compareMotionId)
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.compareMotionId)
+        val calls = motion.calls
+        vm.watchComparePhoto(shot(1, 1_000))
+        assertEquals(1L, vm.uiState.value.compareMotionId)
+        advanceUntilIdle()
+        assertEquals(calls, motion.calls)
+    }
+
+    @Test
+    fun `上一张还在识别时换走，结果不会写到新的一张`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        motion.hang = gate
+        motion.motionIds += 1L
+        val vm = viewModel()
+        vm.watchComparePhoto(shot(1, 1_000))
+        advanceUntilIdle()
+        vm.watchComparePhoto(shot(2, 2_000))
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.compareMotionId)
+    }
+
+    @Test
+    fun `动态照片识别失败不当成动态照片`() = runTest(dispatcher) {
+        motion.error = IOException("read")
+        val vm = viewModel()
+        vm.watchComparePhoto(shot(1, 1_000))
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.compareMotionId)
+    }
+
     private fun calls(kind: String): List<Long> =
         review.batchCalls.filter { it.first == kind }.map { it.second }.flatten()
 
@@ -329,6 +388,7 @@ class SimilarViewModelTest {
             undoBatchActionUseCase = UndoBatchActionUseCase(review),
             similarResolvedRepository = resolved,
             ensurePhotosLoadedUseCase = EnsurePhotosLoadedUseCase(photos),
+            locateMotionPhotoVideoUseCase = LocateMotionPhotoVideoUseCase(motion),
             uptimeClock = UptimeClock { now },
         )
     }

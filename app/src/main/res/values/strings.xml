@@ -242,6 +242,7 @@
     <string name="cd_playback_motion">Play motion photo</string>
     <string name="cd_playback_progress">Playback progress</string>
     <string name="playback_motion">Motion</string>
+    <string name="mark_raw">RAW</string>
     <!-- Contact sheet / sleeves (sorting favorites) -->
     <string name="favorites_sort_day">Sort</string>
     <string name="favorites_filed_header">Filed · %1$d</string>

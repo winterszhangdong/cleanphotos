@@ -44,7 +44,9 @@ relativePath：相对外部存储根目录的文件夹，与 RELATIVE_PATH 相�
 bucketName：所在文件夹名（BUCKET_DISPLAY_NAME）
 ```
 
-`PhotoItem` 没有动态照片字段。识别结果不进整库查询，只在播放时按需计算。
+`PhotoItem` 没有动态照片字段。识别结果不进整库查询，只在播放时按需计算。相似对比页停在当前张时再读一次，用来显示「动态」；换张先清掉上一张的结果，读失败当成不是动态照片。
+
+RAW 也不单列字段。界面用 `displayName` 的扩展名判断（`RawFile.isRawFileName`：dng、cr2、cr3、nef、nrw、arw、srf、sr2、orf、raf、pef、rw2、srw、gpr），不读 MIME。只显示「RAW」。
 
 ***
 

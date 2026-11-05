@@ -70,6 +70,8 @@ import com.winters.cleanphotos.core.locale.currentLocale
 import com.winters.cleanphotos.core.text.asString
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.isRawFileName
+import com.winters.cleanphotos.domain.model.photoMarkLine
 import com.winters.cleanphotos.domain.model.SimilarGroup
 import com.winters.cleanphotos.domain.model.SimilarMark
 import com.winters.cleanphotos.feature.allphotos.TileDevelop
@@ -315,6 +317,10 @@ internal fun SimilarThumb(
             model = model,
             contentDescription = contentDescription,
             modifier = Modifier.fillMaxWidth(),
+            sizeLabel = photoMarkLine(
+                rawLabel = stringResource(R.string.mark_raw).takeIf { isRawFileName(photo.displayName) },
+                motionLabel = null,
+            ),
             developProfile = developProfile,
             developDelayMs = developDelayMs,
             developCached = developProfile != null,

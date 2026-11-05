@@ -8,6 +8,7 @@ import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.text.UiText
 import com.winters.cleanphotos.domain.model.BatchAction
+import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationResult
 import com.winters.cleanphotos.domain.model.SimilarGroup
@@ -16,11 +17,13 @@ import com.winters.cleanphotos.domain.model.SimilarScan
 import com.winters.cleanphotos.domain.repository.SimilarResolvedRepository
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.EnsurePhotosLoadedUseCase
+import com.winters.cleanphotos.domain.usecase.LocateMotionPhotoVideoUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveSimilarGroupsUseCase
 import com.winters.cleanphotos.domain.usecase.UndoBatchActionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +41,7 @@ class SimilarViewModel @Inject constructor(
     private val undoBatchActionUseCase: UndoBatchActionUseCase,
     private val similarResolvedRepository: SimilarResolvedRepository,
     private val ensurePhotosLoadedUseCase: EnsurePhotosLoadedUseCase,
+    private val locateMotionPhotoVideoUseCase: LocateMotionPhotoVideoUseCase,
     private val uptimeClock: UptimeClock,
 ) : ViewModel() {
 
@@ -47,6 +51,10 @@ class SimilarViewModel @Inject constructor(
     private val marksByGroup = HashMap<String, MutableMap<Long, SimilarMark>>()
     private var undoSeq = 0L
     private var started = false
+    private var compareWatchId: Long? = null
+    private var compareJob: Job? = null
+    /** 这次进相似页里已经确认是动态照片的 id。认不出的不缓存，下次停上再读。 */
+    private val motionKnown = HashSet<Long>()
 
     /**
      * 第一次切到「相似」才开始比对。成功之后再调一次什么都不做，切走再回来不重算。
@@ -82,6 +90,27 @@ class SimilarViewModel @Inject constructor(
                     }
                     is SimilarScan.Ready -> publish(scan.groups)
                 }
+            }
+        }
+    }
+
+    /**
+     * 对比页停在这张上。动态照片不进整库查询，这里按需读文件。
+     * 换张立刻清掉上一张的结果；读失败当成不是动态照片。
+     */
+    fun watchComparePhoto(photo: PhotoItem) {
+        if (compareWatchId == photo.id) return
+        compareWatchId = photo.id
+        compareJob?.cancel()
+        val known = photo.id in motionKnown
+        _uiState.update { it.copy(compareMotionId = photo.id.takeIf { known }) }
+        if (known || photo.mediaType != MediaType.Image) return
+        val id = photo.id
+        compareJob = viewModelScope.launch {
+            val motion = isMotion(photo)
+            if (motion) motionKnown += id
+            if (compareWatchId == id) {
+                _uiState.update { it.copy(compareMotionId = id.takeIf { motion }) }
             }
         }
     }
@@ -206,6 +235,15 @@ class SimilarViewModel @Inject constructor(
         group.photos.associate { photo ->
             photo.id to if (photo.id == group.recommendedId) SimilarMark.Keep else SimilarMark.Remove
         }
+
+    private suspend fun isMotion(photo: PhotoItem): Boolean = try {
+        locateMotionPhotoVideoUseCase(photo) != null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "动态照片识别失败 id=${photo.id}", e)
+        false
+    }
 
     private fun undoTitle(remove: List<PhotoItem>): UiText =
         if (remove.isNotEmpty()) UiText.Plural(R.plurals.batch_undo_trash, remove.size)

@@ -6,9 +6,17 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +38,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -40,16 +49,21 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
 import coil.size.Scale
+import com.winters.cleanphotos.R
 import com.winters.cleanphotos.core.design.ApiTier
 import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DevelopMatrix
 import com.winters.cleanphotos.core.design.DevelopProfiles
+import com.winters.cleanphotos.core.design.Dimens
+import com.winters.cleanphotos.core.design.MotionDurations
+import com.winters.cleanphotos.core.design.PhotoMarkText
 import com.winters.cleanphotos.core.design.develop
 import com.winters.cleanphotos.core.design.rememberDevelopState
 import com.winters.cleanphotos.core.design.requiresDevelop
 import com.winters.cleanphotos.domain.model.DaySummary
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.ReviewPage
+import com.winters.cleanphotos.domain.model.isRawFileName
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
@@ -86,6 +100,9 @@ internal fun ReviewStage(
     videoOverlay: @Composable () -> Unit = {},
     videoTapLabel: String? = null,
     onVideoTap: () -> Unit = {},
+    /** 详情、教学或撤回胶囊占着底部时收起 RAW。 */
+    hidePhotoMark: Boolean = false,
+    landscape: Boolean = false,
 ) {
     val entries = buildList {
         val current = state.currentPage
@@ -125,7 +142,10 @@ internal fun ReviewStage(
         SwipeGlow(state, Modifier.zIndex(1f))
         entries.forEach { entry ->
             androidx.compose.runtime.key(entry.page.key) {
-                PageLayer(state, entry, tutorialDim, imageSize, summaries, summaryContent, videoHostKey, videoOverlay)
+                PageLayer(
+                    state, entry, tutorialDim, imageSize, summaries, summaryContent, videoHostKey, videoOverlay,
+                    hidePhotoMark, landscape,
+                )
             }
         }
         state.flights.forEach { f -> if (f.kind == ExitKind.Up) androidx.compose.runtime.key(f) { AmberAfterimages(f, imageSize) } }
@@ -142,6 +162,8 @@ private fun PageLayer(
     summaryContent: @Composable (DaySummary, isCurrent: Boolean) -> Unit,
     videoHostKey: String?,
     videoOverlay: @Composable () -> Unit,
+    hidePhotoMark: Boolean,
+    landscape: Boolean,
 ) {
     val page = entry.page
     val role = entry.role
@@ -232,22 +254,44 @@ private fun PageLayer(
                         clip = true
                     }
                 }
-            }
-            // 描边在色调层外面画：它每帧随 dy 变化，画在离屏层里会让整张照片每帧重画（亮度单独乘上，观感不变）
-            .then(if (role == PageRole.Current) Modifier.liftRim(state, (page as? ReviewPage.Photo)?.photo, brightness) else Modifier)
-            .tone(saturation, brightness),
+            },
     ) {
-        when (page) {
-            is ReviewPage.Photo -> ReviewPhotoImage(
-                page.photo,
-                role,
-                state,
-                imageSize,
-                showVideo = page.key == videoHostKey && role != PageRole.Beneath && role != PageRole.Recede,
-                videoOverlay = videoOverlay,
-            )
-            is ReviewPage.Summary -> summaries[page.dayKey]?.let { summaryContent(it, role == PageRole.Current) }
-                ?: Box(Modifier.fillMaxSize().background(DarkroomColors.Room))
+        Box(
+            Modifier
+                .fillMaxSize()
+                // 描边在色调层外面画：它每帧随 dy 变化，画在离屏层里会让整张照片每帧重画（亮度单独乘上，观感不变）
+                .then(if (role == PageRole.Current) Modifier.liftRim(state, (page as? ReviewPage.Photo)?.photo, brightness) else Modifier)
+                .tone(saturation, brightness),
+        ) {
+            when (page) {
+                is ReviewPage.Photo -> ReviewPhotoImage(
+                    page.photo,
+                    role,
+                    state,
+                    imageSize,
+                    showVideo = page.key == videoHostKey && role != PageRole.Beneath && role != PageRole.Recede,
+                    videoOverlay = videoOverlay,
+                )
+                is ReviewPage.Summary -> summaries[page.dayKey]?.let { summaryContent(it, role == PageRole.Current) }
+                    ?: Box(Modifier.fillMaxSize().background(DarkroomColors.Room))
+            }
+        }
+        val photo = (page as? ReviewPage.Photo)?.photo
+        if (photo != null && isRawFileName(photo.displayName)) {
+            val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            AnimatedVisibility(
+                visible = !hidePhotoMark,
+                enter = fadeIn(tween(MotionDurations.SHORT)),
+                exit = fadeOut(tween(MotionDurations.MICRO)),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        start = if (landscape) 48.dp else Dimens.ScreenSide,
+                        bottom = navBottom + if (landscape) 20.dp else 32.dp,
+                    ),
+            ) {
+                PhotoMarkText(rawLabel = stringResource(R.string.mark_raw), motionLabel = null)
+            }
         }
     }
 }

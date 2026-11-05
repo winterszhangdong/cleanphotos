@@ -62,6 +62,7 @@ import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
+import com.winters.cleanphotos.core.design.PhotoMarkText
 import com.winters.cleanphotos.core.design.GestureTokens
 import com.winters.cleanphotos.core.design.GlassIconButton
 import com.winters.cleanphotos.core.design.GlassSpecs
@@ -73,6 +74,7 @@ import com.winters.cleanphotos.core.navigation.DockMode
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarGroup
 import com.winters.cleanphotos.domain.model.SimilarMark
+import com.winters.cleanphotos.domain.model.isRawFileName
 import com.winters.cleanphotos.feature.review.ReviewGestureMath
 import com.winters.cleanphotos.feature.review.ReviewThresholds
 import com.winters.cleanphotos.feature.review.detectReviewGestures
@@ -107,11 +109,13 @@ fun SimilarCompareRoute(
         photoId = photoId,
         marks = uiState.marks[groupKey].orEmpty(),
         moving = uiState.moving,
+        compareMotionId = uiState.compareMotionId,
         loadFailed = uiState.phase == SimilarPhase.Failed,
         onBack = onBack,
         onRetry = viewModel::start,
         onMark = viewModel::onMark,
         onCommit = { viewModel.onCommit(groupKey, onBack) },
+        onWatch = viewModel::watchComparePhoto,
     )
 }
 
@@ -125,11 +129,13 @@ private fun SimilarCompareScreen(
     photoId: Long,
     marks: Map<Long, SimilarMark>,
     moving: Boolean,
+    compareMotionId: Long?,
     loadFailed: Boolean,
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onMark: (String, Long, SimilarMark) -> Unit,
     onCommit: () -> Unit,
+    onWatch: (PhotoItem) -> Unit,
 ) {
     AppDockEffect(DockMode.Hidden)
     if (group == null) {
@@ -162,6 +168,7 @@ private fun SimilarCompareScreen(
     val animations = LocalAnimationsEnabled.current
     val current = photos[safeIndex]
     val currentMark = marks[current.id] ?: SimilarMark.Keep
+    LaunchedEffect(current.id) { onWatch(current) }
     SideEffect {
         motion.pageIndex = safeIndex
         motion.pageCount = photos.size
@@ -238,6 +245,17 @@ private fun SimilarCompareScreen(
                 )
             }
             CompareCueLayer(motion = motion, modifier = Modifier.align(Alignment.Center))
+            val rawLabel = stringResource(R.string.mark_raw).takeIf { isRawFileName(current.displayName) }
+            val motionLabel = stringResource(R.string.playback_motion).takeIf { compareMotionId == current.id }
+            if (rawLabel != null || motionLabel != null) {
+                PhotoMarkText(
+                    rawLabel = rawLabel,
+                    motionLabel = motionLabel,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = Dimens.ScreenSide, bottom = Dimens.ScreenSide),
+                )
+            }
         }
         CompareFilmstrip(
             photos = photos,

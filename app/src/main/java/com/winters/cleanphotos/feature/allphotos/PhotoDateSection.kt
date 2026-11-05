@@ -38,6 +38,8 @@ import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.MotionEasings
 import com.winters.cleanphotos.core.design.MotionSprings
+import com.winters.cleanphotos.domain.model.isRawFileName
+import com.winters.cleanphotos.domain.model.photoMarkLine
 import com.winters.cleanphotos.core.design.PhotoTile
 import com.winters.cleanphotos.core.design.MonoWithBold
 import com.winters.cleanphotos.core.design.SelectionCheck
@@ -289,12 +291,17 @@ fun LazyGridScope.photoDaySections(
                 val picked = selecting && photo.id in selection!!.selectedIds
                 // 非多选时不挂选中动画 / 缩层 / 勾，避免每格常驻 animateFloatAsState + graphicsLayer
                 val pick = if (selecting) animateSelectPick(picked, label = "grid-pick") else null
+                val corner = photoMarkLine(
+                    rawLabel = stringResource(R.string.mark_raw).takeIf { isRawFileName(photo.displayName) },
+                    motionLabel = null,
+                    sizeLabel = sizeLabel?.invoke(photo),
+                )
                 PhotoTile(
                     model = model,
                     contentDescription = photo.displayName,
                     isVideo = photo.mediaType == MediaType.Video,
                     durationMs = photo.durationMs,
-                    sizeLabel = sizeLabel?.invoke(photo),
+                    sizeLabel = corner,
                     // 同一天第二行起上方 2dp 间隔（.grid4 gap 2px）；天与天之间没有额外间隔
                     modifier = hitRectModifier(hitRects, photo.id)
                         .then(reorderModifier(tileIndex, reorderAnchor(), reorderPlace()))

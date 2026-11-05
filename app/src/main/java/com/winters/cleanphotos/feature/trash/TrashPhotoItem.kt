@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.winters.cleanphotos.R
 import androidx.compose.ui.Modifier
 import com.winters.cleanphotos.core.design.ApiTier
 import com.winters.cleanphotos.core.design.DarkroomColors
@@ -20,6 +22,8 @@ import com.winters.cleanphotos.core.design.saturateBrightness
 import com.winters.cleanphotos.core.util.FileSizeFormatter
 import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoItem
+import com.winters.cleanphotos.domain.model.isRawFileName
+import com.winters.cleanphotos.domain.model.photoMarkLine
 
 /** 垃圾桶缩略图降饱和压暗：saturate(0.7) brightness(0.86)。 */
 private const val TRASH_SATURATION = 0.7f
@@ -50,6 +54,10 @@ fun TrashPhotoItem(
         contentDescription = photo.displayName,
         isVideo = photo.mediaType == MediaType.Video,
         durationMs = photo.durationMs,
+        sizeLabel = photoMarkLine(
+            rawLabel = stringResource(R.string.mark_raw).takeIf { isRawFileName(photo.displayName) },
+            motionLabel = null,
+        ),
         overlayBadge = showSize,
         modifier = modifier
             .then(if (dissolveProgress != null) Modifier.dissolveLayer(dissolveProgress, tier) else Modifier)

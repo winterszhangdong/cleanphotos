@@ -30,6 +30,8 @@ data class SimilarUiState(
     val marks: Map<String, Map<Long, SimilarMark>> = emptyMap(),
     val undo: SimilarUndo? = null,
     val moving: Boolean = false,
+    /** 对比页当前张已确认是动态照片时，等于它的 id。换张先清掉，避免上一张的结果留在这一张上。 */
+    val compareMotionId: Long? = null,
 ) {
     /** 当前所有组里标成移走的张数。 */
     val removableCount: Int

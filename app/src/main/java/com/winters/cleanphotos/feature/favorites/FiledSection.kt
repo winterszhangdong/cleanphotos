@@ -25,13 +25,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import com.winters.cleanphotos.R
+import com.winters.cleanphotos.domain.model.isRawFileName
+import com.winters.cleanphotos.domain.model.photoMarkLine
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import coil.request.ImageRequest
-import com.winters.cleanphotos.R
 import com.winters.cleanphotos.core.design.DarkroomColors
 import com.winters.cleanphotos.core.design.DarkroomIcons
 import com.winters.cleanphotos.core.design.DarkroomText
@@ -121,6 +123,10 @@ internal fun LazyGridScope.filedDaysSection(
                         contentDescription = photo.displayName,
                         isVideo = photo.mediaType == MediaType.Video,
                         durationMs = photo.durationMs,
+                        sizeLabel = photoMarkLine(
+                            rawLabel = stringResource(R.string.mark_raw).takeIf { isRawFileName(photo.displayName) },
+                            motionLabel = null,
+                        ),
                         developProfile = null,
                         modifier = Modifier.padding(top = Dimens.GridGap),
                     )
