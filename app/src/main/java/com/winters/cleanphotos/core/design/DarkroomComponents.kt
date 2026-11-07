@@ -219,7 +219,7 @@ fun YearDivider(year: Int, modifier: Modifier = Modifier) {
 
 /**
  * .day：高 50，padding 16 16 10，大号两位日期 + 「9月 · 周一」基线对齐；右侧等宽小字 + 16dp 箭头。
- * 只有右侧（[onEnter]）可点，进入这一天（interaction.md）。
+ * 右侧（[onEnter]）进入这一天。展开时「收起」在它左边，热区分开。
  */
 @Composable
 fun DayHeaderRow(
@@ -229,6 +229,8 @@ fun DayHeaderRow(
     onEnter: (() -> Unit)?,
     modifier: Modifier = Modifier,
     showChevron: Boolean = true,
+    collapseLabel: String? = null,
+    onCollapse: (() -> Unit)? = null,
 ) {
     Row(modifier.fillMaxWidth().height(Dimens.DayHeight)) {
       // 50dp 固定高度：大字号时缩放封顶，天数字不被裁（1.0 时不变）
@@ -242,6 +244,18 @@ fun DayHeaderRow(
             ) {
                 Text(numeral, style = DarkroomText.DayNumeral, modifier = Modifier.alignByBaseline())
                 Text(meta, style = DarkroomText.DayMeta, modifier = Modifier.alignByBaseline())
+            }
+            if (collapseLabel != null && onCollapse != null) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .defaultMinSize(minWidth = Dimens.MinTouch)
+                        .plainClickable(onClick = onCollapse)
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(collapseLabel, style = DarkroomText.DayRight)
+                }
             }
             // 右侧热区撑满行高（50）且至少 48dp 宽。只有这里进入这一天 / 全选。
             Row(

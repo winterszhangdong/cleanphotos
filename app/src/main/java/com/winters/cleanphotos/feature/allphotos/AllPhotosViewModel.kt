@@ -65,8 +65,10 @@ class AllPhotosViewModel @Inject constructor(
     /** 当前范围叠上「只看没看过」之后的完整列表（按显示顺序）。全选、批量操作、选中集合都用它。 */
     private var selectablePhotos: List<PhotoItem> = emptyList()
     private var selectableById: Map<Long, PhotoItem> = emptyMap()
-    /** 屏幕上露出的格子，按显示顺序。拖选取这个区间，不包含按天被收起的照片。 */
+    /** 屏幕上露出的格子，按显示顺序。拖选取这个区间。按天收起的照片不在里面，展开的那一天算进去。 */
     private var gridPhotos: List<PhotoItem> = emptyList()
+    /** 全部 / 那年今天各自展开的一天。不进 DataStore，进程死了就没了。 */
+    private val expandedDay = LinkedHashMap<LibraryScope, String>()
     /** 长按开始拖选那一刻已选中的集合；拖选结果 = 它 ∪ 起点到当前格的区间。 */
     private var dragBase: Set<Long> = emptySet()
     /** 本次拖选的起点；长按没生效（处理中 / 不在列表）时为 null，拖动回调直接忽略。 */
@@ -122,6 +124,9 @@ class AllPhotosViewModel @Inject constructor(
                 }
                 val settled = built.getValue(scope)
                 Listed(
+                    built = built,
+                    scope = scope,
+                    page = settled.page,
                     state = AllPhotosUiState(
                         totalCount = allPhotos.size,
                         onThisDayCount = onThisDayCount,
@@ -139,7 +144,6 @@ class AllPhotosViewModel @Inject constructor(
                     ),
                     selectable = settled.visible,
                     selectableById = settled.visible.associateBy { it.id },
-                    gridPhotos = settled.page.sections.flatMap { it.photos },
                 )
             }
                 // 排序 / 分组整个相册不在主线程：本页留在返回栈里时，清理页每次滑动都会让这里重算一遍
@@ -147,7 +151,8 @@ class AllPhotosViewModel @Inject constructor(
                 .collect { listed ->
                     selectablePhotos = listed.selectable
                     selectableById = listed.selectableById
-                    gridPhotos = listed.gridPhotos
+                    pruneExpanded(listed.built)
+                    gridPhotos = DayExpand.gridPhotos(listed.page.sections, expandedDay[listed.scope])
                     // 列表变了（照片被移走、范围切换）：选中集合只保留还在完整列表里的；一张不剩即退出多选
                     updateSelection(_selection.value.selectedIds)
                     val now = _uiState.value
@@ -156,6 +161,7 @@ class AllPhotosViewModel @Inject constructor(
                         isInitialLoad = now.isInitialLoad,
                         hasPermission = now.hasPermission,
                         errorMessage = now.errorMessage,
+                        expandedDays = expandedDay.toMap(),
                     )
                 }
         }
@@ -229,6 +235,41 @@ class AllPhotosViewModel @Inject constructor(
 
     fun onShowUnseenChanged(enabled: Boolean) {
         _unseenOnly.value = enabled
+    }
+
+    /** 全部 / 那年今天：展开或收起这一天。另一天开着就换成这一天。没有被挡住的照片时不动。 */
+    fun onToggleDayExpanded(scope: LibraryScope, dayKey: String) {
+        if (scope.layout != ScopeLayout.Day || scope == LibraryScope.Similar) return
+        val sections = _uiState.value.pages[scope]?.sections
+            ?: if (scope == _scope.value) _uiState.value.sections else return
+        val section = sections.find { it.dayKey == dayKey } ?: return
+        if (section.overflow.isEmpty()) return
+        if (expandedDay[scope] == dayKey) expandedDay.remove(scope) else expandedDay[scope] = dayKey
+        _uiState.value = _uiState.value.copy(expandedDays = expandedDay.toMap())
+        if (scope == _scope.value) {
+            gridPhotos = DayExpand.gridPhotos(sections, expandedDay[scope])
+        }
+    }
+
+    /** 离开照片页时收起。旋转不走这里，ViewModel 还在。 */
+    fun clearExpandedDays() {
+        if (expandedDay.isEmpty()) return
+        expandedDay.clear()
+        val scope = _scope.value
+        val sections = _uiState.value.pages[scope]?.sections ?: _uiState.value.sections
+        gridPhotos = DayExpand.gridPhotos(sections, null)
+        _uiState.value = _uiState.value.copy(expandedDays = emptyMap())
+    }
+
+    /** 这一轮没算到的范围留着；算到了、但这一天没了或已经不超过 8 张，就清掉。 */
+    private fun pruneExpanded(built: Map<LibraryScope, BuiltScope>) {
+        val iterator = expandedDay.iterator()
+        while (iterator.hasNext()) {
+            val (scopeKey, dayKey) = iterator.next()
+            val page = built[scopeKey]?.page ?: continue
+            val section = page.sections.find { it.dayKey == dayKey }
+            if (section == null || section.overflow.isEmpty()) iterator.remove()
+        }
     }
 
     // ---------------------------------------------------------------- 多选
@@ -390,8 +431,10 @@ private data class BuiltScope(
 )
 
 private data class Listed(
+    val built: Map<LibraryScope, BuiltScope>,
+    val scope: LibraryScope,
+    val page: ScopePage,
     val state: AllPhotosUiState,
     val selectable: List<PhotoItem>,
     val selectableById: Map<Long, PhotoItem>,
-    val gridPhotos: List<PhotoItem>,
 )

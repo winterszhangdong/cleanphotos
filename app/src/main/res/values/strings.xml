@@ -52,6 +52,8 @@
     <string name="menu_language">Language</string>
     <string name="section_seen_of" tools:ignore="PluralsCandidate">" / %1$d"</string>
     <string name="section_all_seen">All seen</string>
+    <string name="day_more" tools:ignore="PluralsCandidate">%1$d more</string>
+    <string name="day_collapse">Collapse</string>
     <string name="all_seen_title">All caught up</string>
     <string name="stat_favorites">Favorites</string>
     <string name="stat_trash">Trash</string>

@@ -9,7 +9,20 @@ import com.winters.cleanphotos.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
+import com.winters.cleanphotos.core.design.DarkroomColors
+import com.winters.cleanphotos.core.design.DarkroomText
+import com.winters.cleanphotos.core.design.blockTouchesBelow
+import com.winters.cleanphotos.core.design.plainClickable
+import androidx.compose.material3.Text
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
 import androidx.compose.foundation.lazy.grid.LazyGridScope
@@ -217,6 +230,10 @@ fun LazyGridScope.photoDaySections(
     hitRects: PhotoHitRects? = null,
     /** 点天标题进入这一天的方式；不传时进入这一天第一张（清理页）。收藏页传印样表。 */
     onDayEnter: ((PhotoDaySection) -> Unit)? = null,
+    /** 照片页展开的那天。收藏页不传，只画前 8 张。 */
+    expandedDayKey: String? = null,
+    /** 点「还有 N 张」或「收起」。不传则不画展开入口（收藏页）。 */
+    onToggleExpanded: ((String) -> Unit)? = null,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -238,6 +255,15 @@ fun LazyGridScope.photoDaySections(
                     SectionHeader.Month -> section.date?.let { DayDisplay.monthTitle(it, locale) }
                     SectionHeader.None -> error("平铺分组不画标题")
                 } ?: DayDisplay.unknownDayLabel(stringResource(R.string.date_unknown))
+                val expanded = onToggleExpanded != null &&
+                    expandedDayKey == section.dayKey &&
+                    section.overflow.isNotEmpty()
+                val collapseLabel = if (expanded) stringResource(R.string.day_collapse) else null
+                val onCollapse = if (expanded) {
+                    { onToggleExpanded!!(section.dayKey) }
+                } else {
+                    null
+                }
                 if (selection != null && selection.selecting) {
                     val ids = section.selectableIds
                     val allPicked = ids.isNotEmpty() && ids.all { it in selection.selectedIds }
@@ -248,6 +274,8 @@ fun LazyGridScope.photoDaySections(
                         onEnter = { selection.onToggleDay(section.dayKey) },
                         modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
                         showChevron = false,
+                        collapseLabel = collapseLabel,
+                        onCollapse = onCollapse,
                     )
                 } else {
                     DayHeaderRow(
@@ -258,12 +286,16 @@ fun LazyGridScope.photoDaySections(
                             ?: section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
                         modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
                         showChevron = showChevron,
+                        collapseLabel = collapseLabel,
+                        onCollapse = onCollapse,
                     )
                 }
             }
         }
+        val expanded = onToggleExpanded != null && expandedDayKey == section.dayKey && section.overflow.isNotEmpty()
+        val shown = DayExpand.displayedPhotos(section, expanded)
         val firstRow = rowOffset
-        section.photos.forEachIndexed { i, photo ->
+        shown.forEachIndexed { i, photo ->
             val tileIndex = itemIndex++
             val row = i / PHOTO_GRID_COLUMNS
             val col = i % PHOTO_GRID_COLUMNS
@@ -326,7 +358,98 @@ fun LazyGridScope.photoDaySections(
                 }
             }
         }
-        rowOffset += (section.photos.size + PHOTO_GRID_COLUMNS - 1) / PHOTO_GRID_COLUMNS
+        if (!expanded && section.overflow.isNotEmpty() && section.header == SectionHeader.Day && onToggleExpanded != null) {
+            val moreIndex = itemIndex++
+            item(key = DayExpand.moreKey(section.dayKey), span = { GridItemSpan(maxLineSpan) }, contentType = "more") {
+                MoreDayRow(
+                    count = section.overflow.size,
+                    onClick = { onToggleExpanded(section.dayKey) },
+                    modifier = reorderModifier(moreIndex, reorderAnchor(), reorderPlace()),
+                )
+            }
+        }
+        rowOffset += (shown.size + PHOTO_GRID_COLUMNS - 1) / PHOTO_GRID_COLUMNS
+    }
+}
+
+/**
+ * 展开的那一天，日期行滑到顶栏下面之后叠在列表上。
+ * 位置在布局阶段读滚动和顶栏偏移，不因此重组。滑出这一天就挪到屏幕外。
+ */
+@Composable
+internal fun StuckDayHeader(
+    section: PhotoDaySection,
+    gridState: LazyGridState,
+    statusBar: androidx.compose.ui.unit.Dp,
+    chromeHeight: androidx.compose.ui.unit.Dp,
+    collapseOffsetPx: () -> Float,
+    right: @Composable () -> Unit,
+    onEnter: (() -> Unit)?,
+    onCollapse: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val headerHeightPx = with(density) { Dimens.DayHeight.roundToPx() }
+    val shownIds = remember(section.photos, section.overflow) {
+        (section.photos + section.overflow).mapTo(HashSet()) { it.id }
+    }
+    val lastId = section.overflow.lastOrNull()?.id
+    val locale = currentLocale()
+    val label = section.date?.let { DayDisplay.dayLabel(it, locale) }
+        ?: DayDisplay.unknownDayLabel(stringResource(R.string.date_unknown))
+    Box(
+        modifier
+            .fillMaxWidth()
+            .offset {
+                val info = gridState.layoutInfo
+                val header = info.visibleItemsInfo.find { it.key == section.dayKey }
+                val last = lastId?.let { id -> info.visibleItemsInfo.find { it.key == id } }
+                val visible = header != null || info.visibleItemsInfo.any { item ->
+                    val key = item.key
+                    key is Long && key in shownIds
+                }
+                val pin = dayHeaderPinY(
+                    statusBarPx = with(density) { statusBar.toPx() },
+                    chromeHeightPx = with(density) { chromeHeight.toPx() },
+                    collapseOffsetPx = collapseOffsetPx(),
+                ).toInt()
+                val y = dayHeaderStickY(
+                    pinY = pin,
+                    headerHeight = headerHeightPx,
+                    headerTop = header?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
+                    lastItemTop = last?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
+                    lastItemHeight = last?.size?.height,
+                    sectionVisible = visible,
+                ) ?: -1_000_000
+                IntOffset(0, y)
+            }
+            .background(DarkroomColors.Room)
+            .blockTouchesBelow(),
+    ) {
+        DayHeaderRow(
+            numeral = label.dayNumeral,
+            meta = label.monthLabel,
+            right = right,
+            onEnter = onEnter,
+            showChevron = false,
+            collapseLabel = stringResource(R.string.day_collapse),
+            onCollapse = onCollapse,
+        )
+    }
+}
+
+/** 8 张下面那一行。点开这一天被挡住的照片。 */
+@Composable
+private fun MoreDayRow(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(Dimens.MinTouch)
+            .plainClickable(onClick = onClick)
+            .padding(horizontal = Dimens.ScreenSide),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(R.string.day_more, count), style = DarkroomText.DayRight)
     }
 }
 

@@ -25,7 +25,7 @@ object DayDisplay {
     const val MAX_VISIBLE_PHOTOS = 8
 
     /**
-     * 当前顺序下这一天要画出来的缩略图。超过 8 张时只取前 8 张，不另做溢出入口。
+     * 当前顺序下默认露出的缩略图。超过 8 张时只取前 8 张。照片页另有展开，不从这里读。
      */
     fun visibleDayPhotos(photos: List<PhotoItem>): List<PhotoItem> {
         return photos.take(MAX_VISIBLE_PHOTOS)

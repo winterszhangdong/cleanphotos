@@ -504,6 +504,57 @@ class AllPhotosViewModelTest {
     }
 
     @Test
+    fun `展开后拖选能到被挡住的格子_同时只展开一天_收起不清选中`() = runTest(testDispatcher) {
+        val zone = java.time.ZoneId.of("UTC")
+        fun photo(id: Long, date: java.time.LocalDate) = TestPhotoData.createTestPhoto(id, date.toString()).copy(
+            dateTaken = date.atStartOfDay(zone).toInstant().toEpochMilli() + id,
+        )
+        val dayA = java.time.LocalDate.of(2024, 5, 20)
+        val dayB = java.time.LocalDate.of(2024, 5, 19)
+        val photos = (1L..10L).map { photo(it, dayA) } + (11L..20L).map { photo(it, dayB) }
+        fakePhotoRepository.setPhotos(photos)
+        val vm = createViewModel(); advanceUntilIdle()
+        val first = vm.uiState.value.sections.single { it.dayKey == dayA.toString() }
+        val hidden = first.overflow.last().id
+        assertEquals((10L downTo 3L).toList(), first.photos.map { it.id })
+        assertEquals((2L downTo 1L).toList(), first.overflow.map { it.id })
+
+        vm.onLongPressPhoto(10L)
+        vm.onDragSelect(10L, hidden)
+        assertEquals(setOf(10L), vm.selection.value.selectedIds)
+
+        vm.onToggleDayExpanded(LibraryScope.Screenshots, dayA.toString())
+        assertTrue(vm.uiState.value.expandedDays.isEmpty())
+
+        vm.onToggleDayExpanded(LibraryScope.All, dayA.toString())
+        assertEquals(dayA.toString(), vm.uiState.value.expandedDays[LibraryScope.All])
+        vm.onDragSelect(10L, hidden)
+        assertEquals((10L downTo 1L).toSet(), vm.selection.value.selectedIds)
+
+        vm.onToggleDayExpanded(LibraryScope.All, dayB.toString())
+        assertEquals(mapOf(LibraryScope.All to dayB.toString()), vm.uiState.value.expandedDays)
+        vm.onToggleDayExpanded(LibraryScope.All, dayB.toString())
+        assertTrue(vm.uiState.value.expandedDays.isEmpty())
+        assertEquals((10L downTo 1L).toSet(), vm.selection.value.selectedIds)
+
+        vm.onExitSelection()
+        vm.onToggleDayExpanded(LibraryScope.All, dayA.toString())
+        vm.clearExpandedDays()
+        assertTrue(vm.uiState.value.expandedDays.isEmpty())
+        vm.onLongPressPhoto(10L)
+        vm.onDragSelect(10L, hidden)
+        assertEquals(setOf(10L), vm.selection.value.selectedIds)
+        vm.onExitSelection()
+
+        vm.onToggleDayExpanded(LibraryScope.All, dayA.toString())
+        mockSeenDataSource.seenIds.value = setOf(10L, 9L, 8L)
+        vm.onShowUnseenChanged(true)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.expandedDays.isEmpty())
+        assertTrue(vm.uiState.value.sections.single { it.dayKey == dayA.toString() }.overflow.isEmpty())
+    }
+
+    @Test
     fun `大文件按大小排序_菜单排序保留_切回后生效`() = runTest(testDispatcher) {
         val min = SmartFilterRules.LARGE_FILE_MIN_BYTES
         val photos = listOf(

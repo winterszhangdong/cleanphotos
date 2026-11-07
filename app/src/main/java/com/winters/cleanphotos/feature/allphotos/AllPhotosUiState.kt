@@ -150,6 +150,11 @@ data class AllPhotosUiState(
     val errorMessage: UiText? = null,
     /** 停稳范围和左右相邻的页面。其它范围还没算，界面先画骨架。 */
     val pages: Map<LibraryScope, ScopePage> = emptyMap(),
+    /**
+     * 每个范围展开的那一天。只有全部和那年今天会有值。进程内，不写入 DataStore。
+     * 一天当前列表不超过 8 张时，键还在也不画展开。
+     */
+    val expandedDays: Map<LibraryScope, String> = emptyMap(),
 ) {
     /** 数量为 0 且当前不是这个范围时，不显示「那年今天」。 */
     val showOnThisDay: Boolean

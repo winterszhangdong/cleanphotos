@@ -39,6 +39,7 @@ class P3ListUseCasesTest {
         val unseenOnly = day.filter { it.id !in seen }
         val s = build(unseenOnly, dayPool = day, seenIds = seen).single()
         assertEquals(8, s.photos.size)
+        assertEquals(unseenOnly.drop(8).map { it.id }, s.overflow.map { it.id })
         assertEquals(14, s.totalCount)
         assertEquals(9, s.unseenCount)
         assertEquals(5, s.seenCount)
@@ -50,6 +51,7 @@ class P3ListUseCasesTest {
         val day = (1L..14L).map { createTestPhoto(it, "2026-09-21") }
         val s = build(day, day, emptySet()).single()
         assertEquals((1L..8L).toList(), s.photos.map { it.id })
+        assertEquals((9L..14L).toList(), s.overflow.map { it.id })
         assertEquals((1L..14L).toList(), s.selectableIds)
     }
 
@@ -62,6 +64,7 @@ class P3ListUseCasesTest {
         assertEquals(listOf("2026-10", "2025-12"), s.map { it.dayKey })
         assertEquals(SectionHeader.Month, s[0].header)
         assertEquals(10, s[0].photos.size)
+        assertEquals(0, s[0].overflow.size)
         assertEquals((3L..12L).toList(), s[0].selectableIds)
         assertEquals(12, s[0].totalCount)
         assertEquals(10, s[0].unseenCount)
@@ -79,6 +82,7 @@ class P3ListUseCasesTest {
         assertNull(s.date)
         assertNull(s.yearHeader)
         assertEquals(listOf(1L, 2L), s.photos.map { it.id })
+        assertEquals(0, s.overflow.size)
         assertEquals(listOf(1L, 2L), s.selectableIds)
         assertEquals(0, build(emptyList(), emptyList(), emptySet(), ScopeLayout.Flat).size)
     }

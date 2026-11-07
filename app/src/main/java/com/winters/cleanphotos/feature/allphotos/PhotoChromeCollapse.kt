@@ -9,7 +9,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 照片页顶栏 + 范围行的 quick return 偏移。
- * 0 是完全展开，负到 [max] 是完全收起。只在 graphicsLayer 里读 [offsetPx]。
+ * 0 是完全展开，负到 [max] 是完全收起。在 graphicsLayer 或布局阶段读 [offsetPx]，不要在组合阶段读。
  */
 class PhotoChromeCollapse {
     private val px = mutableFloatStateOf(0f)

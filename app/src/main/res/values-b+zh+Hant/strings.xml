@@ -52,6 +52,8 @@
     <string name="menu_language">语言</string>
     <string name="section_seen_of">" / %1$d"</string>
     <string name="section_all_seen">已看完</string>
+    <string name="day_more">还有 %1$d 张</string>
+    <string name="day_collapse">收起</string>
     <string name="all_seen_title">全部看过了</string>
     <string name="stat_favorites">收藏</string>
     <string name="stat_trash">垃圾桶</string>

@@ -17,7 +17,7 @@ import javax.inject.Inject
  * @param visible 要显示的照片（顺序即显示顺序；已经叠过「只看没看过」）。
  * @param dayPool 统计每组总数 / 未看数的照片池（照片页传当前范围、未叠「只看没看过」的照片）。
  * @param seenIds 看过的照片 id。
- * @param layout 按天（每天最多 8 张）、按月或不分组平铺。默认按天，收藏页沿用。
+ * @param layout 按天（默认露出 8 张，其余放在 overflow）、按月或不分组平铺。默认按天，收藏页沿用。
  */
 class BuildPhotoSectionsUseCase @Inject constructor() {
     operator fun invoke(
@@ -28,7 +28,8 @@ class BuildPhotoSectionsUseCase @Inject constructor() {
     ): List<PhotoDaySection> {
         val keyOf = keyOf(layout)
         val poolByKey = dayPool.groupBy(keyOf)
-        val cap = if (layout == ScopeLayout.Day) PhotoDaySection.MAX_VISIBLE_PHOTOS else Int.MAX_VALUE
+        val dayLayout = layout == ScopeLayout.Day
+        val cap = if (dayLayout) PhotoDaySection.MAX_VISIBLE_PHOTOS else Int.MAX_VALUE
         val header = when (layout) {
             ScopeLayout.Day -> SectionHeader.Day
             ScopeLayout.Month -> SectionHeader.Month
@@ -50,6 +51,7 @@ class BuildPhotoSectionsUseCase @Inject constructor() {
                 unseenCount = pool.count { it.id !in seenIds },
                 header = header,
                 selectableIds = members.map { it.id },
+                overflow = if (dayLayout) members.drop(cap) else emptyList(),
             )
         }
     }

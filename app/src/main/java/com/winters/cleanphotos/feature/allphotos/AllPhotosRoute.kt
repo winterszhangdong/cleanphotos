@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,14 @@ fun AllPhotosRoute(
         onPauseOrDispose { }
     }
 
+    // 离开照片页就收起。旋转时 Activity 正在改配置，ViewModel 还在，展开留着。
+    DisposableEffect(viewModel) {
+        onDispose {
+            val activity = context as? Activity
+            if (activity?.isChangingConfigurations != true) viewModel.clearExpandedDays()
+        }
+    }
+
     AllPhotosScreen(
         uiState = uiState,
         permanentlyDenied = permanentlyDenied,
@@ -99,6 +108,7 @@ fun AllPhotosRoute(
         onSortOrderChanged = viewModel::onSortOrderChanged,
         onScopeChanged = viewModel::onScopeChanged,
         onShowUnseenChanged = viewModel::onShowUnseenChanged,
+        onToggleDayExpanded = viewModel::onToggleDayExpanded,
         similarState = similarState,
         onSimilarOpen = onNavigateToSimilar,
         onSimilarCommit = { similarViewModel.onCommit(it) },

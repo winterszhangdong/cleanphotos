@@ -148,6 +148,7 @@ fun AllPhotosScreen(
     onSortOrderChanged: (PhotoSortOrder) -> Unit,
     onScopeChanged: (LibraryScope) -> Unit,
     onShowUnseenChanged: (Boolean) -> Unit,
+    onToggleDayExpanded: (LibraryScope, String) -> Unit,
     similarState: SimilarUiState,
     onSimilarOpen: (String, Long) -> Unit,
     onSimilarCommit: (String) -> Unit,
@@ -343,7 +344,11 @@ fun AllPhotosScreen(
         requestJump(target)
     }
 
-    val chromeTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + Dimens.HeaderHeight + Dimens.ScopeRowHeight
+    val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val chromeHeight = Dimens.HeaderHeight + Dimens.ScopeRowHeight
+    val chromeTop = statusBar + chromeHeight
+    // 布局阶段才读偏移，组合阶段读会让顶栏每一帧重组。
+    val collapseOffsetPx = remember(collapse) { { collapse.offsetPx } }
     val fling = PagerDefaults.flingBehavior(
         state = pagerState,
         snapAnimationSpec = if (animationsEnabled) MotionSprings.Snappy.spec() else snap(),
@@ -377,6 +382,10 @@ fun AllPhotosScreen(
                     similarListState = similarListState,
                     gridState = if (pageScope == LibraryScope.Similar) gridAll else gridFor(pageScope),
                     chromeTop = chromeTop,
+                    statusBar = statusBar,
+                    chromeHeight = chromeHeight,
+                    collapseOffsetPx = collapseOffsetPx,
+                    onToggleDayExpanded = onToggleDayExpanded,
                     settled = pageScope == uiState.scope,
                     enter = { motion.enter.value },
                     pageOffset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },
@@ -633,6 +642,10 @@ private fun ScopePageBody(
     similarListState: LazyListState,
     gridState: LazyGridState,
     chromeTop: Dp,
+    statusBar: Dp,
+    chromeHeight: Dp,
+    collapseOffsetPx: () -> Float,
+    onToggleDayExpanded: (LibraryScope, String) -> Unit,
     settled: Boolean,
     enter: () -> Float,
     pageOffset: () -> Float,
@@ -695,6 +708,10 @@ private fun ScopePageBody(
                     actions = if (settled) selectionActions else PhotoSelectionActions.None,
                     gridState = gridState,
                     topPadding = chromeTop,
+                    statusBar = statusBar,
+                    chromeHeight = chromeHeight,
+                    collapseOffsetPx = collapseOffsetPx,
+                    onToggleDayExpanded = onToggleDayExpanded,
                 )
             }
             if (showFade) ListFade()
@@ -719,72 +736,133 @@ private fun PhotoList(
     actions: PhotoSelectionActions,
     gridState: LazyGridState,
     topPadding: Dp,
+    statusBar: Dp,
+    chromeHeight: Dp,
+    collapseOffsetPx: () -> Float,
+    onToggleDayExpanded: (LibraryScope, String) -> Unit,
 ) {
     val view = LocalView.current
     val selecting = selection.isSelecting
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
-    val reorder = rememberPhotoReorder(gridState, reviewSort, pageScope to uiState.unseenOnly, sections)
+    val expandedKey = uiState.expandedDays[pageScope]
+    val canExpand = pageScope.layout == ScopeLayout.Day
+    // 展开也算成员变化：新格子直接出现，不走排序那套位移动画。
+    val reorder = rememberPhotoReorder(gridState, reviewSort, Triple(pageScope, uiState.unseenOnly, expandedKey), sections)
+    var pendingScroll by remember { mutableStateOf<ScrollAfterExpand?>(null) }
+    LaunchedEffect(expandedKey) {
+        val pending = pendingScroll ?: return@LaunchedEffect
+        pendingScroll = null
+        if (pending.expandedKey != expandedKey) return@LaunchedEffect
+        gridState.scrollToItem(pending.index, pending.offset)
+    }
+    val toggleExpanded = { dayKey: String ->
+        val next = if (expandedKey == dayKey) null else dayKey
+        val target = DayExpand.scrollAfterToggle(
+            sections,
+            expandedKey,
+            next,
+            gridState.firstVisibleItemIndex,
+            gridState.firstVisibleItemScrollOffset,
+        )
+        if (target != null) pendingScroll = ScrollAfterExpand(next, target.first, target.second)
+        onToggleDayExpanded(pageScope, dayKey)
+    }
     val locale = currentLocale()
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
     // 和 photoGridGestures 挂在同一条修饰链上：手指的本地坐标加上这里的原点，才对得上格子的根坐标。
     val hitRects = remember { PhotoHitRects() }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(PHOTO_GRID_COLUMNS),
-        state = gridState,
-        modifier = Modifier
-            .fillMaxSize()
-            .gridScrollTapGuard()
-            .onGloballyPositioned { coordinates ->
-                val origin = coordinates.positionInRoot()
-                hitRects.originX = origin.x
-                hitRects.originY = origin.y
-            }
-            .photoGridGestures(
-                state = gridState,
-                onTap = tapsSettled.whenSettled { id -> if (selecting) actions.onToggle(id) else onPhotoClick(id) },
-                onLongPress = { id ->
-                    val started = tapsSettled() && actions.onLongPress(id)
-                    if (started) Haptics.longPress(view)
-                    started
-                },
-                onDrag = actions.onDrag,
-                hitRects = hitRects,
-            ),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.GridGap),
-        contentPadding = PaddingValues(top = topPadding, bottom = dockListBottomPadding()),
-    ) {
-        photoDaySections(
-            sections = sections,
-            right = { section ->
-                if (section.totalCount > 0 && section.seenCount >= section.totalCount) {
-                    MonoWithBold(null, stringResource(R.string.section_all_seen))
+    val stuck = if (canExpand) sections.firstOrNull { it.dayKey == expandedKey && it.overflow.isNotEmpty() } else null
+    Box(Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(PHOTO_GRID_COLUMNS),
+            state = gridState,
+            modifier = Modifier
+                .fillMaxSize()
+                .gridScrollTapGuard()
+                .onGloballyPositioned { coordinates ->
+                    val origin = coordinates.positionInRoot()
+                    hitRects.originX = origin.x
+                    hitRects.originY = origin.y
+                }
+                .photoGridGestures(
+                    state = gridState,
+                    onTap = tapsSettled.whenSettled { id -> if (selecting) actions.onToggle(id) else onPhotoClick(id) },
+                    onLongPress = { id ->
+                        val started = tapsSettled() && actions.onLongPress(id)
+                        if (started) Haptics.longPress(view)
+                        started
+                    },
+                    onDrag = actions.onDrag,
+                    hitRects = hitRects,
+                ),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.GridGap),
+            contentPadding = PaddingValues(top = topPadding, bottom = dockListBottomPadding()),
+        ) {
+            photoDaySections(
+                sections = sections,
+                right = { section -> DaySectionCount(section) },
+                develop = develop,
+                firstScreen = firstScreen,
+                reorderAnchor = reorder.anchor,
+                reorderPlace = reorder.place,
+                onPhotoClick = openPhoto,
+                selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay, actions.onToggle, actions.onLongPress),
+                showChevron = false,
+                sizeLabel = if (pageScope.layout == ScopeLayout.Flat) {
+                    { photo ->
+                        FileSizeFormatter.format(
+                            photo.size ?: error("大文件没有 size：${photo.id}"),
+                            locale,
+                        )
+                    }
                 } else {
-                    MonoWithBold(section.seenCount.toString(), stringResource(R.string.section_seen_of, section.totalCount))
-                }
-            },
-            develop = develop,
-            firstScreen = firstScreen,
-            reorderAnchor = reorder.anchor,
-            reorderPlace = reorder.place,
-            onPhotoClick = openPhoto,
-            selection = GridSelection(selection.selectedIds, selecting, actions.onToggleDay, actions.onToggle, actions.onLongPress),
-            showChevron = false,
-            sizeLabel = if (pageScope.layout == ScopeLayout.Flat) {
-                { photo ->
-                    FileSizeFormatter.format(
-                        photo.size ?: error("大文件没有 size：${photo.id}"),
-                        locale,
-                    )
-                }
-            } else {
-                null
-            },
-            hitRects = hitRects,
-        )
+                    null
+                },
+                hitRects = hitRects,
+                expandedDayKey = expandedKey,
+                onToggleExpanded = if (canExpand) toggleExpanded else null,
+            )
+        }
+        if (stuck != null) {
+            StuckDayHeader(
+                section = stuck,
+                gridState = gridState,
+                statusBar = statusBar,
+                chromeHeight = chromeHeight,
+                collapseOffsetPx = collapseOffsetPx,
+                right = {
+                    if (selecting) {
+                        val ids = stuck.selectableIds
+                        val allPicked = ids.isNotEmpty() && ids.all { it in selection.selectedIds }
+                        MonoWithBold(stringResource(if (allPicked) R.string.deselect_all else R.string.select_all), "")
+                    } else {
+                        DaySectionCount(stuck)
+                    }
+                },
+                onEnter = if (selecting) {
+                    { actions.onToggleDay(stuck.dayKey) }
+                } else {
+                    stuck.photos.firstOrNull()?.let { first -> { openPhoto(first.id) } }
+                },
+                onCollapse = { toggleExpanded(stuck.dayKey) },
+            )
+        }
     }
 }
+
+@Composable
+private fun DaySectionCount(section: PhotoDaySection) {
+    if (section.totalCount > 0 && section.seenCount >= section.totalCount) {
+        MonoWithBold(null, stringResource(R.string.section_all_seen))
+    } else {
+        MonoWithBold(section.seenCount.toString(), stringResource(R.string.section_seen_of, section.totalCount))
+    }
+}
+
+/** 展开键变了之后再滚。点的时候先记下来，列表还没换成新项时滚会落在旧下标上。 */
+private data class ScrollAfterExpand(val expandedKey: String?, val index: Int, val offset: Int)
 
 /** 骨架天标题（24×20 + 64×12）与呼吸格，三组 8 / 6 / 4 格，错开 200ms。 */
 @Composable
