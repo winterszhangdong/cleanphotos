@@ -7,6 +7,32 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.7] - 2026-11-07
+
+### Added
+
+- 安卓：「全部」右上角菜单多了「视图」，可以换成沉浸。沉浸还是四列格子，照片连续铺开，没有日期行，也没有年份分隔。这一项只在「全部」里，放在排序前面。默认是日期分组，旁边标着「默认」。不记住这次选择：离开照片页回到日期分组，旋转屏幕还停在刚才那个。
+- 安卓：「全部」上下滚动时，右侧会出现日期滑块，用来按天跳。列表正在滚、或刚松手时才出现，停一会儿再淡出。拖动时旁边是暗房样式的日期。松手停在这一天的开头：日期分组停在日期行，沉浸停在这一天的第一张。
+- 安卓：「那年今天」每天先显示前 8 张，可以展开看完，也可以收起。一次只展开一天。
+
+### Changed
+
+- 安卓：「全部」的日期分组直接显示当天全部照片，不再有「还有 N 张」和「收起」。往下滚时，这一天的日期行贴在顶栏下面；顶栏收起后贴在状态栏下面，不挡住状态栏。
+- 收藏、截图、聊天、大文件的排列不变。这次只发安卓，不附 iOS 安装包。iOS 照片页仍先显示每天前 8 张。
+
+---
+
+### Added
+
+- Android: the All photos menu has a View section, and can switch to immersive. Immersive keeps the four-column grid and lays photos out continuously, with no date rows and no year separators. The section is only on All, and it sits above sort. Date grouped is the default, and it is labeled Default. The choice is not remembered: leaving the photos page returns to date grouped, and rotation keeps the current one.
+- Android: while All photos scrolls, a date scrubber appears on the right and jumps by day. It shows only while the list is moving, or just after you let go, then fades. Dragging shows the date in the darkroom style. Letting go lands at the start of that day: the date row in date grouped, the first photo of that day in immersive.
+- Android: On This Day still shows the first 8 photos of each day, and can expand to the rest or collapse again. Only one day is expanded at a time.
+
+### Changed
+
+- Android: date grouped on All photos shows every photo of the day. The "N more" row and collapse are gone. While you scroll, that day's date row sticks under the top bar; when the top bar hides, it sticks under the status bar and does not cover it.
+- Favorites, screenshots, chat, and large files are unchanged. This release is Android only and does not include an iOS build. The iOS photo page still shows the first 8 photos of each day.
+
 ## [1.7.6] - 2026-11-05
 
 ### Changed
@@ -575,7 +601,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.6...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.7...HEAD
+[1.7.7]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.5...v1.7.6
 [1.7.5]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.4...v1.7.5
 [1.7.4]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.3...v1.7.4
