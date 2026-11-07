@@ -30,12 +30,16 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -230,23 +234,25 @@ fun LazyGridScope.photoDaySections(
     hitRects: PhotoHitRects? = null,
     /** 点天标题进入这一天的方式；不传时进入这一天第一张（清理页）。收藏页传印样表。 */
     onDayEnter: ((PhotoDaySection) -> Unit)? = null,
-    /** 照片页展开的那天。收藏页不传，只画前 8 张。 */
+    /** 照片页展开的那天。收藏页不传，只画前 8 张。「全部」不截断，不传。 */
     expandedDayKey: String? = null,
-    /** 点「还有 N 张」或「收起」。不传则不画展开入口（收藏页）。 */
+    /** 点「还有 N 张」或「收起」。不传则不画展开入口（收藏页、「全部」）。 */
     onToggleExpanded: ((String) -> Unit)? = null,
+    /** 沉浸视图只铺照片，不画年份、日期行和「还有 N 张」。 */
+    showHeaders: Boolean = true,
 ) {
     var itemIndex = 0
     var rowOffset = 0
     sections.forEachIndexed { index, section ->
         val year = section.yearHeader
-        if (year != null) {
+        if (showHeaders && year != null) {
             val i = itemIndex++
             item(key = "year-$year-${section.dayKey}", span = { GridItemSpan(maxLineSpan) }, contentType = "year") {
                 // 第二个及以后的年份分隔上方多 8dp
                 YearDivider(year, reorderModifier(i, reorderAnchor(), reorderPlace()).padding(top = if (index == 0) 0.dp else 8.dp))
             }
         }
-        if (section.header != SectionHeader.None) {
+        if (showHeaders && section.header != SectionHeader.None) {
             val headerIndex = itemIndex++
             item(key = section.dayKey, span = { GridItemSpan(maxLineSpan) }, contentType = "day") {
                 val locale = currentLocale()
@@ -358,7 +364,7 @@ fun LazyGridScope.photoDaySections(
                 }
             }
         }
-        if (!expanded && section.overflow.isNotEmpty() && section.header == SectionHeader.Day && onToggleExpanded != null) {
+        if (showHeaders && !expanded && section.overflow.isNotEmpty() && section.header == SectionHeader.Day && onToggleExpanded != null) {
             val moreIndex = itemIndex++
             item(key = DayExpand.moreKey(section.dayKey), span = { GridItemSpan(maxLineSpan) }, contentType = "more") {
                 MoreDayRow(
@@ -385,7 +391,7 @@ internal fun StuckDayHeader(
     collapseOffsetPx: () -> Float,
     right: @Composable () -> Unit,
     onEnter: (() -> Unit)?,
-    onCollapse: () -> Unit,
+    onCollapse: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -393,7 +399,7 @@ internal fun StuckDayHeader(
     val shownIds = remember(section.photos, section.overflow) {
         (section.photos + section.overflow).mapTo(HashSet()) { it.id }
     }
-    val lastId = section.overflow.lastOrNull()?.id
+    val lastId = (if (section.overflow.isNotEmpty()) section.overflow else section.photos).lastOrNull()?.id
     val locale = currentLocale()
     val label = section.date?.let { DayDisplay.dayLabel(it, locale) }
         ?: DayDisplay.unknownDayLabel(stringResource(R.string.date_unknown))
@@ -432,9 +438,75 @@ internal fun StuckDayHeader(
             right = right,
             onEnter = onEnter,
             showChevron = false,
-            collapseLabel = stringResource(R.string.day_collapse),
+            collapseLabel = if (onCollapse != null) stringResource(R.string.day_collapse) else null,
             onCollapse = onCollapse,
         )
+    }
+}
+
+/**
+ * 「全部」的日期分组：视口里的每一天都可以吸顶。
+ * 吸住哪一天、画在哪，在布局阶段读滚动，不因此重组；只有进出视口的那几天变了才重组。
+ */
+@Composable
+internal fun StickyDayHeaders(
+    sections: List<PhotoDaySection>,
+    gridState: LazyGridState,
+    statusBar: androidx.compose.ui.unit.Dp,
+    chromeHeight: androidx.compose.ui.unit.Dp,
+    collapseOffsetPx: () -> Float,
+    selecting: Boolean,
+    selectedIds: Set<Long>,
+    onToggleDay: (String) -> Unit,
+    onOpenPhoto: (Long) -> Unit,
+    right: @Composable (PhotoDaySection) -> Unit,
+) {
+    val ordered = remember(sections) { sections.map { it.dayKey } }
+    val photoToDay = remember(sections) {
+        buildMap {
+            for (section in sections) {
+                for (photo in section.photos) put(photo.id, section.dayKey)
+                for (photo in section.overflow) put(photo.id, section.dayKey)
+            }
+        }
+    }
+    var candidates by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(gridState, ordered, photoToDay) {
+        snapshotFlow {
+            stickyCandidateDayKeys(
+                gridState.layoutInfo.visibleItemsInfo.map { it.key },
+                ordered,
+                photoToDay,
+            )
+        }.distinctUntilChanged().collect { candidates = it }
+    }
+    val byKey = remember(sections) { sections.associateBy { it.dayKey } }
+    candidates.forEach { dayKey ->
+        val section = byKey[dayKey] ?: return@forEach
+        key(dayKey) {
+            StuckDayHeader(
+                section = section,
+                gridState = gridState,
+                statusBar = statusBar,
+                chromeHeight = chromeHeight,
+                collapseOffsetPx = collapseOffsetPx,
+                right = {
+                    if (selecting) {
+                        val ids = section.selectableIds
+                        val allPicked = ids.isNotEmpty() && ids.all { it in selectedIds }
+                        MonoWithBold(stringResource(if (allPicked) R.string.deselect_all else R.string.select_all), "")
+                    } else {
+                        right(section)
+                    }
+                },
+                onEnter = if (selecting) {
+                    { onToggleDay(section.dayKey) }
+                } else {
+                    section.photos.firstOrNull()?.let { first -> { onOpenPhoto(first.id) } }
+                },
+                onCollapse = null,
+            )
+        }
     }
 }
 

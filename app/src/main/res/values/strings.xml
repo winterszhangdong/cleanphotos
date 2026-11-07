@@ -20,6 +20,10 @@
     <string name="header_sub_selected">· Selected</string>
     <string name="cd_exit_selection">Exit selection</string>
     <string name="menu_sort_header">Sort</string>
+    <string name="menu_view_header">View</string>
+    <string name="view_by_date">By date</string>
+    <string name="view_immersive">Immersive</string>
+    <string name="cd_date_scrubber">Jump to a date</string>
     <string name="menu_unseen_only">Unseen only</string>
     <string name="scope_all">All</string>
     <string name="scope_similar">Similar</string>

@@ -237,7 +237,7 @@ photo_4：2024-05-18
 
 ```text
 首页展示 3 个日期分组
-2024-05-20 分组首页默认只展示 8 张，其余在 overflow
+2024-05-20 在「全部」里 10 张都露出，overflow 为空。收藏和那年今天仍只露出 8 张
 totalCount 保持 10
 日期按倒序排列
 ```
@@ -3878,26 +3878,35 @@ TrashPreviewOverlay 与 ReviewScreen 横滑行为不一致
 
 ### 多选越过每天 8 张
 
-- 一天 30 张：露出 8 张，`selectableIds` 为 30。点「全选」后 `selection.count == 30`。批量移入垃圾桶传入这 30 张。
-- 拖选只覆盖屏幕上露出的格子。没展开时不含 overflow；展开后可以拖到这些格子。收起不清除已选。
+- 「全部」一天 30 张：30 张都在 `photos` 里，`overflow` 为空，`selectableIds` 为 30。拖选和「全选」都是 30。批量移入垃圾桶传入这 30 张。
+- 那年今天仍只露出 8 张。拖选只覆盖屏幕上露出的格子。没展开时不含 overflow；展开后可以拖到这些格子。收起不清除已选。
 - 顶栏「已选 N」用 `selection.count`。
 
 ### 按天展开
 
-- 一天 14 张、已看 1–5、只看没看过：`photos` 为前 8 张未看，`overflow` 为剩下的未看，`selectableIds` 为全部未看。`totalCount` / `seenCount` 仍按这一天没叠开关的池。
+- 一天 14 张、已看 1–5、只看没看过，且 `capVisible` 为默认：`photos` 为前 8 张未看，`overflow` 为剩下的未看，`selectableIds` 为全部未看。`totalCount` / `seenCount` 仍按这一天没叠开关的池。`capVisible = false` 时 14 张都在 `photos`，`overflow` 为空。
 - 按月、平铺的 `overflow` 为空。
-- 不超过 8 张时不能展开。全部和那年今天各自同时只记一个日期；展开另一天时前一天收起。过滤后这一天不再超过 8 张，展开记录被清掉。离开照片页时 `clearExpandedDays` 清掉全部范围的展开；截图等非按天范围调用展开不改变记录。
+- 不超过 8 张时不能展开。只有那年今天记展开的日期，同时只记一天；展开另一天时前一天收起。「全部」调用展开不改变记录。过滤后这一天不再超过 8 张，展开记录被清掉。离开照片页时 `onLeavePhotosPage` 清掉展开，并把「全部」的视图放回日期分组；截图等非按天范围调用展开不改变记录。
 - 滚动：展开时如果视口顶上那一项前面的键没变，不滚动。纯收起且首个可见项在日期行之后，滚回日期行；日期行自己还在视口顶上时不滚。
 - 吸附：顶栏偏移为 0 时，日期行贴在状态栏加顶栏高度；顶栏完全收起时贴在状态栏。日期行还在这条线下面时不叠。最后一张已经滚上去、叠层会整行离开视口时不叠。
+
+### 全部的视图和日期滑块
+
+- 默认 `AllPhotosViewMode.DateGrouped`。切到沉浸后，排序重算和换范围都不改回。`onLeavePhotosPage` 改回日期分组。不写入 DataStore。
+- 滑块的站按当前分组顺序。日期分组的锚是日期行的键，沉浸的锚是这一天第一张的 id。平铺（没有标题）没有站。
+- 手指在轨道上的位置按天数均分：一天时永远是第一天；三天时 0、0.5、1 分别落到第 1、2、3 天。
+- 没在拖时，拇指位置按列表项（下标 + 已滚过的比例）/（项数 − 1）。不满两项时停在顶上。
+- 锚点下标和网格项顺序一致：日期分组是年份行、日期行、照片；沉浸只有照片。找不到时是 0。
+- 吸顶候选是视口里碰得到的那些天，中间空着的天也算。年份键 `year-$year-$dayKey` 里的 dayKey 可以含 `-`。
 
 ### 排序与分组
 
 - 大文件：先筛再按 `LargestFirst`（size 降序，相同按 dateTaken 降序）。非大文件和 size 为 null 的不进列表。菜单 `sortOrder` 保持用户所选；在这个范围里改菜单排序不改变网格顺序；切回全部后菜单排序生效。`reviewSortOrder` 为 `LargestFirst`。⋯ 菜单 `showsSortMenu == false`。
 - 平铺：一组，键 `flat`，没有日期、没有年份、`SectionHeader.None`，不截断。
 - 截图 / 聊天：按 `yyyy-MM` 分组，超过 8 张不截断。跨年出现年份分隔。已看 / 总数用未叠「只看没看过」的这一月。全选作用于这一月叠上开关之后的全部 id。
-- 那年今天：仍按天，每年一组，每天最多露出 8 张，全选含没露出的。
+- 那年今天：仍按天，每年一组，每天最多露出 8 张，全选含没露出的。「全部」不截断，`photos` 与 `selectableIds` 相同。
 - `FilterPhotosUseCase` 纯函数使用调用方传入的 `today`，不取 `LocalDate.now()`。`PhotoFilterRules.matches` 对 `AllPhotos` 一律命中。
-- 从网格进入清理页时，会话照片顺序与各组 `selectableIds` 拼起来的顺序一致。按天被收起的也算在内，不只是露出的 8 张。大文件用 `reviewSortOrder`（`LargestFirst`），不用菜单里留着的排序。`ShouldInsertDaySummaryUseCase` 在 `sortOrder == LargestFirst` 时不插小结，即使原来的四条件都满足。
+- 从网格进入清理页时，会话照片顺序与各组 `selectableIds` 拼起来的顺序一致。那年今天被收起的也算在内，不只是露出的 8 张。「全部」没有被收起的。大文件用 `reviewSortOrder`（`LargestFirst`），不用菜单里留着的排序。`ShouldInsertDaySummaryUseCase` 在 `sortOrder == LargestFirst` 时不插小结，即使原来的四条件都满足。
 
 ### 空状态
 

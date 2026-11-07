@@ -74,6 +74,8 @@ object MotionDurations {
     /** 400–520ms 控件淡入。 */
     const val SHARED_CHROME_FADE = SHARED_CHROME_END - SHARED_EXPAND_END
 
+    /** 日期滑块松手后还留着，方便按住再拖。 */
+    const val SCRUBBER_HOLD = 900
     /** 排序：点击后 50ms 图标开始转 180°（落定弹簧），重排每格步长 14ms（落定弹簧）。 */
     const val SORT_ICON_DELAY = 50
     const val REORDER_STAGGER = 14

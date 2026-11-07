@@ -76,11 +76,11 @@ fun AllPhotosRoute(
         onPauseOrDispose { }
     }
 
-    // 离开照片页就收起。旋转时 Activity 正在改配置，ViewModel 还在，展开留着。
+    // 离开照片页就收起那年今天，并把「全部」放回日期分组。旋转时 Activity 正在改配置，ViewModel 还在，都留着。
     DisposableEffect(viewModel) {
         onDispose {
             val activity = context as? Activity
-            if (activity?.isChangingConfigurations != true) viewModel.clearExpandedDays()
+            if (activity?.isChangingConfigurations != true) viewModel.onLeavePhotosPage()
         }
     }
 
@@ -108,6 +108,7 @@ fun AllPhotosRoute(
         onSortOrderChanged = viewModel::onSortOrderChanged,
         onScopeChanged = viewModel::onScopeChanged,
         onShowUnseenChanged = viewModel::onShowUnseenChanged,
+        onViewModeChanged = viewModel::onViewModeChanged,
         onToggleDayExpanded = viewModel::onToggleDayExpanded,
         similarState = similarState,
         onSimilarOpen = onNavigateToSimilar,

@@ -39,6 +39,15 @@ val LibraryScope.layout: ScopeLayout
 val LibraryScope.showsSortMenu: Boolean
     get() = layout != ScopeLayout.Flat
 
+/** 照片页「全部」的网格。不写入 DataStore，离开照片页回到 [AllPhotosViewMode.DateGrouped]。 */
+enum class AllPhotosViewMode {
+    /** 年份分隔 + 每天全部照片，日期行吸顶。 */
+    DateGrouped,
+
+    /** 四列连续铺开，没有日期行和年份分隔。 */
+    Immersive,
+}
+
 /** 大文件 / 截图 / 聊天：顶栏副文字是可见照片的大小合计。 */
 val LibraryScope.showsByteTotal: Boolean
     get() = this == LibraryScope.LargeFiles || this == LibraryScope.Screenshots || this == LibraryScope.ChatApps
@@ -137,6 +146,8 @@ data class AllPhotosUiState(
     val scope: LibraryScope = LibraryScope.All,
     /** 和范围叠加。不持久化。相似范围不吃这个开关。 */
     val unseenOnly: Boolean = false,
+    /** 只作用于「全部」。不持久化。 */
+    val viewMode: AllPhotosViewMode = AllPhotosViewMode.DateGrouped,
     val sections: List<PhotoDaySection> = emptyList(),
     val seenIds: Set<Long> = emptySet(),
     /** 「全部看过了」三个数字（决定 11）。 */
@@ -151,8 +162,8 @@ data class AllPhotosUiState(
     /** 停稳范围和左右相邻的页面。其它范围还没算，界面先画骨架。 */
     val pages: Map<LibraryScope, ScopePage> = emptyMap(),
     /**
-     * 每个范围展开的那一天。只有全部和那年今天会有值。进程内，不写入 DataStore。
-     * 一天当前列表不超过 8 张时，键还在也不画展开。
+     * 那年今天展开的那一天。进程内，不写入 DataStore。
+     * 「全部」不截断，没有展开。一天当前列表不超过 8 张时，键还在也不画展开。
      */
     val expandedDays: Map<LibraryScope, String> = emptyMap(),
 ) {

@@ -14,8 +14,8 @@ enum class SectionHeader {
  *
  * @property date 解析后的日期；按月时是该月 1 日；未知日期和平铺为 null。
  * @property yearHeader 这一组上方要画的年份分隔，与上一组同年时为 null。
- * @property photos 当前顺序下默认露出的缩略图。按天最多 [MAX_VISIBLE_PHOTOS] 张；按月和平铺不截断。
- * @property overflow 按天被 8 张上限挡住的其余照片，顺序接在 [photos] 后面。按月、平铺为空。收藏页不画。
+ * @property photos 当前顺序下露出的缩略图。按天默认最多 [MAX_VISIBLE_PHOTOS] 张；照片页「全部」不截断。按月和平铺不截断。
+ * @property overflow 按天被 8 张上限挡住的其余照片，顺序接在 [photos] 后面。不截断、按月、平铺为空。收藏页不画。
  * @property totalCount 这一组在统计池里的总张数（照片页按当前范围、未叠「只看没看过」；收藏页是这一天的收藏）。
  * @property unseenCount 统计池里还没看过的张数。
  * @property selectableIds 这一组里可以选中的全部 id（当前范围叠上「只看没看过」之后，按显示顺序，含没露出的）。

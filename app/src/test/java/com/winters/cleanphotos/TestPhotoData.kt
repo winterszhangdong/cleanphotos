@@ -41,7 +41,7 @@ object TestPhotoData {
     /** 创建多日期测试照片 */
     fun createMultiDateTestPhotos(): List<PhotoItem> {
         return listOf(
-            // 2024-05-20: 10 张（超过首页每组展示上限 8 张）
+            // 2024-05-20: 10 张（「全部」全露出；收藏和那年今天仍按 8 张截断）
             *(1..10).map { createTestPhoto(id = it.toLong(), dateGroup = "2024-05-20") }.toTypedArray(),
             // 2024-05-19: 3 张
             *(11..13).map { createTestPhoto(id = it.toLong(), dateGroup = "2024-05-19") }.toTypedArray(),

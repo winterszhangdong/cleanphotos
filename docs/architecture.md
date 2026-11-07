@@ -428,9 +428,10 @@ LocateMotionPhotoVideoUseCase（图片走 Repository；视频直接变成 Playba
 AllPhotosRoute（照片页导航项里同时持有 SimilarViewModel；停稳到相似才 start，且只启动一次。对比页用同一个返回栈条目上的 ViewModel）
 AllPhotosScreen（顶栏 + 范围刻度 quick return；内容区 HorizontalPager 左右滑换范围；相似列表嵌在这一页）
 SimilarCompareRoute（全屏对比；手势在 feature/similar，复用清理页的判定函数，不改清理页。当前张用 LocateMotionPhotoVideoUseCase 认动态照片，只为左下角那一行字，不播放）
-AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化。`_scope` 是停稳的范围。除当前页外只预算左右相邻页（相似邻页不算，它画分组卡片）。大文件内部用 LargestFirst，菜单排序另存）
+AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化。`_scope` 是停稳的范围。除当前页外只预算左右相邻页（相似邻页不算，它画分组卡片）。大文件内部用 LargestFirst，菜单排序另存。全部的 viewMode 只在内存里，离开照片页回到日期分组）
 AllPhotosUiState
-PhotoDateSection
+PhotoDateSection（日期分组的吸顶、沉浸不画标题）
+DateScrubber（全部范围的日期滑块）
 PhotoChromeCollapse
 ```
 

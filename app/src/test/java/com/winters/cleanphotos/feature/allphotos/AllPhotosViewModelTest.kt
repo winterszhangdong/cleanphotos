@@ -483,13 +483,14 @@ class AllPhotosViewModelTest {
     }
 
     @Test
-    fun `一天三十张_全选三十张_拖选只含露出的格子_批量移入垃圾桶传三十张`() = runTest(testDispatcher) {
+    fun `一天三十张_全部不截断_全选和拖选都是三十张`() = runTest(testDispatcher) {
         val photos = (1L..30L).map { TestPhotoData.createTestPhoto(it, dateGroup = "2024-05-20") }
         fakePhotoRepository.setPhotos(photos)
         val vm = createViewModel(); advanceUntilIdle()
         val day = vm.uiState.value.sections.single()
         val shown = day.photos.map { it.id }
-        assertEquals((30L downTo 23L).toList(), shown)
+        assertEquals((30L downTo 1L).toList(), shown)
+        assertEquals(emptyList<Long>(), day.overflow.map { it.id })
         assertEquals((30L downTo 1L).toList(), day.selectableIds)
 
         vm.onLongPressPhoto(shown.last())
@@ -504,16 +505,53 @@ class AllPhotosViewModelTest {
     }
 
     @Test
-    fun `展开后拖选能到被挡住的格子_同时只展开一天_收起不清选中`() = runTest(testDispatcher) {
-        val zone = java.time.ZoneId.of("UTC")
+    fun `全部视图默认日期分组_切范围留着_离开照片页才回到默认`() = runTest(testDispatcher) {
+        fakePhotoRepository.setPhotos(TestPhotoData.createMultiDateTestPhotos())
+        val vm = createViewModel(); advanceUntilIdle()
+        assertEquals(AllPhotosViewMode.DateGrouped, vm.uiState.value.viewMode)
+
+        vm.onViewModeChanged(AllPhotosViewMode.Immersive)
+        assertEquals(AllPhotosViewMode.Immersive, vm.uiState.value.viewMode)
+        vm.onViewModeChanged(AllPhotosViewMode.Immersive)
+        vm.onSortOrderChanged(PhotoSortOrder.OldestFirst)
+        advanceUntilIdle()
+        assertEquals(AllPhotosViewMode.Immersive, vm.uiState.value.viewMode)
+
+        vm.onScopeChanged(LibraryScope.Screenshots)
+        advanceUntilIdle()
+        assertEquals(AllPhotosViewMode.Immersive, vm.uiState.value.viewMode)
+
+        vm.onLeavePhotosPage()
+        assertEquals(AllPhotosViewMode.DateGrouped, vm.uiState.value.viewMode)
+        assertTrue(vm.uiState.value.expandedDays.isEmpty())
+    }
+
+    @Test
+    fun `全部不展开_那年今天展开后拖选能到被挡住的格子`() = runTest(testDispatcher) {
+        val zone = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now(zone)
+        val dayA = previousSameDay(today, 1)
+        val dayB = previousSameDay(today, 2)
         fun photo(id: Long, date: java.time.LocalDate) = TestPhotoData.createTestPhoto(id, date.toString()).copy(
             dateTaken = date.atStartOfDay(zone).toInstant().toEpochMilli() + id,
         )
-        val dayA = java.time.LocalDate.of(2024, 5, 20)
-        val dayB = java.time.LocalDate.of(2024, 5, 19)
         val photos = (1L..10L).map { photo(it, dayA) } + (11L..20L).map { photo(it, dayB) }
         fakePhotoRepository.setPhotos(photos)
         val vm = createViewModel(); advanceUntilIdle()
+
+        val allA = vm.uiState.value.sections.single { it.dayKey == dayA.toString() }
+        assertEquals((10L downTo 1L).toList(), allA.photos.map { it.id })
+        assertTrue(allA.overflow.isEmpty())
+        vm.onToggleDayExpanded(LibraryScope.All, dayA.toString())
+        vm.onToggleDayExpanded(LibraryScope.Screenshots, dayA.toString())
+        assertTrue(vm.uiState.value.expandedDays.isEmpty())
+        vm.onLongPressPhoto(10L)
+        vm.onDragSelect(10L, 1L)
+        assertEquals((10L downTo 1L).toSet(), vm.selection.value.selectedIds)
+        vm.onExitSelection()
+
+        vm.onScopeChanged(LibraryScope.OnThisDay)
+        advanceUntilIdle()
         val first = vm.uiState.value.sections.single { it.dayKey == dayA.toString() }
         val hidden = first.overflow.last().id
         assertEquals((10L downTo 3L).toList(), first.photos.map { it.id })
@@ -526,27 +564,23 @@ class AllPhotosViewModelTest {
         vm.onToggleDayExpanded(LibraryScope.Screenshots, dayA.toString())
         assertTrue(vm.uiState.value.expandedDays.isEmpty())
 
-        vm.onToggleDayExpanded(LibraryScope.All, dayA.toString())
-        assertEquals(dayA.toString(), vm.uiState.value.expandedDays[LibraryScope.All])
+        vm.onToggleDayExpanded(LibraryScope.OnThisDay, dayA.toString())
+        assertEquals(dayA.toString(), vm.uiState.value.expandedDays[LibraryScope.OnThisDay])
         vm.onDragSelect(10L, hidden)
         assertEquals((10L downTo 1L).toSet(), vm.selection.value.selectedIds)
 
-        vm.onToggleDayExpanded(LibraryScope.All, dayB.toString())
-        assertEquals(mapOf(LibraryScope.All to dayB.toString()), vm.uiState.value.expandedDays)
-        vm.onToggleDayExpanded(LibraryScope.All, dayB.toString())
+        vm.onToggleDayExpanded(LibraryScope.OnThisDay, dayB.toString())
+        assertEquals(mapOf(LibraryScope.OnThisDay to dayB.toString()), vm.uiState.value.expandedDays)
+        vm.onToggleDayExpanded(LibraryScope.OnThisDay, dayB.toString())
         assertTrue(vm.uiState.value.expandedDays.isEmpty())
         assertEquals((10L downTo 1L).toSet(), vm.selection.value.selectedIds)
 
         vm.onExitSelection()
-        vm.onToggleDayExpanded(LibraryScope.All, dayA.toString())
-        vm.clearExpandedDays()
+        vm.onToggleDayExpanded(LibraryScope.OnThisDay, dayA.toString())
+        vm.onLeavePhotosPage()
         assertTrue(vm.uiState.value.expandedDays.isEmpty())
-        vm.onLongPressPhoto(10L)
-        vm.onDragSelect(10L, hidden)
-        assertEquals(setOf(10L), vm.selection.value.selectedIds)
-        vm.onExitSelection()
 
-        vm.onToggleDayExpanded(LibraryScope.All, dayA.toString())
+        vm.onToggleDayExpanded(LibraryScope.OnThisDay, dayA.toString())
         mockSeenDataSource.seenIds.value = setOf(10L, 9L, 8L)
         vm.onShowUnseenChanged(true)
         advanceUntilIdle()
@@ -646,7 +680,7 @@ class AllPhotosViewModelTest {
         val shown = newest.sections.flatMap { it.photos }.map { it.id }
         val full = newest.sections.flatMap { it.selectableIds }
         assertEquals((14L downTo 1L).toList(), full)
-        assertTrue(shown.size < full.size)
+        assertEquals(full, shown)
         assertReviewMatchesGrid(vm)
 
         vm.onSortOrderChanged(PhotoSortOrder.OldestFirst)

@@ -148,6 +148,7 @@ fun AllPhotosScreen(
     onSortOrderChanged: (PhotoSortOrder) -> Unit,
     onScopeChanged: (LibraryScope) -> Unit,
     onShowUnseenChanged: (Boolean) -> Unit,
+    onViewModeChanged: (AllPhotosViewMode) -> Unit,
     onToggleDayExpanded: (LibraryScope, String) -> Unit,
     similarState: SimilarUiState,
     onSimilarOpen: (String, Long) -> Unit,
@@ -344,6 +345,19 @@ fun AllPhotosScreen(
         requestJump(target)
     }
 
+    var viewAnchor by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(uiState.viewMode) {
+        val id = viewAnchor ?: return@LaunchedEffect
+        viewAnchor = null
+        if (uiState.scope != LibraryScope.All) return@LaunchedEffect
+        val index = indexOfAnchor(
+            uiState.sections,
+            uiState.viewMode == AllPhotosViewMode.Immersive,
+            id,
+        )
+        gridAll.scrollToItem(index)
+    }
+
     val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val chromeHeight = Dimens.HeaderHeight + Dimens.ScopeRowHeight
     val chromeTop = statusBar + chromeHeight
@@ -507,11 +521,41 @@ fun AllPhotosScreen(
 
             SortToast(sortToast)
 
+            fun switchAllView(mode: AllPhotosViewMode) {
+                if (mode != uiState.viewMode) {
+                    viewAnchor = gridAll.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { it.key as? Long }
+                    onViewModeChanged(mode)
+                }
+                menuOpen = false
+            }
             DarkroomMenu(
                 visible = menuOpen,
                 // 顶栏只剩 56dp：菜单紧贴 ⋯ 下方，盖住范围行而不是悬在它下面
                 top = Dimens.HeaderHeight,
                 sections = buildList {
+                    if (uiState.scope == LibraryScope.All) {
+                        add(
+                            MenuSection(
+                                header = stringResource(R.string.menu_view_header),
+                                options = listOf(
+                                    MenuOption(
+                                        stringResource(R.string.view_by_date),
+                                        stringResource(R.string.sort_default),
+                                        uiState.viewMode == AllPhotosViewMode.DateGrouped,
+                                    ) {
+                                        switchAllView(AllPhotosViewMode.DateGrouped)
+                                    },
+                                    MenuOption(
+                                        stringResource(R.string.view_immersive),
+                                        null,
+                                        uiState.viewMode == AllPhotosViewMode.Immersive,
+                                    ) {
+                                        switchAllView(AllPhotosViewMode.Immersive)
+                                    },
+                                ),
+                            ),
+                        )
+                    }
                     if (uiState.scope.showsSortMenu) {
                         add(
                             MenuSection(
@@ -746,9 +790,15 @@ private fun PhotoList(
     val develop = remember { tileDevelopFor(uiState.isInitialLoad) }
     val firstScreen = rememberGridFirstScreen(gridState, sessionKey = "photos")
     val expandedKey = uiState.expandedDays[pageScope]
-    val canExpand = pageScope.layout == ScopeLayout.Day
-    // 展开也算成员变化：新格子直接出现，不走排序那套位移动画。
-    val reorder = rememberPhotoReorder(gridState, reviewSort, Triple(pageScope, uiState.unseenOnly, expandedKey), sections)
+    val immersive = pageScope == LibraryScope.All && uiState.viewMode == AllPhotosViewMode.Immersive
+    val canExpand = pageScope == LibraryScope.OnThisDay
+    // 展开、切换视图都算成员变化：新格子直接出现，不走排序那套位移动画。
+    val reorder = rememberPhotoReorder(
+        gridState,
+        reviewSort,
+        Triple(pageScope, uiState.unseenOnly, expandedKey to immersive),
+        sections,
+    )
     var pendingScroll by remember { mutableStateOf<ScrollAfterExpand?>(null) }
     LaunchedEffect(expandedKey) {
         val pending = pendingScroll ?: return@LaunchedEffect
@@ -823,6 +873,31 @@ private fun PhotoList(
                 hitRects = hitRects,
                 expandedDayKey = expandedKey,
                 onToggleExpanded = if (canExpand) toggleExpanded else null,
+                showHeaders = !immersive,
+            )
+        }
+        if (pageScope == LibraryScope.All && !immersive) {
+            StickyDayHeaders(
+                sections = sections,
+                gridState = gridState,
+                statusBar = statusBar,
+                chromeHeight = chromeHeight,
+                collapseOffsetPx = collapseOffsetPx,
+                selecting = selecting,
+                selectedIds = selection.selectedIds,
+                onToggleDay = actions.onToggleDay,
+                onOpenPhoto = openPhoto,
+                right = { DaySectionCount(it) },
+            )
+        }
+        if (pageScope == LibraryScope.All) {
+            DateScrubber(
+                sections = sections,
+                immersive = immersive,
+                gridState = gridState,
+                topPadding = topPadding,
+                bottomPadding = dockListBottomPadding(),
+                collapseOffsetPx = collapseOffsetPx,
             )
         }
         if (stuck != null) {

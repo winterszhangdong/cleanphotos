@@ -185,8 +185,8 @@ data class PhotoDaySection(
 dayKey：按天是 PhotoItem.dateGroup；按月是 yyyy-MM（未知日期仍是 "Unknown date"）；平铺固定 "flat"
 date：按天是这一天；按月是该月 1 日；未知日期和平铺为 null
 yearHeader：这一组上方要画的年份，与上一组同年时为 null。平铺为 null
-photos：默认露出的缩略图。按天最多 8 张；按月和平铺不截断
-overflow：按天、当前过滤后从第 9 张起的照片，顺序接在 photos 后面。按月和平铺为空。收藏页有这个字段，网格不画
+photos：默认露出的缩略图。按天最多 8 张；照片页「全部」不截断；按月和平铺不截断
+overflow：按天、当前过滤后从第 9 张起的照片，顺序接在 photos 后面。不截断、按月、平铺为空。收藏页有这个字段，网格不画。照片页「全部」为空
 totalCount：统计池里这一组的张数（照片页是当前范围、未叠「只看没看过」）
 unseenCount：统计池里还没看过的张数。seenCount = totalCount - unseenCount
 header：Day / Month / None。平铺不画标题
@@ -196,10 +196,11 @@ selectableIds：这一组可以选中的全部 id（当前范围叠上「只看�
 规则：
 
 ```text
-全部、那年今天：ScopeLayout.Day，每天默认露出 8 张，其余在 overflow。照片页同一范围同时展开一天；收藏页不展开
+全部：ScopeLayout.Day，不截断，overflow 为空。视图（日期分组 / 沉浸）只决定怎么画，不重算分组。沉浸仍靠这些分组知道每一天从哪张开始
+那年今天：ScopeLayout.Day，每天默认露出 8 张，其余在 overflow。照片页同时只展开一天；收藏页不展开
 截图、聊天：ScopeLayout.Month，不截断，overflow 为空。月份标题中文大号数字加「月」，英文用月份短名
 大文件：ScopeLayout.Flat，一整列，不画年份和标题，overflow 为空
-「全选」用 selectableIds，不是 photos。拖选用当时画在网格上的格子（展开后含 overflow）
+「全选」用 selectableIds，不是 photos。拖选用当时画在网格上的格子（那年今天展开后含 overflow；全部本来就全在格子上）
 「还有 N 张」的 N 是 overflow 的张数，不是 totalCount 减 8
 ```
 
@@ -894,6 +895,7 @@ class BuildPhotoSectionsUseCase {
         dayPool: List<PhotoItem>,
         seenIds: Set<Long>,
         layout: ScopeLayout = ScopeLayout.Day,
+        capVisible: Boolean = layout == ScopeLayout.Day,
     ): List<PhotoDaySection>
 }
 ```
@@ -903,7 +905,8 @@ class BuildPhotoSectionsUseCase {
 ```text
 visible：要显示的照片（已经叠过「只看没看过」），顺序即显示顺序
 dayPool：统计每组总数 / 未看数的池（照片页传当前范围、未叠开关的照片）
-Day 按 dateGroup，每天露出最多 8 张，其余进 overflow；Month 按 yyyy-MM，不截断，overflow 为空；Flat 合成一组，键 "flat"，overflow 为空
+capVisible：按天时是否只露出前 8 张。默认跟 layout（按天才截断）。照片页「全部」传 false。收藏和那年今天用默认
+Day 按 dateGroup。capVisible 为 true 时每天露出最多 8 张，其余进 overflow；为 false 时 overflow 为空。Month 按 yyyy-MM，不截断，overflow 为空；Flat 合成一组，键 "flat"，overflow 为空
 selectableIds 是这一组 visible 的全部 id，含按天没露出的
 ```
 

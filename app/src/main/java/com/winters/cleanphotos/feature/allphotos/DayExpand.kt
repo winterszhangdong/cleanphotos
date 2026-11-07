@@ -77,6 +77,46 @@ internal fun dayHeaderPinY(statusBarPx: Float, chromeHeightPx: Float, collapseOf
 /** 格子在网格视口里的顶边。offset 不含 contentPadding，放置时才加 -viewportStartOffset。 */
 internal fun gridItemVisualTop(offsetY: Int, viewportStartOffset: Int): Int = offsetY - viewportStartOffset
 
+/** 网格项键对应的日期行。年份键是 `year-$year-$dayKey`，dayKey 本身可以含 `-`。 */
+internal fun dayKeyOfGridItem(key: Any, dayKeys: Set<String>): String? = when (key) {
+    is String -> when {
+        key in dayKeys -> key
+        key.startsWith("more-") -> key.removePrefix("more-").takeIf { it in dayKeys }
+        key.startsWith("year-") -> {
+            val rest = key.removePrefix("year-")
+            val split = rest.indexOf('-')
+            if (split < 0) null else rest.substring(split + 1).takeIf { it in dayKeys }
+        }
+        else -> null
+    }
+    else -> null
+}
+
+/**
+ * 视口里碰得到的那些天，按 [orderedDayKeys] 的顺序，中间空档也算上。
+ * 日期行已经滚出视口、照片还在时，这一天仍在结果里，吸顶叠层才画得出来。
+ */
+internal fun stickyCandidateDayKeys(
+    visibleKeys: List<Any>,
+    orderedDayKeys: List<String>,
+    photoToDay: Map<Long, String>,
+): List<String> {
+    if (visibleKeys.isEmpty() || orderedDayKeys.isEmpty()) return emptyList()
+    val known = orderedDayKeys.toHashSet()
+    val indexOf = HashMap<String, Int>(orderedDayKeys.size)
+    orderedDayKeys.forEachIndexed { index, key -> indexOf[key] = index }
+    var first = Int.MAX_VALUE
+    var last = -1
+    for (key in visibleKeys) {
+        val day = if (key is Long) photoToDay[key] else dayKeyOfGridItem(key, known) ?: continue
+        val index = indexOf[day] ?: continue
+        if (index < first) first = index
+        if (index > last) last = index
+    }
+    if (last < 0) return emptyList()
+    return orderedDayKeys.subList(first, last + 1)
+}
+
 /**
  * 展开那天的日期行叠层该画在哪。返回 null 表示用列表里的原行，不叠。
  * [headerTop] / [lastItemTop] 是视口坐标；最后一项还没进视口时传 null，表示这一天还没到底。

@@ -67,7 +67,7 @@ class AllPhotosViewModel @Inject constructor(
     private var selectableById: Map<Long, PhotoItem> = emptyMap()
     /** 屏幕上露出的格子，按显示顺序。拖选取这个区间。按天收起的照片不在里面，展开的那一天算进去。 */
     private var gridPhotos: List<PhotoItem> = emptyList()
-    /** 全部 / 那年今天各自展开的一天。不进 DataStore，进程死了就没了。 */
+    /** 那年今天展开的一天。「全部」不截断。不进 DataStore，进程死了就没了。 */
     private val expandedDay = LinkedHashMap<LibraryScope, String>()
     /** 长按开始拖选那一刻已选中的集合；拖选结果 = 它 ∪ 起点到当前格的区间。 */
     private var dragBase: Set<Long> = emptySet()
@@ -75,10 +75,11 @@ class AllPhotosViewModel @Inject constructor(
     private var dragAnchor: Long? = null
     private var undoSeq = 0L
 
-    /** 排序、范围、「只看没看过」不持久化，进入页面时为默认值。 */
+    /** 排序、范围、「只看没看过」、视图都不持久化，进入页面时为默认值。 */
     private val _sortOrder = MutableStateFlow(PhotoSortOrder.NewestFirst)
     private val _scope = MutableStateFlow(LibraryScope.All)
     private val _unseenOnly = MutableStateFlow(false)
+    private val _viewMode = MutableStateFlow(AllPhotosViewMode.DateGrouped)
 
     private val initialPermission = PermissionChecker.hasPhotoPermission(application)
     private val enteredWithPhotoPermission = initialPermission
@@ -162,6 +163,7 @@ class AllPhotosViewModel @Inject constructor(
                         hasPermission = now.hasPermission,
                         errorMessage = now.errorMessage,
                         expandedDays = expandedDay.toMap(),
+                        viewMode = _viewMode.value,
                     )
                 }
         }
@@ -212,7 +214,13 @@ class AllPhotosViewModel @Inject constructor(
         val applyUnseen = unseenOnly && scope != LibraryScope.Similar
         val visible = if (applyUnseen) scoped.filter { it.id !in seenIds } else scoped
         val layout = if (scope == LibraryScope.Similar) ScopeLayout.Day else scope.layout
-        val sections = buildPhotoSectionsUseCase(visible, dayPool = scoped, seenIds = seenIds, layout = layout)
+        val sections = buildPhotoSectionsUseCase(
+            visible,
+            dayPool = scoped,
+            seenIds = seenIds,
+            layout = layout,
+            capVisible = scope != LibraryScope.All,
+        )
         return BuiltScope(
             page = ScopePage(
                 sections = sections,
@@ -237,9 +245,16 @@ class AllPhotosViewModel @Inject constructor(
         _unseenOnly.value = enabled
     }
 
-    /** 全部 / 那年今天：展开或收起这一天。另一天开着就换成这一天。没有被挡住的照片时不动。 */
+    /** 「全部」的日期分组 / 沉浸。别的范围菜单里没有这项，状态先留着，回到全部再生效。 */
+    fun onViewModeChanged(mode: AllPhotosViewMode) {
+        if (_viewMode.value == mode) return
+        _viewMode.value = mode
+        _uiState.value = _uiState.value.copy(viewMode = mode)
+    }
+
+    /** 那年今天：展开或收起这一天。另一天开着就换成这一天。没有被挡住的照片时不动。「全部」不截断，调用直接返回。 */
     fun onToggleDayExpanded(scope: LibraryScope, dayKey: String) {
-        if (scope.layout != ScopeLayout.Day || scope == LibraryScope.Similar) return
+        if (scope != LibraryScope.OnThisDay) return
         val sections = _uiState.value.pages[scope]?.sections
             ?: if (scope == _scope.value) _uiState.value.sections else return
         val section = sections.find { it.dayKey == dayKey } ?: return
@@ -248,6 +263,15 @@ class AllPhotosViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(expandedDays = expandedDay.toMap())
         if (scope == _scope.value) {
             gridPhotos = DayExpand.gridPhotos(sections, expandedDay[scope])
+        }
+    }
+
+    /** 离开照片页时收起那年今天，并把「全部」的视图放回日期分组。旋转不走这里，ViewModel 还在。 */
+    fun onLeavePhotosPage() {
+        clearExpandedDays()
+        if (_viewMode.value != AllPhotosViewMode.DateGrouped) {
+            _viewMode.value = AllPhotosViewMode.DateGrouped
+            _uiState.value = _uiState.value.copy(viewMode = AllPhotosViewMode.DateGrouped)
         }
     }
 

@@ -19,6 +19,10 @@
     <string name="header_sub_selected">· 已选择</string>
     <string name="cd_exit_selection">退出多选</string>
     <string name="menu_sort_header">排序</string>
+    <string name="menu_view_header">视图</string>
+    <string name="view_by_date">日期分组</string>
+    <string name="view_immersive">沉浸</string>
+    <string name="cd_date_scrubber">按日期快速跳转</string>
     <string name="menu_unseen_only">只看没看过</string>
     <string name="scope_all">全部</string>
     <string name="scope_similar">相似</string>

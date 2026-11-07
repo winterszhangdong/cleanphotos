@@ -56,6 +56,15 @@ class P3ListUseCasesTest {
     }
 
     @Test
+    fun sections_day_without_cap_shows_every_photo() {
+        val day = (1L..14L).map { createTestPhoto(it, "2026-09-21") }
+        val s = build(day, day, emptySet(), capVisible = false).single()
+        assertEquals((1L..14L).toList(), s.photos.map { it.id })
+        assertEquals(0, s.overflow.size)
+        assertEquals((1L..14L).toList(), s.selectableIds)
+    }
+
+    @Test
     fun sections_month_has_no_cap_and_year_header_on_year_change() {
         val visible = (1L..12L).map { createTestPhoto(it, "2026-10-21") } + createTestPhoto(13, "2025-12-31")
         val seen = setOf(1L, 2L)

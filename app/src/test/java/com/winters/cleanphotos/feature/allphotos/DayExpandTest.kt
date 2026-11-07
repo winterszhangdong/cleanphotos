@@ -78,6 +78,29 @@ class DayExpandTest {
     }
 
     @Test
+    fun day_key_of_a_grid_item_keeps_dashes_in_the_day() {
+        val days = setOf("2024-05-20")
+        assertEquals("2024-05-20", dayKeyOfGridItem("2024-05-20", days))
+        assertEquals("2024-05-20", dayKeyOfGridItem("more-2024-05-20", days))
+        assertEquals("2024-05-20", dayKeyOfGridItem("year-2024-2024-05-20", days))
+        assertNull(dayKeyOfGridItem("year-2024", days))
+        assertNull(dayKeyOfGridItem(1L, days))
+        assertNull(dayKeyOfGridItem("other", days))
+    }
+
+    @Test
+    fun sticky_candidates_fill_the_gap_between_visible_days() {
+        val ordered = listOf("a", "b", "c")
+        val photoToDay = mapOf(1L to "a", 2L to "c")
+        assertEquals(
+            listOf("a", "b", "c"),
+            stickyCandidateDayKeys(listOf("year-2024-a", 1L, 2L), ordered, photoToDay),
+        )
+        assertEquals(emptyList<String>(), stickyCandidateDayKeys(emptyList(), ordered, photoToDay))
+        assertEquals(listOf("c"), stickyCandidateDayKeys(listOf(2L), ordered, photoToDay))
+    }
+
+    @Test
     fun sticky_header_hides_until_the_real_row_passes_the_pin() {
         assertNull(dayHeaderStickY(200, 50, headerTop = null, lastItemTop = null, lastItemHeight = null, sectionVisible = false))
         assertNull(dayHeaderStickY(200, 50, headerTop = 200, lastItemTop = null, lastItemHeight = null, sectionVisible = true))
