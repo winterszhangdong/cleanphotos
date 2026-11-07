@@ -901,12 +901,16 @@ private fun PhotoList(
             )
         }
         if (stuck != null) {
+            val nextDayKey = sections.getOrNull(
+                sections.indexOfFirst { it.dayKey == stuck.dayKey } + 1,
+            )?.dayKey
             StuckDayHeader(
                 section = stuck,
                 gridState = gridState,
                 statusBar = statusBar,
                 chromeHeight = chromeHeight,
                 collapseOffsetPx = collapseOffsetPx,
+                nextDayKey = nextDayKey,
                 right = {
                     if (selecting) {
                         val ids = stuck.selectableIds

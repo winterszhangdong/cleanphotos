@@ -118,20 +118,27 @@ internal fun stickyCandidateDayKeys(
 }
 
 /**
- * 展开那天的日期行叠层该画在哪。返回 null 表示用列表里的原行，不叠。
- * [headerTop] / [lastItemTop] 是视口坐标；最后一项还没进视口时传 null，表示这一天还没到底。
+ * 日期行叠层该画在哪。返回 null 表示不叠。
+ * [headerTop]、[nextHeaderTop]、[lastItemTop] 都是视口坐标。
+ * 有下一天时用它的日期行顶边把这一行顶上去，两行相接。年份分隔夹在中间也不会提前推走。
+ * 下一天还没进视口，或已经是列表最后一天时，才退回最后一项的底边，末尾才能离开屏幕。
  */
 internal fun dayHeaderStickY(
     pinY: Int,
     headerHeight: Int,
     headerTop: Int?,
+    nextHeaderTop: Int?,
     lastItemTop: Int?,
     lastItemHeight: Int?,
     sectionVisible: Boolean,
 ): Int? {
     if (headerTop == null && !sectionVisible) return null
     if (headerTop != null && headerTop >= pinY) return null
-    val end = if (lastItemTop != null && lastItemHeight != null) lastItemTop + lastItemHeight else Int.MAX_VALUE
+    val end = when {
+        nextHeaderTop != null -> nextHeaderTop
+        lastItemTop != null && lastItemHeight != null -> lastItemTop + lastItemHeight
+        else -> Int.MAX_VALUE
+    }
     val y = min(pinY, end - headerHeight)
     if (y <= -headerHeight) return null
     return y

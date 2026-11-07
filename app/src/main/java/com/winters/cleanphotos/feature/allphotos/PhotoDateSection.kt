@@ -393,6 +393,8 @@ internal fun StuckDayHeader(
     onEnter: (() -> Unit)?,
     onCollapse: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    /** 紧跟着的下一天。它的日期行把这一行顶上去。列表最后一天传 null。 */
+    nextDayKey: String?,
 ) {
     val density = LocalDensity.current
     val headerHeightPx = with(density) { Dimens.DayHeight.roundToPx() }
@@ -409,6 +411,7 @@ internal fun StuckDayHeader(
             .offset {
                 val info = gridState.layoutInfo
                 val header = info.visibleItemsInfo.find { it.key == section.dayKey }
+                val nextHeader = nextDayKey?.let { key -> info.visibleItemsInfo.find { it.key == key } }
                 val last = lastId?.let { id -> info.visibleItemsInfo.find { it.key == id } }
                 val visible = header != null || info.visibleItemsInfo.any { item ->
                     val key = item.key
@@ -423,6 +426,7 @@ internal fun StuckDayHeader(
                     pinY = pin,
                     headerHeight = headerHeightPx,
                     headerTop = header?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
+                    nextHeaderTop = nextHeader?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
                     lastItemTop = last?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
                     lastItemHeight = last?.size?.height,
                     sectionVisible = visible,
@@ -481,6 +485,9 @@ internal fun StickyDayHeaders(
         }.distinctUntilChanged().collect { candidates = it }
     }
     val byKey = remember(sections) { sections.associateBy { it.dayKey } }
+    val nextOf = remember(ordered) {
+        ordered.mapIndexed { index, key -> key to ordered.getOrNull(index + 1) }.toMap()
+    }
     candidates.forEach { dayKey ->
         val section = byKey[dayKey] ?: return@forEach
         key(dayKey) {
@@ -490,6 +497,7 @@ internal fun StickyDayHeaders(
                 statusBar = statusBar,
                 chromeHeight = chromeHeight,
                 collapseOffsetPx = collapseOffsetPx,
+                nextDayKey = nextOf[dayKey],
                 right = {
                     if (selecting) {
                         val ids = section.selectableIds

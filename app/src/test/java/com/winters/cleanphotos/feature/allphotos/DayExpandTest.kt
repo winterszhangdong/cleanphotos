@@ -102,17 +102,35 @@ class DayExpandTest {
 
     @Test
     fun sticky_header_hides_until_the_real_row_passes_the_pin() {
-        assertNull(dayHeaderStickY(200, 50, headerTop = null, lastItemTop = null, lastItemHeight = null, sectionVisible = false))
-        assertNull(dayHeaderStickY(200, 50, headerTop = 200, lastItemTop = null, lastItemHeight = null, sectionVisible = true))
-        assertNull(dayHeaderStickY(200, 50, headerTop = 240, lastItemTop = 400, lastItemHeight = 100, sectionVisible = true))
-        assertEquals(200, dayHeaderStickY(200, 50, headerTop = null, lastItemTop = null, lastItemHeight = null, sectionVisible = true))
-        assertEquals(200, dayHeaderStickY(200, 50, headerTop = 40, lastItemTop = null, lastItemHeight = null, sectionVisible = true))
-        // 最后一张已经进视口：日期行跟着它的底边上推。
-        assertEquals(150, dayHeaderStickY(200, 50, headerTop = null, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true))
+        assertNull(dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = null, lastItemTop = null, lastItemHeight = null, sectionVisible = false))
+        assertNull(dayHeaderStickY(200, 50, headerTop = 200, nextHeaderTop = null, lastItemTop = null, lastItemHeight = null, sectionVisible = true))
+        assertNull(dayHeaderStickY(200, 50, headerTop = 240, nextHeaderTop = null, lastItemTop = 400, lastItemHeight = 100, sectionVisible = true))
+        assertEquals(200, dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = null, lastItemTop = null, lastItemHeight = null, sectionVisible = true))
+        assertEquals(200, dayHeaderStickY(200, 50, headerTop = 40, nextHeaderTop = null, lastItemTop = null, lastItemHeight = null, sectionVisible = true))
+        // 列表最后一天：没有下一天，日期行跟着最后一张的底边上推。
+        assertEquals(150, dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = null, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true))
         // 最后一张还露着一截：日期行跟着上移，但还没整行离开。
-        assertEquals(-10, dayHeaderStickY(200, 50, headerTop = null, lastItemTop = -40, lastItemHeight = 80, sectionVisible = true))
+        assertEquals(-10, dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = null, lastItemTop = -40, lastItemHeight = 80, sectionVisible = true))
         // 最后一张的底边已经到视口外：叠层整行离开。
-        assertNull(dayHeaderStickY(200, 50, headerTop = null, lastItemTop = -80, lastItemHeight = 50, sectionVisible = true))
+        assertNull(dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = null, lastItemTop = -80, lastItemHeight = 50, sectionVisible = true))
+    }
+
+    @Test
+    fun sticky_header_is_pushed_by_the_next_day_not_the_last_photo() {
+        // 下一天还在针线下面：贴住。最后一张即使已经到了，中间隔着年份行也不提前推。
+        assertEquals(
+            200,
+            dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = 280, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true),
+        )
+        // 下一天的日期行碰到这一行：跟着它的顶边走，两行相接。
+        assertEquals(
+            170,
+            dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = 220, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true),
+        )
+        // 下一天已经把这一行顶出视口。
+        assertNull(
+            dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = -10, lastItemTop = -80, lastItemHeight = 50, sectionVisible = true),
+        )
     }
 
     private fun day(
