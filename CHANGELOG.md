@@ -7,6 +7,18 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.8] - 2026-11-07
+
+### Fixed
+
+- 安卓：日期分组里，滑到下一天时日期行不再跳一下。下一天的日期行把这一行顶上去，两行相接。跨年时中间的年份分隔从底下穿过去。列表最后一天仍跟着最后一张照片离开。
+
+---
+
+### Fixed
+
+- Android: in date grouped view, the date row no longer jumps when the next day takes over. The next day's date row pushes this one up, and the two rows meet. A year divider between them scrolls underneath. The last day of the list still leaves with its last photo.
+
 ## [1.7.7] - 2026-11-07
 
 ### Added
@@ -601,7 +613,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.7...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.8...HEAD
+[1.7.8]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.5...v1.7.6
 [1.7.5]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.4...v1.7.5
