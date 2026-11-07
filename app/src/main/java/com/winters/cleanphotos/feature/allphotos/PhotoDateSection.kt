@@ -42,6 +42,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -240,6 +241,12 @@ fun LazyGridScope.photoDaySections(
     onToggleExpanded: ((String) -> Unit)? = null,
     /** 沉浸视图只铺照片，不画年份、日期行和「还有 N 张」。 */
     showHeaders: Boolean = true,
+    /**
+     * 日期分组的吸顶针线。传了就把已经滑过针线的日期行藏掉，只留 [StickyDayHeaders] 那一份。
+     * 两个都要有；缺一个就不藏。
+     */
+    stickGridState: LazyGridState? = null,
+    stickPinY: (() -> Int)? = null,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -270,6 +277,8 @@ fun LazyGridScope.photoDaySections(
                 } else {
                     null
                 }
+                val rowModifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace())
+                    .then(stickHideModifier(stickGridState, stickPinY, section.dayKey))
                 if (selection != null && selection.selecting) {
                     val ids = section.selectableIds
                     val allPicked = ids.isNotEmpty() && ids.all { it in selection.selectedIds }
@@ -278,7 +287,7 @@ fun LazyGridScope.photoDaySections(
                         meta = label.monthLabel,
                         right = { MonoWithBold(stringResource(if (allPicked) R.string.deselect_all else R.string.select_all), "") },
                         onEnter = { selection.onToggleDay(section.dayKey) },
-                        modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
+                        modifier = rowModifier,
                         showChevron = false,
                         collapseLabel = collapseLabel,
                         onCollapse = onCollapse,
@@ -290,7 +299,7 @@ fun LazyGridScope.photoDaySections(
                         right = { right(section) },
                         onEnter = onDayEnter?.let { enter -> { enter(section) } }
                             ?: section.photos.firstOrNull()?.let { first -> { onPhotoClick(first.id) } },
-                        modifier = reorderModifier(headerIndex, reorderAnchor(), reorderPlace()),
+                        modifier = rowModifier,
                         showChevron = showChevron,
                         collapseLabel = collapseLabel,
                         onCollapse = onCollapse,
@@ -393,7 +402,7 @@ internal fun StuckDayHeader(
     onEnter: (() -> Unit)?,
     onCollapse: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    /** 紧跟着的下一天。它的日期行把这一行顶上去。列表最后一天传 null。 */
+    /** 紧跟着的下一天。它顶到针时这一行让位，不往上推。列表最后一天传 null。 */
     nextDayKey: String?,
 ) {
     val density = LocalDensity.current
@@ -426,7 +435,11 @@ internal fun StuckDayHeader(
                     pinY = pin,
                     headerHeight = headerHeightPx,
                     headerTop = header?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
-                    nextHeaderTop = nextHeader?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
+                    nextHeaderTop = when {
+                        nextDayKey == null -> null
+                        nextHeader == null -> Int.MAX_VALUE
+                        else -> gridItemVisualTop(nextHeader.offset.y, info.viewportStartOffset)
+                    },
                     lastItemTop = last?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) },
                     lastItemHeight = last?.size?.height,
                     sectionVisible = visible,
@@ -515,6 +528,25 @@ internal fun StickyDayHeaders(
                 onCollapse = null,
             )
         }
+    }
+}
+
+/**
+ * 日期行顶边过了针线就透明。位置在绘制阶段读，不因此重组。
+ * 吸顶叠层继续画在针上；流里这份如果还露着，切换的一瞬间会和叠层错开。
+ */
+private fun stickHideModifier(
+    gridState: LazyGridState?,
+    pinY: (() -> Int)?,
+    dayKey: String,
+): Modifier {
+    if (gridState == null || pinY == null) return Modifier
+    return Modifier.graphicsLayer {
+        val info = gridState.layoutInfo
+        val top = info.visibleItemsInfo
+            .find { it.key == dayKey }
+            ?.let { gridItemVisualTop(it.offset.y, info.viewportStartOffset) }
+        alpha = if (top != null && inFlowDateHidden(top, pinY())) 0f else 1f
     }
 }
 

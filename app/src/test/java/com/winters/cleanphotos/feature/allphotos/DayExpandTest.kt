@@ -4,7 +4,9 @@ import com.winters.cleanphotos.TestPhotoData
 import com.winters.cleanphotos.domain.model.PhotoDaySection
 import com.winters.cleanphotos.domain.model.SectionHeader
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DayExpandTest {
@@ -116,21 +118,36 @@ class DayExpandTest {
     }
 
     @Test
-    fun sticky_header_is_pushed_by_the_next_day_not_the_last_photo() {
+    fun sticky_header_stays_on_the_pin_until_the_next_day_arrives() {
         // 下一天还在针线下面：贴住。最后一张即使已经到了，中间隔着年份行也不提前推。
         assertEquals(
             200,
             dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = 280, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true),
         )
-        // 下一天的日期行碰到这一行：跟着它的顶边走，两行相接。
+        // 下一天已经碰到这一行：仍然停在针上，不往上滑走。
         assertEquals(
-            170,
+            200,
             dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = 220, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true),
         )
-        // 下一天已经把这一行顶出视口。
+        // 下一天的顶边到了针，或已经过了针：这一行让位，不滑到针线上方。
+        assertNull(
+            dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = 200, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true),
+        )
         assertNull(
             dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = -10, lastItemTop = -80, lastItemHeight = 50, sectionVisible = true),
         )
+        // 下一天还在视口下面：停在针上，不按最后一张提前推。
+        assertEquals(
+            200,
+            dayHeaderStickY(200, 50, headerTop = null, nextHeaderTop = Int.MAX_VALUE, lastItemTop = 80, lastItemHeight = 120, sectionVisible = true),
+        )
+    }
+
+    @Test
+    fun in_flow_date_hides_once_it_passes_the_pin() {
+        assertFalse(inFlowDateHidden(200, 200))
+        assertFalse(inFlowDateHidden(240, 200))
+        assertTrue(inFlowDateHidden(199, 200))
     }
 
     private fun day(

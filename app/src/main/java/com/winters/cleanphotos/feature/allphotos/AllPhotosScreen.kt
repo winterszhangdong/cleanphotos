@@ -819,6 +819,18 @@ private fun PhotoList(
         onToggleDayExpanded(pageScope, dayKey)
     }
     val locale = currentLocale()
+    val density = LocalDensity.current
+    val stickPinY = if (pageScope == LibraryScope.All && !immersive) {
+        {
+            dayHeaderPinY(
+                statusBarPx = with(density) { statusBar.toPx() },
+                chromeHeightPx = with(density) { chromeHeight.toPx() },
+                collapseOffsetPx = collapseOffsetPx(),
+            ).toInt()
+        }
+    } else {
+        null
+    }
     val tapsSettled = rememberScrollSettled(gridState)
     val openPhoto = tapsSettled.whenSettled(onPhotoClick)
     // 和 photoGridGestures 挂在同一条修饰链上：手指的本地坐标加上这里的原点，才对得上格子的根坐标。
@@ -874,6 +886,8 @@ private fun PhotoList(
                 expandedDayKey = expandedKey,
                 onToggleExpanded = if (canExpand) toggleExpanded else null,
                 showHeaders = !immersive,
+                stickGridState = if (stickPinY != null) gridState else null,
+                stickPinY = stickPinY,
             )
         }
         if (pageScope == LibraryScope.All && !immersive) {

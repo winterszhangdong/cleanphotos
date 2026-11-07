@@ -120,8 +120,10 @@ internal fun stickyCandidateDayKeys(
 /**
  * 日期行叠层该画在哪。返回 null 表示不叠。
  * [headerTop]、[nextHeaderTop]、[lastItemTop] 都是视口坐标。
- * 有下一天时用它的日期行顶边把这一行顶上去，两行相接。年份分隔夹在中间也不会提前推走。
- * 下一天还没进视口，或已经是列表最后一天时，才退回最后一项的底边，末尾才能离开屏幕。
+ * 有下一天时这一行停在针上，不往上滑。下一天的顶边到了针就让位，由它自己贴住。
+ * 快滑时也不会把当前日期整行推出针位。年份分隔从这一行底下穿过去。
+ * [nextHeaderTop] 为 null 只表示没有下一天。下一天还在视口下面时传一个大于 [pinY] 的值。
+ * 没有下一天才跟着最后一项的底边离开。
  */
 internal fun dayHeaderStickY(
     pinY: Int,
@@ -134,12 +136,19 @@ internal fun dayHeaderStickY(
 ): Int? {
     if (headerTop == null && !sectionVisible) return null
     if (headerTop != null && headerTop >= pinY) return null
-    val end = when {
-        nextHeaderTop != null -> nextHeaderTop
-        lastItemTop != null && lastItemHeight != null -> lastItemTop + lastItemHeight
-        else -> Int.MAX_VALUE
+    if (nextHeaderTop != null) {
+        if (nextHeaderTop <= pinY) return null
+        return pinY
+    }
+    val end = if (lastItemTop != null && lastItemHeight != null) {
+        lastItemTop + lastItemHeight
+    } else {
+        Int.MAX_VALUE
     }
     val y = min(pinY, end - headerHeight)
     if (y <= -headerHeight) return null
     return y
 }
+
+/** 流里的日期行顶边已经高于针线：交给吸顶叠层画，这一行藏掉。 */
+internal fun inFlowDateHidden(headerTop: Int, pinY: Int): Boolean = headerTop < pinY
