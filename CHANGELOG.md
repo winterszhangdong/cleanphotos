@@ -7,6 +7,22 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.9] - 2026-11-08
+
+### Fixed
+
+- 安卓：快速拖动「全部」右侧的日期滑块时，不再每跨一天就把整页网格在主线程上重测一遍。仍按天跳，松手停在这一天的开头。
+- 安卓：右上角菜单点「沉浸」，或从沉浸切回日期分组，不再卡死、闪退。滑过很多天之后再切，仍停在当时视口里的第一张照片。
+- 安卓：日期分组换天时，吸顶的日期行停在针上，下一天顶到针再换成那一天，不再被顶上去。同一年换天时，已经滑过针线的那一行藏掉，不再和针上的叠层错开成两行。列表最后一天仍跟着最后一张照片离开。
+
+---
+
+### Fixed
+
+- Android: dragging the date scrubber quickly on All photos no longer remeasures the whole grid on the main thread at every day. It still jumps by day, and letting go lands at the start of that day.
+- Android: choosing Immersive in the top-right menu, or switching back to date grouped, no longer freezes or crashes. After scrolling through many days, the switch still stays on the first photo that was in view.
+- Android: when the next day takes over in date grouped view, the stuck date row stays on the pin until the next day's row reaches it, instead of being pushed up. Within the same year, a date row that has passed the pin is hidden so it does not sit beside the stuck row. The last day of the list still leaves with its last photo.
+
 ## [1.7.8] - 2026-11-07
 
 ### Fixed
@@ -613,7 +629,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.8...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.9...HEAD
+[1.7.9]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.6...v1.7.7
 [1.7.6]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.5...v1.7.6
