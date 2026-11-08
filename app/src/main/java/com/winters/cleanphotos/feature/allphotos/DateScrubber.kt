@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -50,11 +51,28 @@ import com.winters.cleanphotos.core.locale.currentLocale
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.domain.model.PhotoDaySection
 import com.winters.cleanphotos.domain.model.SectionHeader
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+/**
+ * 日期滑块正按着。
+ * [pausing] 给预取窗读，任何线程都能读。
+ * [generation] 只在松手时加一，让还停在屏上的格子重组并挂回共享元素。按住时不加，避免把即将划走的格子再组合一遍。
+ */
+internal class DateScrubActive {
+    @Volatile
+    var pausing: Boolean = false
+        private set
+
+    var generation by mutableIntStateOf(0)
+        private set
+
+    fun setScrubbing(active: Boolean) {
+        if (pausing == active) return
+        pausing = active
+        if (!active) generation++
+    }
+}
 
 /** 滑块上的一站：分组视图锚在日期行，沉浸视图锚在这一天第一张。 */
 internal data class ScrubStop(val dayKey: String, val anchorKey: Any)
@@ -119,6 +137,35 @@ internal fun dayIndexAtItem(sections: List<PhotoDaySection>, immersive: Boolean,
     return sections.lastIndex
 }
 
+/**
+ * 每个日期站在网格里的项下标，和 [scrubStops] 同一顺序。
+ * 拖动时按天下标直接查，不再从第一天扫到目标天。
+ */
+internal fun scrubItemIndices(sections: List<PhotoDaySection>, immersive: Boolean): IntArray {
+    var count = 0
+    for (section in sections) {
+        if (section.header == SectionHeader.None) continue
+        if (immersive && section.photos.isEmpty()) continue
+        count++
+    }
+    val indices = IntArray(count)
+    var cursor = 0
+    var stop = 0
+    for (section in sections) {
+        if (!immersive) {
+            if (section.yearHeader != null) cursor++
+            if (section.header != SectionHeader.None) {
+                indices[stop++] = cursor
+                cursor++
+            }
+        } else if (section.header != SectionHeader.None && section.photos.isNotEmpty()) {
+            indices[stop++] = cursor
+        }
+        cursor += section.photos.size
+    }
+    return indices
+}
+
 /** 和 [photoDaySections] 同一套项顺序。找不到时返回 0。 */
 internal fun indexOfAnchor(sections: List<PhotoDaySection>, immersive: Boolean, anchorKey: Any): Int {
     var cursor = 0
@@ -145,6 +192,7 @@ internal fun indexOfAnchor(sections: List<PhotoDaySection>, immersive: Boolean, 
  * 「全部」右侧的日期滑块。列表能滚、而且正在滚（或刚松手）时才出现。
  * 按住轨道拖时，旁边写出这一天，松手停在这一天的开头。
  * 不满一屏不出现。位置在布局阶段读，不跟着每一帧重组。
+ * 换天用 [LazyGridState.requestScrollToItem]，同一帧里多次调用只量最后一天。
  */
 @Composable
 internal fun DateScrubber(
@@ -154,9 +202,11 @@ internal fun DateScrubber(
     topPadding: Dp,
     bottomPadding: Dp,
     collapseOffsetPx: () -> Float,
+    scrubActive: DateScrubActive,
     modifier: Modifier = Modifier,
 ) {
     val stops = remember(sections, immersive) { scrubStops(sections, immersive) }
+    val itemIndices = remember(sections, immersive) { scrubItemIndices(sections, immersive) }
     val locale = currentLocale()
     val unknown = stringResource(R.string.date_unknown)
     val description = stringResource(R.string.cd_date_scrubber)
@@ -173,8 +223,8 @@ internal fun DateScrubber(
     var bubble by remember { mutableStateOf<String?>(null) }
     var trackHeightPx by remember { mutableStateOf(0) }
     val stopsState = rememberUpdatedState(stops)
+    val itemIndicesState = rememberUpdatedState(itemIndices)
     val sectionsState = rememberUpdatedState(sections)
-    val immersiveState = rememberUpdatedState(immersive)
     val collapseOffsetState = rememberUpdatedState(collapseOffsetPx)
     val active = scrollable && (scrolling || scrubbing.value)
 
@@ -266,42 +316,37 @@ internal fun DateScrubber(
                 .width(Dimens.MinTouch)
                 .semantics { contentDescription = description }
                 .pointerInput(thumbHeightPx) {
-                    coroutineScope {
-                        val scope = this
-                        var scrollJob: Job? = null
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            down.consume()
-                            scrubbing.value = true
-                            var lastIndex = -1
-                            var lastOffset = Int.MIN_VALUE
-                            try {
-                                fun at(y: Float) {
-                                    val fraction = scrubFractionFromTouch(y, 0f, size.height.toFloat(), thumbHeightPx)
-                                    dragFraction.floatValue = fraction
-                                    val text = labelAt(fraction)
-                                    if (bubble != text) bubble = text
-                                    val list = stopsState.value
-                                    val index = scrubDayIndex(fraction, list.size)
-                                    val offset = scrubContentScrollOffset(collapseOffsetState.value())
-                                    if (index == lastIndex && kotlin.math.abs(offset - lastOffset) < 8) return
-                                    lastIndex = index
-                                    lastOffset = offset
-                                    val anchor = list[index].anchorKey
-                                    val item = indexOfAnchor(sectionsState.value, immersiveState.value, anchor)
-                                    scrollJob?.cancel()
-                                    scrollJob = scope.launch { gridState.scrollToItem(item, offset) }
-                                }
-                                at(down.position.y)
-                                drag(down.id) { change ->
-                                    change.consume()
-                                    at(change.position.y)
-                                }
-                            } finally {
-                                scrubbing.value = false
-                                dragFraction.floatValue = Float.NaN
-                                bubble = null
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        down.consume()
+                        scrubbing.value = true
+                        scrubActive.setScrubbing(true)
+                        var lastIndex = -1
+                        var lastOffset = Int.MIN_VALUE
+                        try {
+                            fun at(y: Float) {
+                                val fraction = scrubFractionFromTouch(y, 0f, size.height.toFloat(), thumbHeightPx)
+                                dragFraction.floatValue = fraction
+                                val text = labelAt(fraction)
+                                if (bubble != text) bubble = text
+                                val index = scrubDayIndex(fraction, stopsState.value.size)
+                                val offset = scrubContentScrollOffset(collapseOffsetState.value())
+                                if (index == lastIndex && kotlin.math.abs(offset - lastOffset) < 8) return
+                                lastIndex = index
+                                lastOffset = offset
+                                val item = itemIndicesState.value[index]
+                                gridState.requestScrollToItem(item, offset)
                             }
+                            at(down.position.y)
+                            drag(down.id) { change ->
+                                change.consume()
+                                at(change.position.y)
+                            }
+                        } finally {
+                            scrubActive.setScrubbing(false)
+                            scrubbing.value = false
+                            dragFraction.floatValue = Float.NaN
+                            bubble = null
                         }
                     }
                 },

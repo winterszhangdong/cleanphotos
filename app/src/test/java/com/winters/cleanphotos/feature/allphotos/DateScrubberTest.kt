@@ -70,6 +70,19 @@ class DateScrubberTest {
     }
 
     @Test
+    fun scrub_item_index_matches_anchor_lookup() {
+        val sections = sections()
+        for (immersive in listOf(false, true)) {
+            val stops = scrubStops(sections, immersive)
+            val indices = scrubItemIndices(sections, immersive)
+            assertEquals(stops.size, indices.size)
+            stops.forEachIndexed { i, stop ->
+                assertEquals(indexOfAnchor(sections, immersive, stop.anchorKey), indices[i])
+            }
+        }
+    }
+
+    @Test
     fun anchor_index_matches_the_grid_item_order() {
         val sections = sections()
         assertEquals(0, indexOfAnchor(sections, false, DayExpand.yearKey(2024, "2024-05-20")))

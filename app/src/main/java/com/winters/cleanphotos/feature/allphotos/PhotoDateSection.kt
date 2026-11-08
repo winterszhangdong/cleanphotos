@@ -218,7 +218,7 @@ class GridSelection(
  * 这样切换排序时每一格都能 animateItem 重排）。范围和「只看没看过」不位移。
  * 只有天标题右侧（数字 + 箭头）进入这一天的第一张；缩略图点击进入那一张。
  */
-fun LazyGridScope.photoDaySections(
+internal fun LazyGridScope.photoDaySections(
     sections: List<PhotoDaySection>,
     right: @Composable (PhotoDaySection) -> Unit,
     develop: TileDevelop,
@@ -247,6 +247,11 @@ fun LazyGridScope.photoDaySections(
      */
     stickGridState: LazyGridState? = null,
     stickPinY: (() -> Int)? = null,
+    /**
+     * 日期滑块按住时不挂共享元素。null 表示这页没有滑块（收藏）。
+     * 格子读 [DateScrubActive.generation]，只在松手时重组并挂回去。
+     */
+    dateScrub: DateScrubActive? = null,
 ) {
     var itemIndex = 0
     var rowOffset = 0
@@ -343,6 +348,9 @@ fun LazyGridScope.photoDaySections(
                     motionLabel = null,
                     sizeLabel = sizeLabel?.invoke(photo),
                 )
+                // generation 要在组合里读到，松手加一才会重组并挂回共享元素。按住时 pausing 为 true，不注册。
+                val scrub = dateScrub
+                val scrubGeneration = scrub?.generation
                 PhotoTile(
                     model = model,
                     contentDescription = photo.displayName,
@@ -362,8 +370,11 @@ fun LazyGridScope.photoDaySections(
                                 if (selecting) selected = picked
                             },
                         ),
-                    // 滚动中不注册共享元素；停稳后挂上，点进清理页仍能配对
-                    sizedModifier = Modifier.sharedPhoto(photo.id, expandsHere = false),
+                    sizedModifier = Modifier.sharedPhoto(
+                        photo.id,
+                        expandsHere = false,
+                        enabled = scrub == null || (!scrub.pausing && scrubGeneration != null),
+                    ),
                     developProfile = tileDevelop?.profile,
                     developDelayMs = tileDevelop?.delayFor(firstRow + row, col) ?: 0,
                     imageModifier = if (pick != null) Modifier.selectedShrink { pick.value } else Modifier,

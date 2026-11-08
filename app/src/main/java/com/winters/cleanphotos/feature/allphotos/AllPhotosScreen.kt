@@ -191,7 +191,9 @@ fun AllPhotosScreen(
     }
 
     // 每个范围一个滚动状态，调用顺序固定，那年今天藏起来也不挪槽位。进程内记住，不写 DataStore。
-    val gridAll = rememberPhotoGridState()
+    val dateScrubActive = remember { DateScrubActive() }
+    val pauseAllPrefetch = remember(dateScrubActive) { { dateScrubActive.pausing } }
+    val gridAll = rememberPhotoGridState(pausePrefetch = pauseAllPrefetch)
     val gridLarge = rememberPhotoGridState()
     val gridShots = rememberPhotoGridState()
     val gridChat = rememberPhotoGridState()
@@ -412,6 +414,7 @@ fun AllPhotosScreen(
                     onSimilarRetry = onSimilarRetry,
                     selection = selection,
                     selectionActions = selectionActions,
+                    dateScrubActive = if (pageScope == LibraryScope.All) dateScrubActive else null,
                 )
             }
             Box(
@@ -523,7 +526,20 @@ fun AllPhotosScreen(
 
             fun switchAllView(mode: AllPhotosViewMode) {
                 if (mode != uiState.viewMode) {
-                    viewAnchor = gridAll.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { it.key as? Long }
+                    val id = gridAll.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { it.key as? Long }
+                    viewAnchor = id
+                    if (id != null) {
+                        val index = indexOfAnchor(
+                            uiState.sections,
+                            mode == AllPhotosViewMode.Immersive,
+                            id,
+                        )
+                        // 预取窗记的是行号。日期行占满一行，沉浸去掉这些行后，同一个下标的行号会小一截。
+                        // 必须在换内容之前跳到新下标：下标变了 requestScrollToItem 会把预取窗清掉。
+                        // 留到下一帧再 scrollToItem 就晚了，keepAround 会在主线程把中间所有行组合出来，
+                        // 每张再挂共享元素，大库直接 ANR。
+                        gridAll.requestScrollToItem(index)
+                    }
                     onViewModeChanged(mode)
                 }
                 menuOpen = false
@@ -702,6 +718,7 @@ private fun ScopePageBody(
     onSimilarRetry: () -> Unit,
     selection: PhotoSelectionState,
     selectionActions: PhotoSelectionActions,
+    dateScrubActive: DateScrubActive?,
 ) {
     val page = uiState.pages[pageScope]
     val content = uiState.pageContent(pageScope)
@@ -756,6 +773,7 @@ private fun ScopePageBody(
                     chromeHeight = chromeHeight,
                     collapseOffsetPx = collapseOffsetPx,
                     onToggleDayExpanded = onToggleDayExpanded,
+                    dateScrubActive = dateScrubActive,
                 )
             }
             if (showFade) ListFade()
@@ -784,6 +802,7 @@ private fun PhotoList(
     chromeHeight: Dp,
     collapseOffsetPx: () -> Float,
     onToggleDayExpanded: (LibraryScope, String) -> Unit,
+    dateScrubActive: DateScrubActive?,
 ) {
     val view = LocalView.current
     val selecting = selection.isSelecting
@@ -888,6 +907,7 @@ private fun PhotoList(
                 showHeaders = !immersive,
                 stickGridState = if (stickPinY != null) gridState else null,
                 stickPinY = stickPinY,
+                dateScrub = dateScrubActive,
             )
         }
         if (pageScope == LibraryScope.All && !immersive) {
@@ -912,6 +932,7 @@ private fun PhotoList(
                 topPadding = topPadding,
                 bottomPadding = dockListBottomPadding(),
                 collapseOffsetPx = collapseOffsetPx,
+                scrubActive = dateScrubActive ?: error("全部照片缺少日期滑块状态"),
             )
         }
         if (stuck != null) {
