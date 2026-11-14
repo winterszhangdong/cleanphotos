@@ -24,7 +24,8 @@ import coil.size.Precision
 import com.winters.cleanphotos.core.design.ApiTier
 import com.winters.cleanphotos.core.image.StillPreview
 import com.winters.cleanphotos.domain.model.PhotoItem
-import com.winters.cleanphotos.domain.model.isHeavyStill
+import com.winters.cleanphotos.domain.model.isPngFileName
+import com.winters.cleanphotos.domain.model.isRawFileName
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -152,16 +153,17 @@ private object ReviewAmbientCache {
 }
 
 private fun ambientRequest(context: Context, photo: PhotoItem): ImageRequest {
-    val heavy = isHeavyStill(photo.displayName)
+    // 模糊之后看不出清不清楚。PNG 和 RAW 用系统缩略图，不为这 96px 再解原图。
+    val preview = isRawFileName(photo.displayName) || isPngFileName(photo.displayName)
     return ImageRequest.Builder(context)
-        .data(if (heavy) StillPreview(photo.uri) else photo.uri)
+        .data(if (preview) StillPreview(photo.uri) else photo.uri)
         .size(AMBIENT_SOURCE_PX)
         .precision(Precision.INEXACT)
         .bitmapConfig(Bitmap.Config.RGB_565)
         .allowHardware(false)
         .memoryCacheKey("review-amb-${photo.id}")
         // 缩略图失败时会退回原文件。不要把 RAW / PNG 拷进 Coil 的磁盘缓存。
-        .diskCachePolicy(if (heavy) CachePolicy.DISABLED else CachePolicy.ENABLED)
+        .diskCachePolicy(if (preview) CachePolicy.DISABLED else CachePolicy.ENABLED)
         .crossfade(false)
         .build()
 }

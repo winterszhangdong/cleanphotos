@@ -73,11 +73,12 @@ import com.winters.cleanphotos.core.navigation.DockMode
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.SimilarGroup
 import com.winters.cleanphotos.domain.model.SimilarMark
-import com.winters.cleanphotos.domain.model.isHeavyStill
 import com.winters.cleanphotos.domain.model.isRawFileName
+import com.winters.cleanphotos.feature.review.GlanceShortfall
 import com.winters.cleanphotos.feature.review.ReviewGestureMath
 import com.winters.cleanphotos.feature.review.ReviewThresholds
 import com.winters.cleanphotos.feature.review.detectReviewGestures
+import com.winters.cleanphotos.feature.review.rawGlanceSeen
 import com.winters.cleanphotos.feature.review.rememberReviewImageRequest
 import com.winters.cleanphotos.feature.review.tone
 import kotlin.math.abs
@@ -315,11 +316,18 @@ private fun ComparePage(
     motion: SimilarCompareMotion,
     imageSize: IntSize,
 ) {
-    // 和清理页同一条：一倍用屏幕大小的图；RAW / PNG 放大时只给当前这张换更清楚的。邻页不读 zoom。
-    val sharpen by remember(photo.id, slot) {
-        derivedStateOf { isHeavyStill(photo.displayName) && slot == 0 && motion.isZoomed }
+    // 和清理页同一条。邻页不读 zoom，也不启动停稳后的补图。
+    val zoomed by remember(photo.id, slot) {
+        derivedStateOf { slot == 0 && motion.isZoomed }
     }
-    val request = rememberReviewImageRequest(photo, imageSize, sharpen)
+    var glanceShort by remember(photo.id) { mutableStateOf(GlanceShortfall.contains(photo.id)) }
+    val request = rememberReviewImageRequest(
+        photo,
+        imageSize,
+        zoomed = zoomed,
+        active = slot == 0,
+        glanceShort = glanceShort,
+    )
     if (slot == 0) {
         SideEffect {
             motion.fit = ReviewGestureMath.fitSize(photo.width, photo.height, motion.width, motion.height)
@@ -348,6 +356,22 @@ private fun ComparePage(
                 similarMarkLabel(mark),
             ),
             contentScale = ContentScale.Fit,
+            onSuccess = { success ->
+                glanceShort = rawGlanceSeen(
+                    photo,
+                    imageSize,
+                    success.result.request.memoryCacheKey?.key,
+                    success.result.drawable,
+                )
+            },
+            onError = { error ->
+                glanceShort = rawGlanceSeen(
+                    photo,
+                    imageSize,
+                    error.result.request.memoryCacheKey?.key,
+                    null,
+                )
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .tone(

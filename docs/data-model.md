@@ -48,7 +48,7 @@ bucketName：所在文件夹名（BUCKET_DISPLAY_NAME）
 
 RAW 也不单列字段。界面用 `displayName` 的扩展名判断（`RawFile.isRawFileName`：dng、cr2、cr3、nef、nrw、arw、srf、sr2、orf、raf、pef、rw2、srw、gpr），不读 MIME。只显示「RAW」。
 
-清理页加载同样不单列字段。`isHeavyStill` 在这些扩展名之外把 png 也算上：一倍时用系统缩略图，放大当前张才解码原图。`sharpStillSize` 把屏幕边长乘 3。
+清理页加载同样不单列字段。`glanceKind`：JPEG / HEIC，以及长边不超过 4096 的 PNG，一倍按屏幕解原图；不知道边长或更长的 PNG 一倍用系统缩略图；RAW 一倍读文件内预览。`isHeavyStill` 只包括 RAW 和这种大 PNG，放大当前张才解约 3 倍屏幕的原图。RAW 预览比屏幕小，或大 PNG 停在当前张，会先解到屏幕大小。`sharpStillSize` 把屏幕边长乘 3。
 
 ***
 

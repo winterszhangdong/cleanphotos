@@ -24,8 +24,8 @@ import okio.source
 import kotlin.coroutines.resume
 
 /**
- * RAW / PNG 在一倍时要的图：只要系统缩略图，不解码原图。
- * 放大用的更清楚图不走这里，仍由 Coil 按原图采样。
+ * 大 PNG 的一倍图，以及 PNG / RAW 的环境光：只要系统缩略图，不解码原图。
+ * RAW 的一倍图不走这里，见 [RawEmbeddedFetcher]。放大和停稳后的原图由 Coil 按原图采样。
  */
 data class StillPreview(val uri: Uri)
 

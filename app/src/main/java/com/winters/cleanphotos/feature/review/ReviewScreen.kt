@@ -205,8 +205,9 @@ fun ReviewScreen(
             onNavigateBack()
         }
     }
-    // 预取一倍图和环境光：往后 3 张（连续快滑时每 ~180ms 前进一张，只预取 2 张会被追上）、往回 2 张。
-    // 当前页的环境光也在这里先做好。不预取放大用的原图，那只在用户放大当前这一张时才解码。
+    // 预取一倍时立刻要看的那张：往后 3 张（连续快滑时每 ~180ms 前进一张，只预取 2 张会被追上）、往回 2 张。
+    // JPEG 和不大的 PNG 是按屏幕解的原图，RAW 是内嵌预览，大 PNG 是系统缩略图。
+    // 当前页的环境光也在这里先做好。停稳后补的屏幕大小原图，和放大用的 3 倍图，都不预取。
     val imageSize = remember(size) { IntSize(size.width.coerceAtLeast(1), size.height.coerceAtLeast(1)) }
     LaunchedEffect(stage.currentKey, uiState.pages, imageSize) {
         val i = uiState.pages.indexOfFirst { it.key == stage.currentKey }

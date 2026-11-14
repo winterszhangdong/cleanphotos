@@ -66,14 +66,24 @@ import com.winters.cleanphotos.core.design.PhotoMarkText
 import com.winters.cleanphotos.core.design.develop
 import com.winters.cleanphotos.core.design.rememberDevelopState
 import com.winters.cleanphotos.core.design.requiresDevelop
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import com.winters.cleanphotos.core.image.RawEmbeddedPreview
 import com.winters.cleanphotos.core.image.StillPreview
 import com.winters.cleanphotos.domain.model.DaySummary
+import com.winters.cleanphotos.domain.model.GlanceKind
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.ReviewPage
 import com.winters.cleanphotos.domain.model.SHARP_STILL_SCALE
+import com.winters.cleanphotos.domain.model.StillFrame
+import com.winters.cleanphotos.domain.model.glanceKind
 import com.winters.cleanphotos.domain.model.isHeavyStill
+import com.winters.cleanphotos.domain.model.isLargePng
+import com.winters.cleanphotos.domain.model.isPngFileName
 import com.winters.cleanphotos.domain.model.isRawFileName
 import com.winters.cleanphotos.domain.model.sharpStillSize
+import com.winters.cleanphotos.domain.model.stillFrame
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
@@ -321,13 +331,18 @@ private fun ReviewPhotoImage(
     videoOverlay: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    // 只在越过 1 倍时重组一次。JPEG 不读 zoom，捏合的每一帧不进组合。
-    val sharpen by remember(photo.id, role) {
-        derivedStateOf {
-            isHeavyStill(photo.displayName) && role == PageRole.Current && state.handler.isZoomed
-        }
+    // 只在越过 1 倍时重组一次。JPEG 和不大的 PNG 不读 zoom，捏合的每一帧不进组合。
+    val zoomed by remember(photo.id, role) {
+        derivedStateOf { role == PageRole.Current && state.handler.isZoomed }
     }
-    val request = rememberReviewImageRequest(photo, imageSize, sharpen)
+    var glanceShort by remember(photo.id) { mutableStateOf(GlanceShortfall.contains(photo.id)) }
+    val request = rememberReviewImageRequest(
+        photo,
+        imageSize,
+        zoomed = zoomed,
+        active = role == PageRole.Current,
+        glanceShort = glanceShort,
+    )
     val scope = rememberCoroutineScope()
     val roleNow = androidx.compose.runtime.rememberUpdatedState(role)
     // 照片保持原比例：按宽高比 Fit 居中；宽高未知时铺满容器、内容按 Fit 画
@@ -389,6 +404,12 @@ private fun ReviewPhotoImage(
                 .sharedPhoto(photo.id, expandsHere = true, enabled = role == PageRole.Current)
                 .develop(developState),
             onSuccess = { success ->
+                glanceShort = rawGlanceSeen(
+                    photo,
+                    imageSize,
+                    success.result.request.memoryCacheKey?.key,
+                    success.result.drawable,
+                )
                 if (success.result.request.memoryCacheKey?.key != screenKey) return@AsyncImage
                 val firstDiskDecode = success.result.dataSource.requiresDevelop()
                 // 组合时已开始显影的不再重复；组合时还不是当前页、后来才在当前页完成磁盘解码的，在这里补显影
@@ -402,6 +423,14 @@ private fun ReviewPhotoImage(
                     scope.launch { developState.develop() }
                 }
             },
+            onError = { error ->
+                glanceShort = rawGlanceSeen(
+                    photo,
+                    imageSize,
+                    error.result.request.memoryCacheKey?.key,
+                    null,
+                )
+            },
         )
             if (showVideo) {
                 Box(Modifier.fillMaxSize()) { videoOverlay() }
@@ -414,79 +443,182 @@ internal fun reviewScreenMemoryKey(photoId: Long, size: IntSize): String =
     "review-$photoId-${size.width}x${size.height}"
 
 internal fun reviewImageRequest(context: android.content.Context, photo: PhotoItem, size: IntSize): ImageRequest {
-    val heavy = isHeavyStill(photo.displayName)
+    val kind = glanceKind(photo.displayName, photo.width, photo.height)
     val builder = ImageRequest.Builder(context)
-        .data(if (heavy) StillPreview(photo.uri) else photo.uri)
+        .data(
+            when (kind) {
+                GlanceKind.Original -> photo.uri
+                GlanceKind.RawEmbedded -> RawEmbeddedPreview(photo.uri)
+                GlanceKind.SystemThumb -> StillPreview(photo.uri)
+            },
+        )
         .size(size.width.coerceAtLeast(1), size.height.coerceAtLeast(1))
         .precision(Precision.INEXACT)
         // 照片按原比例 Fit 显示，解码不必大过屏幕。
         // 清理页同时有当前页、邻页和离场页，每张都是接近屏幕大小的位图；RGB_565 把每张的内存和带宽减半。
-        // RAW / PNG 一倍时不走这条解码：StillPreview 取系统缩略图，原图只在放大当前张时再解。
         .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
         .scale(Scale.FIT)
         .memoryCacheKey(reviewScreenMemoryKey(photo.id, size))
         .placeholderMemoryCacheKey(com.winters.cleanphotos.core.design.photoThumbKey(photo.id))
         .crossfade(false)
-    if (heavy) {
-        // 缩略图失败才会打开原文件。不要把 RAW / PNG 拷进只有 2% 的磁盘缓存。
-        builder.diskCachePolicy(CachePolicy.DISABLED)
-    } else {
+    if (kind == GlanceKind.Original && !isPngFileName(photo.displayName)) {
         builder.diskCacheKey(photo.uri.toString())
+    } else {
+        // 不要把 RAW / PNG 原文件拷进只有 2% 的磁盘缓存。预览和缩略图也不写进去。
+        builder.diskCachePolicy(CachePolicy.DISABLED)
     }
     return builder.build()
 }
 
-/** 放大到上限仍清楚的那张。只解码这一张，不预取邻页。失败就留在一倍图上。 */
+/** 停在当前张时补的屏幕大小原图。不预取邻页。失败就留在一倍那张上。 */
+internal fun reviewFitRequest(context: android.content.Context, photo: PhotoItem, screen: IntSize): ImageRequest =
+    reviewDecodedOriginal(
+        context,
+        photo,
+        screen.width.coerceAtLeast(1),
+        screen.height.coerceAtLeast(1),
+        memoryKey = "review-fit-${photo.id}-${screen.width}x${screen.height}",
+        placeholderKey = reviewScreenMemoryKey(photo.id, screen),
+    )
+
+/** 放大到上限仍清楚的那张。只解码这一张，不预取邻页。失败就留在正在显示的那张上。 */
 internal fun reviewSharpRequest(context: android.content.Context, photo: PhotoItem, screen: IntSize): ImageRequest {
     val (w, h) = sharpStillSize(screen.width, screen.height, SHARP_STILL_SCALE)
-    return ImageRequest.Builder(context)
-        .data(photo.uri)
-        .size(w, h)
-        .precision(Precision.INEXACT)
-        .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
-        .scale(Scale.FIT)
-        .memoryCacheKey("review-${photo.id}-${w}x${h}")
-        .diskCachePolicy(CachePolicy.DISABLED)
-        .placeholderMemoryCacheKey(reviewScreenMemoryKey(photo.id, screen))
-        .crossfade(false)
-        .build()
+    return reviewDecodedOriginal(
+        context,
+        photo,
+        w,
+        h,
+        memoryKey = "review-${photo.id}-${w}x${h}",
+        placeholderKey = reviewScreenMemoryKey(photo.id, screen),
+    )
 }
 
+private fun reviewDecodedOriginal(
+    context: android.content.Context,
+    photo: PhotoItem,
+    width: Int,
+    height: Int,
+    memoryKey: String,
+    placeholderKey: String,
+): ImageRequest = ImageRequest.Builder(context)
+    .data(photo.uri)
+    .size(width, height)
+    .precision(Precision.INEXACT)
+    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+    .scale(Scale.FIT)
+    .memoryCacheKey(memoryKey)
+    .diskCachePolicy(CachePolicy.DISABLED)
+    .placeholderMemoryCacheKey(placeholderKey)
+    .crossfade(false)
+    .build()
+
 /**
- * 一倍图一直是 [reviewImageRequest]。RAW / PNG 放大超过 1 倍时，在后台解码 [reviewSharpRequest]；
- * 只有解码成功并且已经在内存缓存里，才把 AsyncImage 换成它。失败、取消、还没好，都继续显示一倍图。
- * 放回 1 倍后位图留在内存里，再放大不用重新解码。
+ * 立刻显示的是 [reviewImageRequest]。
+ * 大 PNG，或 RAW 预览比屏幕小，停在当前张且没放大时，后台解一张屏幕大小的原图。
+ * RAW 和大 PNG 放大超过 1 倍时，后台解 [reviewSharpRequest]。放大会取消屏幕那张的解码。
+ * 只有解码成功并且已经在内存缓存里，才把 AsyncImage 换过去。失败就留在正在显示的那张上。
+ * 已经换上的更清楚图，放回 1 倍也不退回更糊的一倍图。
  */
 @Composable
 internal fun rememberReviewImageRequest(
     photo: PhotoItem,
     screen: IntSize,
-    sharpen: Boolean,
+    zoomed: Boolean,
+    active: Boolean,
+    glanceShort: Boolean,
 ): ImageRequest {
     val context = LocalContext.current
-    val heavy = isHeavyStill(photo.displayName)
-    val screenRequest = remember(photo.id, photo.uri, screen) { reviewImageRequest(context, photo, screen) }
+    val heavy = isHeavyStill(photo.displayName, photo.width, photo.height)
+    val eligibleScreen = isLargePng(photo.displayName, photo.width, photo.height) ||
+        (isRawFileName(photo.displayName) && glanceShort)
+    val loadScreen = active && !zoomed && eligibleScreen
+    val loadSharp = active && zoomed && heavy
+    val glanceRequest = remember(photo.id, photo.uri, photo.width, photo.height, screen) {
+        reviewImageRequest(context, photo, screen)
+    }
+    val screenRequest = remember(photo.id, photo.uri, screen, heavy) {
+        if (heavy) reviewFitRequest(context, photo, screen) else null
+    }
     val sharpRequest = remember(photo.id, photo.uri, screen, heavy) {
         if (heavy) reviewSharpRequest(context, photo, screen) else null
     }
-    var ready by remember(photo.id, photo.uri, screen.width, screen.height) {
+    var screenReady by remember(photo.id, photo.uri, screen.width, screen.height) {
+        mutableStateOf(screenRequest != null && reviewBitmapReady(context, screenRequest))
+    }
+    var sharpReady by remember(photo.id, photo.uri, screen.width, screen.height) {
         mutableStateOf(sharpRequest != null && reviewBitmapReady(context, sharpRequest))
     }
-    LaunchedEffect(sharpRequest, sharpen) {
-        val sharp = sharpRequest ?: return@LaunchedEffect
-        if (!sharpen) return@LaunchedEffect
-        if (!reviewBitmapReady(context, sharp)) ready = false
-        if (reviewBitmapReady(context, sharp)) {
-            ready = true
+    LaunchedEffect(screenRequest, loadScreen) {
+        val request = screenRequest ?: return@LaunchedEffect
+        if (!loadScreen) return@LaunchedEffect
+        if (!reviewBitmapReady(context, request)) screenReady = false
+        if (reviewBitmapReady(context, request)) {
+            screenReady = true
             return@LaunchedEffect
         }
-        val result = context.imageLoader.execute(sharp)
-        // 失败、或成功但没留在内存里：保持一倍图。不能先把 AsyncImage 指到这张请求上，失败会把占位清掉。
-        ready = result is SuccessResult && reviewBitmapReady(context, sharp)
+        val result = context.imageLoader.execute(request)
+        // 失败、或成功但没留在内存里：保持正在显示的那张。不能先把 AsyncImage 指到这张请求上。
+        screenReady = result is SuccessResult && reviewBitmapReady(context, request)
     }
-    val sharp = sharpRequest
-    val showSharp = sharpen && ready && sharp != null && reviewBitmapReady(context, sharp)
-    return if (showSharp) sharp else screenRequest
+    LaunchedEffect(sharpRequest, loadSharp) {
+        val request = sharpRequest ?: return@LaunchedEffect
+        if (!loadSharp) return@LaunchedEffect
+        if (!reviewBitmapReady(context, request)) sharpReady = false
+        if (reviewBitmapReady(context, request)) {
+            sharpReady = true
+            return@LaunchedEffect
+        }
+        val result = context.imageLoader.execute(request)
+        sharpReady = result is SuccessResult && reviewBitmapReady(context, request)
+    }
+    val frame = stillFrame(
+        zoomed = zoomed,
+        eligibleScreen = eligibleScreen,
+        eligibleSharp = heavy,
+        screenReady = screenReady && screenRequest != null && reviewBitmapReady(context, screenRequest),
+        sharpReady = sharpReady && sharpRequest != null && reviewBitmapReady(context, sharpRequest),
+    )
+    return when (frame) {
+        StillFrame.Sharp -> sharpRequest ?: glanceRequest
+        StillFrame.Screen -> screenRequest ?: glanceRequest
+        StillFrame.Glance -> glanceRequest
+    }
+}
+
+/** 看过的 RAW 预览比屏幕小，或预览根本没出来。停到这张上再解原图。 */
+internal object GlanceShortfall {
+    private val ids = ConcurrentHashMap.newKeySet<Long>()
+    fun mark(id: Long) {
+        ids.add(id)
+    }
+    fun contains(id: Long): Boolean = id in ids
+}
+
+internal fun drawableLongEdge(drawable: Drawable): Int {
+    val bitmap = (drawable as? BitmapDrawable)?.bitmap
+    return if (bitmap != null) maxOf(bitmap.width, bitmap.height) else maxOf(drawable.intrinsicWidth, drawable.intrinsicHeight)
+}
+
+/**
+ * RAW 的一倍图比屏幕小，或这一下失败，记下来。不是 RAW，或这张已经是补过的原图，不改记录。
+ * 返回这张现在算不算「预览不够」。
+ */
+internal fun rawGlanceSeen(
+    photo: PhotoItem,
+    screen: IntSize,
+    resultKey: String?,
+    drawable: Drawable?,
+): Boolean {
+    if (!isRawFileName(photo.displayName)) return GlanceShortfall.contains(photo.id)
+    val glanceKey = reviewScreenMemoryKey(photo.id, screen)
+    if (resultKey != glanceKey) return GlanceShortfall.contains(photo.id)
+    val screenEdge = maxOf(screen.width, screen.height)
+    val longEdge = drawable?.let { drawableLongEdge(it) }
+    if (drawable == null || (screenEdge > 0 && longEdge != null && longEdge > 0 && longEdge < screenEdge)) {
+        GlanceShortfall.mark(photo.id)
+    }
+    return GlanceShortfall.contains(photo.id)
 }
 
 private fun reviewBitmapReady(context: android.content.Context, request: ImageRequest): Boolean {
