@@ -123,3 +123,16 @@ MediaStore / DataStore
    - 修改点3
    ...
    ```
+
+## Orca 编排：进度与汇报（省额度）
+
+### 协调器规则
+
+* 每次 `orca orchestration worker-start --spec` 的任务描述末尾，都原样附上下面「Worker 汇报规则」一节。
+* 收到 worker_done 只看摘要；确实需要细节时，只读进度文件里相关的几行，不要整段 cat，也不要反复 head/grep 查进度。
+
+### Worker 汇报规则
+
+* 进度写到 `.orca/progress/<dispatch_id>.md`，每个阶段追加一两行：做了什么、改了哪些文件、卡在哪。
+* 完整日志、测试输出、diff 留在文件或 git 里，不要贴进 orchestration 消息。
+* worker_done 消息只写摘要（10 行以内）：结果、改动的文件列表、测试是否通过、需要协调器决定的事；详细内容写「见 `.orca/progress/<dispatch_id>.md`」。

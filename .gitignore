@@ -36,3 +36,6 @@ local.properties
 
 # 原始设计稿只私下保存，不进公开仓库
 /docs/design-draft-v2/
+
+# Orca worker 进度文件，仅本地
+/.orca/
