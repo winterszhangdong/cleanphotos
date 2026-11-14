@@ -153,24 +153,6 @@ internal fun scrubFractionForScroll(index: Int, offsetPx: Int, itemHeightPx: Int
 }
 
 /**
- * [itemIndex] 落在哪一天。年份行和日期行算进紧跟着的那一天。
- * 只数 [PhotoDaySection.photos]：「全部」不截断，overflow 是空的。
- */
-internal fun dayIndexAtItem(sections: List<PhotoDaySection>, immersive: Boolean, itemIndex: Int): Int {
-    if (sections.isEmpty()) return 0
-    var cursor = 0
-    for ((index, section) in sections.withIndex()) {
-        if (!immersive) {
-            if (section.yearHeader != null) cursor++
-            if (section.header != SectionHeader.None) cursor++
-        }
-        cursor += section.photos.size
-        if (itemIndex < cursor) return index
-    }
-    return sections.lastIndex
-}
-
-/**
  * 每个日期站在网格里的项下标，和 [scrubStops] 同一顺序。
  * 拖动时按天下标直接查，不再从第一天扫到目标天。
  */

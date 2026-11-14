@@ -1,6 +1,5 @@
 package com.winters.cleanphotos.core.util
 
-import com.winters.cleanphotos.TestPhotoData
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
@@ -13,31 +12,6 @@ class DayDisplayTest {
     private val en = Locale.ENGLISH
 
     @Test
-    fun visibleDayPhotos_keepsFirstEightInCurrentOrder() {
-        val photos = (1..10).map { createId ->
-            TestPhotoData.createTestPhoto(id = createId.toLong())
-        }
-
-        val visible = DayDisplay.visibleDayPhotos(photos)
-
-        assertEquals(8, visible.size)
-        assertEquals((1L..8L).toList(), visible.map { it.id })
-    }
-
-    @Test
-    fun dayHeader_isDayNumeralAndMonth() {
-        val timestamp = LocalDate.of(2024, 9, 21)
-            .atStartOfDay(shanghai)
-            .toInstant()
-            .toEpochMilli()
-
-        val header = DayDisplay.dayHeader(timestamp, shanghai, zh)
-
-        assertEquals("21", header.dayNumeral)
-        assertEquals("9月", header.monthLabel)
-    }
-
-    @Test
     fun cleanPageDate_isMonthDay() {
         val timestamp = LocalDate.of(2024, 9, 21)
             .atStartOfDay(shanghai)
@@ -46,14 +20,6 @@ class DayDisplayTest {
 
         assertEquals("9月21日", DayDisplay.cleanPageDate(timestamp, shanghai, zh))
         assertEquals("Sep 21", DayDisplay.cleanPageDate(timestamp, shanghai, en))
-    }
-
-    @Test
-    fun dayHeaderFromKey_parsesIsoAndEnglishGroupKey() {
-        assertEquals("21", DayDisplay.dayHeaderFromKey("2024-09-21", zh).dayNumeral)
-        assertEquals("9月", DayDisplay.dayHeaderFromKey("2024-09-21", zh).monthLabel)
-        assertEquals("21", DayDisplay.dayHeaderFromKey("September 21, 2024", zh).dayNumeral)
-        assertEquals("9月", DayDisplay.dayHeaderFromKey("September 21, 2024", zh).monthLabel)
     }
 
     @Test

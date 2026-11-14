@@ -106,9 +106,6 @@ final class ReviewSessionModel: ObservableObject {
         (core.ledger.photosOfDay(Self.dayKey(photo.creationDate)).firstIndex { $0.id == photo.id } ?? 0) + 1
     }
 
-    /// 看过由翻走时（settle）记账，这里不需要再做。保留接口给视图调用。
-    func markKeptCurrent() {}
-
     func applyVertical(favorite: Bool, unfavorite: Bool, trash: Bool, library: PhotoLibraryService) {
         guard let photo = currentPhoto else { return }
         let outcome: ReviewOutcome
@@ -125,15 +122,13 @@ final class ReviewSessionModel: ObservableObject {
         publish()
     }
 
-    func reinsert(_ photo: PhotoItem, kind: ExitKind) {
+    func reinsert(_ photo: PhotoItem) {
         core.undo(photo.id)
         publish()
     }
 
     func goNext() { move(+1) }
     func goPrevious() { move(-1) }
-
-    func skipSummaryToNext() { if isOnSummary { move(+1) } }
 
     private func move(_ d: Int) {
         let j = index + d

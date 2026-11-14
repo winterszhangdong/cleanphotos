@@ -17,8 +17,6 @@ final class SeenStore: ObservableObject {
     }
     private var resignObserver: NSObjectProtocol?
 
-    func isUnseen(_ id: String) -> Bool { !seenIds.contains(id) }
-
     func markSeen(_ ids: [String]) {
         var next = seenIds
         ids.forEach { next.insert($0) }

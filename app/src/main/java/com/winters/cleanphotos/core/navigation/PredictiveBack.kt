@@ -21,7 +21,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
@@ -136,21 +135,8 @@ object BackdropSnapshot {
 fun rememberBackdropRecorder(): GraphicsLayer = rememberGraphicsLayer()
 
 /**
- * 每帧把这块内容录进 [layer]。只用于很小的区域：整页录制会让滚动的每一帧重画所有可见格子。
- * 离开页面前的整页快照用 [captureBackdropOnce]。
- */
-fun Modifier.recordBackdrop(layer: GraphicsLayer): Modifier = drawWithContent {
-    layer.record { this@drawWithContent.drawContent() }
-    drawLayer(layer)
-}
-
-/**
- * [capture] 为 true 的那一帧把当前内容录进 [layer] 并立刻转成位图，然后清掉标记。
- * 不当成常驻的每帧离屏层。
- */
-/**
  * [capture] 为 true 时，这一帧把内容录进 [layer]，下一帧在协程里转成位图。
- * 不当成常驻的每帧离屏层。
+ * 不当成常驻的每帧离屏层。整页不要每帧录：滚动时会把可见格子重画进离屏层。
  */
 @Composable
 fun Modifier.captureBackdropOnce(layer: GraphicsLayer, capture: Boolean, onCaptured: () -> Unit): Modifier {

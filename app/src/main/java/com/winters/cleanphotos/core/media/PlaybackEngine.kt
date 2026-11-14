@@ -35,7 +35,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.winters.cleanphotos.domain.model.PlaybackTarget
 import com.winters.cleanphotos.domain.model.poseAfterUserSeek
-import com.winters.cleanphotos.domain.model.videoEndedPose
 
 /** 进度条轮询间隔。不是动效 token，不放进 Motion.kt。 */
 internal const val PLAYBACK_POSITION_POLL_MS = 200L
@@ -108,12 +107,11 @@ class PlaybackEngine(context: Context) {
             if (state == Player.STATE_ENDED && current is PlaybackTarget.Video && !ended) {
                 // 先暂停再 seek，避免 seek 回到 0 时 playWhenReady 仍为 true 被看成循环。
                 // ended 保持到下一次真正开播，READY 不清它。
-                val pose = videoEndedPose()
                 ended = true
                 playing = false
                 player.pause()
-                player.seekTo(pose.positionMs)
-                positionMs = pose.positionMs
+                player.seekTo(0)
+                positionMs = 0
                 val duration = player.duration
                 if (duration > 0L) durationMs = duration
             } else if (state == Player.STATE_ENDED && current is PlaybackTarget.MotionPhoto) {

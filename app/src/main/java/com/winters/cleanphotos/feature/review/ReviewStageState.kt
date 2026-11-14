@@ -33,14 +33,12 @@ internal enum class ExitKind { Up, Down }
  * 进度 0..1 线性推进，形状由 [ExitPath] 计算；不持有任何输入锁。
  */
 internal class ExitFlight(
-    val id: Long,
     val page: ReviewPage,
     val kind: ExitKind,
     val startY: Float,
     val startScale: Float,
     val startSaturation: Float,
     val startBrightness: Float,
-    val velocityY: Float,
     val target: Offset,
     val rise: Float,
 ) {
@@ -223,7 +221,6 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     var onSwipe: (VerticalRelease, Long) -> String? = { _, _ -> null }
     var onThresholdChanged: (Boolean) -> Unit = {}
     var onDayChanged: () -> Unit = {}
-    var onExitStarted: (ExitKind) -> Unit = {}
     var exitTarget: (ExitKind) -> Offset = { Offset.Zero }
     var verticalEnabled: () -> Boolean = { true }
     /** 最后一张被处理、没有下一页：不再回退到 ViewModel 的旧 currentKey。撤回或失败恢复序号变化时清掉。 */
@@ -267,7 +264,6 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     private var entryJob: Job? = null
     private var pendingCommitKey: String? = null
     private var pendingCommitShift = 0f
-    private var flightSeq = 0L
 
     /** 按 (pages 实例, currentKey) 缓存：拖动中每个 MOVE、EdgeHint 每帧都要取相邻页，不能每次整表扫描。 */
     private var indexOfPages: List<ReviewPage>? = null
@@ -518,14 +514,12 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         val kind = if (release == VerticalRelease.Up) ExitKind.Up else ExitKind.Down
         val y = dy
         val flight = ExitFlight(
-            id = ++flightSeq,
             page = photoPage,
             kind = kind,
             startY = y,
             startScale = ReviewGestureMath.dragScale(y, thresholds) * currentEntryScale(photoPage.key),
             startSaturation = ReviewGestureMath.dragSaturation(y, thresholds),
             startBrightness = ReviewGestureMath.dragBrightness(y, thresholds) * currentEntryBrightness(photoPage.key),
-            velocityY = vy,
             target = exitTarget(kind),
             rise = if (kind == ExitKind.Up) (kotlin.math.abs(vy) * RISE_PER_VELOCITY).coerceIn(RISE_MIN * thresholds.minFlingDistance, RISE_MAX * thresholds.minFlingDistance) else 0f,
         )
@@ -546,7 +540,6 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
             }
             flights.remove(flight)
         }
-        onExitStarted(kind)
         if (playbackPinIsHorizontal && playbackPinnedKey != photoPage.key) {
             playbackPinnedKey = null
             playbackPinIsHorizontal = false

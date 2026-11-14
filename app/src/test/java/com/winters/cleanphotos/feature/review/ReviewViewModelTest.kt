@@ -30,8 +30,6 @@ import com.winters.cleanphotos.domain.usecase.FilterPhotosUseCase
 import com.winters.cleanphotos.domain.usecase.MarkPhotoSeenUseCase
 import com.winters.cleanphotos.domain.usecase.MovePhotoToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveLibraryDayStateUseCase
-import com.winters.cleanphotos.domain.usecase.ObserveShowDirectionHintsUseCase
-import com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTutorialStateUseCase
 import com.winters.cleanphotos.domain.usecase.RemoveFavoritePhotoUseCase
 import com.winters.cleanphotos.domain.usecase.RestorePhotoFromTrashUseCase
@@ -181,8 +179,6 @@ class ReviewViewModelTest {
             buildSessionDayProgressUseCase = BuildSessionDayProgressUseCase(),
             buildDaySummaryUseCase = BuildDaySummaryUseCase(BuildMonthProgressUseCase()),
             observeLibraryDayStateUseCase = ObserveLibraryDayStateUseCase(photoRepository, seen),
-            observeShowDirectionHintsUseCase = ObserveShowDirectionHintsUseCase(preferences),
-            observeTrashSummaryUseCase = ObserveTrashSummaryUseCase(photoRepository),
             locateMotionPhotoVideoUseCase = LocateMotionPhotoVideoUseCase(motionPhotos),
             operationQueue = ReviewOperationQueue(CoroutineScope(SupervisorJob() + testDispatcher)),
             uptimeClock = UptimeClock { now },

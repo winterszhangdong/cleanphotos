@@ -31,14 +31,6 @@ object Odometer {
         new < old -> Direction.Down
         else -> Direction.None
     }
-
-    /** 右对齐后逐位比较，返回每个字符位是否需要滚动。 */
-    fun changedPositions(old: String, new: String): List<Boolean> {
-        val pad = maxOf(old.length, new.length)
-        val o = old.padStart(pad)
-        val n = new.padStart(pad)
-        return n.indices.map { o[it] != n[it] }.takeLast(new.length)
-    }
 }
 
 /**

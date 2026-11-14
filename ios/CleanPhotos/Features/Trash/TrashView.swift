@@ -131,14 +131,6 @@ struct TrashView: View {
         }
     }
 
-    static func splitBytes(_ bytes: Int64, locale: Locale) -> (number: String, unit: String) {
-        let s = FileSizeFormatter.format(bytes)
-        if let r = s.range(of: " ", options: .backwards) {
-            return (String(s[..<r.lowerBound]), String(s[r.upperBound...]))
-        }
-        return (s, "")
-    }
-
     private var selectedBytes: Int64 {
         selected.reduce(Int64(0)) { $0 + bytes(of: $1) }
     }
@@ -237,7 +229,7 @@ struct TrashView: View {
                     .font(Font.custom("NotoSansSC-Regular", size: 12))
                     .foregroundStyle(DarkroomColors.dim)
                     .frame(height: 16)
-                let parts = Self.splitBytes(bytes, locale: loc)
+                let parts = FileSizeFormatter.parts(bytes)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(parts.number)
                         .font(DarkroomFonts.schibsted(size: 32, weight: .semibold))
@@ -433,7 +425,7 @@ struct TrashView: View {
     }
 
     private var dialogBody: some View {
-        let parts = Self.splitBytes(library.trashBytes, locale: loc)
+        let parts = FileSizeFormatter.parts(library.trashBytes)
         let body = L10n.format("dialog_delete_body", locale: loc, "\u{0}")
         let before = body.components(separatedBy: "\u{0}").first ?? body
         let after = body.components(separatedBy: "\u{0}").dropFirst().joined()

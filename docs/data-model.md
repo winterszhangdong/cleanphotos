@@ -1188,7 +1188,6 @@ sortOrder：会话排序，默认 NewestFirst。LargestFirst 时不插「这一�
 | ObserveLibraryDayStateUseCase | 相册全量照片（可见 + 收藏 + 垃圾桶）、处理过 id、看过 id |
 | ObserveTrashSummaryUseCase | `TrashSummary(count, totalBytes)`，size 未知按 0 |
 | ObserveAllSeenStatsUseCase | 决定 11：`AllSeenStats(favoriteCount, trashCount, trashBytes)` |
-| ObserveShowDirectionHintsUseCase / RecordSwipeActionUseCase | 决定 10：成功上下滑后 `review_swipe_action_count` +1，撤回不回退。界面不再读取这个数来画提示 |
 | ObserveTotalFreedBytesUseCase / AddFreedBytesUseCase | 垃圾桶空状态「累计已释放」：读 / 累加 `total_freed_bytes` |
 ### TrashReminderRules
 

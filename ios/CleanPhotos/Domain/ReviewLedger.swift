@@ -11,8 +11,6 @@ import Foundation
 enum ReviewRules {
     /// 小结插页最少张数（Android ReviewRules.DAY_SUMMARY_MIN_PHOTOS）。
     static let daySummaryMinPhotos = 6
-    /// 当天进度条超过 40 张改为连续比例条。
-    static let progressContinuousThreshold = 40
     /// 「未知日期」天键：不生成小结。
     static let unknownDay = "unknown"
 }
@@ -169,7 +167,6 @@ struct ReviewSessionCore {
         else { return pages.firstIndex { $0.key == k } }
         return pages.firstIndex(of: target)
     }
-    var currentPage: LedgerPage? { currentIndex.map { pages[$0] } }
     var isCompleted: Bool { currentKey == nil }
 
     static func photoId(of key: String?) -> String? {
@@ -223,9 +220,6 @@ struct ReviewSessionCore {
         rebuild()
         return currentKey
     }
-
-    /// 把当前照片记为看过（翻走之前；与 Android 在 settle 时补记一致，这里给 UI 预先标记用）。
-    mutating func markViewed(_ id: String) { ledger.markViewed(id); rebuild() }
 }
 
 /// 小结统计（BuildDaySummaryUseCase 的会话部分）。

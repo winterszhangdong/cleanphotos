@@ -243,9 +243,7 @@ internal fun liftProgress(lift: Float, index: Int, duration: Int): Float {
  * 合盖之前袋子上停在 [heldCount] / [heldCover]（面板的行停在 [heldPrints]），合上那一刻 [released]，计数开始滚、露角 / 封面换新。
  */
 internal class FlightRun(
-    val seq: Long,
     val photos: List<PhotoItem>,
-    val total: Int,
     val relativePath: String,
     val starts: List<Rect?>,
     val stackAt: Offset?,
@@ -371,7 +369,7 @@ internal fun FlightLayer(
                     },
             )
         }
-        if (run.total > 1) CountBadge(run.total, Modifier.graphicsLayer {
+        if (run.photos.size > 1) CountBadge(run.photos.size, Modifier.graphicsLayer {
             val ins = run.insert.value
             val g = run.gather.value
             alpha = if (g >= 1f && ins < 0.3f) 1f - ins / 0.3f else 0f

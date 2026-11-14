@@ -165,8 +165,6 @@ enum ScreenshotHarness {
 }
 
 extension Notification.Name {
-    static let cleanphotosShot = Notification.Name("cleanphotosShot")
-    static let cleanphotosEnterMultiselect = Notification.Name("cleanphotosEnterMultiselect")
     static let cleanphotosDragSelect = Notification.Name("cleanphotosDragSelect")
     static let cleanphotosHarnessMenu = Notification.Name("cleanphotosHarnessMenu")
     /// 截图钩子：object 为 LibraryScope.rawValue，或 "immersive"。

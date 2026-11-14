@@ -65,7 +65,6 @@ final class LanguageStore: ObservableObject {
         case .english:
             UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
         }
-        UserDefaults.standard.synchronize()
     }
 
     var effectiveLocale: Locale {

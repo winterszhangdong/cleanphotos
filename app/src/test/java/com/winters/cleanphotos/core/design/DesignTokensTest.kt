@@ -152,8 +152,7 @@ class DesignTokensTest {
     @Test fun odometer_direction_and_positions() {
         assertEquals(Odometer.Direction.Up, Odometer.direction(22, 23))
         assertEquals(Odometer.Direction.Down, Odometer.direction(1284, 1283))
-        assertEquals(listOf(false, false, false, false, true), Odometer.changedPositions("1,284", "1,283"))
-        assertEquals(listOf(true, true, true), Odometer.changedPositions("99", "100"))
+        assertEquals(Odometer.Direction.None, Odometer.direction(4, 4))
     }
 
     @Test fun animation_scale_zero_disables() {

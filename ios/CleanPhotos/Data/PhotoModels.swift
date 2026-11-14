@@ -151,8 +151,3 @@ struct UndoBanner: Equatable, Identifiable {
 enum PhotoSortOrder: String {
     case newestFirst, oldestFirst
 }
-
-/// 首页筛选（Android PhotoFilterMode）。
-enum PhotoFilterMode: String {
-    case allPhotos, unseenOnly
-}

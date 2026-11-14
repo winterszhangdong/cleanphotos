@@ -7,9 +7,7 @@ import Photos
 struct ReviewProgressBar: View {
     let cells: [ReviewSessionModel.CellState]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// 连续比例条（> 40 张）的当前格沿用原来的常亮值；分格模式的当前格交给 BreathingCurrentCell（Core Animation 呼吸）。
-    private let breath = true
-
+    /// 分格模式的当前格交给 BreathingCurrentCell。连续比例条（> 40 张）的当前格用 0.45。
     private static let current = Color(red: 1, green: 246/255, blue: 232/255)
     private static let kept = DarkroomColors.paper.opacity(0.78)
     private static let pending = DarkroomColors.paper.opacity(0.34)
@@ -33,7 +31,7 @@ struct ReviewProgressBar: View {
                 }
                 if let c = cells.firstIndex(of: .current) {
                     let r = CGRect(x: CGFloat(c) * per - 1, y: 0, width: max(per, 3), height: h)
-                    ctx.fill(Path(roundedRect: r, cornerRadius: h / 2), with: .color(Self.current.opacity(breath ? 0.45 : 0.8)))
+                    ctx.fill(Path(roundedRect: r, cornerRadius: h / 2), with: .color(Self.current.opacity(0.45)))
                 }
                 return
             }

@@ -18,24 +18,9 @@ data class DayHeader(
 )
 
 /**
- * 日期分组的展示规则。分组数据本身仍保留当天全部照片，界面只拿这里的结果来画。
+ * 日期分组的展示文案。露出张数在 [com.winters.cleanphotos.domain.model.PhotoDaySection]。
  */
 object DayDisplay {
-    /** 每个日期分组最多露出的张数。 */
-    const val MAX_VISIBLE_PHOTOS = 8
-
-    /**
-     * 当前顺序下默认露出的缩略图。超过 8 张时只取前 8 张。照片页另有展开，不从这里读。
-     */
-    fun visibleDayPhotos(photos: List<PhotoItem>): List<PhotoItem> {
-        return photos.take(MAX_VISIBLE_PHOTOS)
-    }
-
-    fun dayHeader(timestampMillis: Long, zone: ZoneId, locale: Locale): DayHeader {
-        val date = Instant.ofEpochMilli(timestampMillis).atZone(zone).toLocalDate()
-        return headerOf(date, locale)
-    }
-
     /** 清理页居中日期：中文「9月21日」，英文「Sep 21」。 */
     fun cleanPageDate(timestampMillis: Long, zone: ZoneId, locale: Locale): String {
         val date = Instant.ofEpochMilli(timestampMillis).atZone(zone).toLocalDate()
@@ -58,13 +43,8 @@ object DayDisplay {
 
     /**
      * 解析分组键。生产数据是英文全月名，测试数据是 yyyy-MM-dd。
-     * 两种以外直接失败，避免画出错误日期。
+     * 两种以外返回 null，调用方再决定失败。
      */
-    fun dayHeaderFromKey(dateKey: String, locale: Locale): DayHeader {
-        val date = parseKey(dateKey) ?: throw IllegalArgumentException("无法解析日期分组：$dateKey")
-        return headerOf(date, locale)
-    }
-
     private fun parseKey(dateKey: String): LocalDate? {
         runCatching { LocalDate.parse(dateKey, DateTimeFormatter.ISO_LOCAL_DATE) }.getOrNull()?.let { return it }
         return runCatching {
@@ -94,13 +74,6 @@ object DayDisplay {
         } else {
             DayHeader(date.month.getDisplayName(TextStyle.SHORT, locale), "")
         }
-
-    private fun headerOf(date: LocalDate, locale: Locale): DayHeader {
-        return DayHeader(
-            dayNumeral = date.dayOfMonth.toString(),
-            monthLabel = monthOf(date, locale),
-        )
-    }
 
     private fun cleanDateOf(date: LocalDate, locale: Locale): String {
         return if (isChinese(locale)) "${date.monthValue}月${date.dayOfMonth}日" else "${monthOf(date, locale)} ${date.dayOfMonth}"

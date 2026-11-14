@@ -170,8 +170,6 @@ internal object TagPlacement {
     /** 横向对准袋子中心，左右离屏幕边至少 [margin]。 */
     fun left(centerX: Float, width: Float, screenWidth: Float, margin: Float): Float =
         (centerX - width / 2f).coerceIn(margin, (screenWidth - margin - width).coerceAtLeast(margin))
-
-    fun width(content: Float, min: Float, max: Float): Float = content.coerceIn(min, max)
 }
 
 /** 面板行左边插在牛皮纸卡座里的相片（ui-design 3.20「相册面板」方案 A）。 */

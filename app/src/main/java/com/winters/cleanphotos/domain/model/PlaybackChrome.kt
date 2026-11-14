@@ -102,14 +102,6 @@ fun reviewPhotoTap(
         else -> ReviewPhotoTap.ToggleDetails(showDetails = !detailsOpen)
     }
 
-/** 视频播完：回到第 0 帧并暂停，中心播放键出现。 */
-data class VideoEndedPose(
-    val positionMs: Long,
-    val showCenter: Boolean,
-)
-
-fun videoEndedPose(): VideoEndedPose = VideoEndedPose(positionMs = 0L, showCenter = true)
-
 /**
  * 用户拖动或点按进度之后的播放态。
  * 不论之前是暂停、播完还是播放中，都从该位置开始播放。

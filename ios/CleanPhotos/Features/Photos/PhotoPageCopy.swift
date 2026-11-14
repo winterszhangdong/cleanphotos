@@ -47,12 +47,4 @@ enum PhotoPageCopy {
     }
     static func dayCollapse(chinese: Bool) -> String { chinese ? "收起" : "Collapse" }
     static func monthUnit(chinese: Bool) -> String { chinese ? "月" : "" }
-
-    static func similarTitle(chinese: Bool) -> String {
-        chinese ? "这个版本还不能对照" : "Comparison isn't in this build"
-    }
-
-    static func similarBody(chinese: Bool) -> String {
-        chinese ? "相似照片的对照还没放进这个构建。" : "Similar photos aren't compared in this build."
-    }
 }

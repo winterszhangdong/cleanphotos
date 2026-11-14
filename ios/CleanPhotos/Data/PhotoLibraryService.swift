@@ -16,7 +16,6 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     @Published private(set) var trashCount: Int = 0
     @Published private(set) var trashBytes: Int64 = 0
     @Published private(set) var isLoading = false
-    @Published private(set) var loadError: String?
     @Published var undoBanner: UndoBanner?
     /// 清理页在前台时为 true：照片 / 收藏 / 垃圾桶页不显示撤回条（Android 的单张撤回属于 ReviewViewModel，离开清理页即消失）。
     @Published var reviewActive = false
@@ -197,7 +196,6 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     private func performReload() async {
         PerfLog.mark("reloadStart")
         isLoading = true
-        loadError = nil
         defer {
             isLoading = false
             isPartial = false
@@ -242,7 +240,7 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
             visibleCount = (pageUnseen && pageScope != .similar) ? unseenCount : totalCount
             isPartial = true
             PerfLog.mark("firstChunk", "items=\(head.visible.count) sections=\(head.sections.count)")
-            warmThumbnails(head.visible)
+            warmThumbnails()
         }
 
         // 2) 全量：后台遍历 + 相册标题分类，完成后一次性替换。
@@ -262,7 +260,7 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
             fetchOrdered = full.items
             rebuildDerived()
         }
-        if !isPartial { warmThumbnails(visiblePhotos) }
+        if !isPartial { warmThumbnails() }
         await cleanupStores(libraryIds: Set(full.items.map(\.id)), libraryCount: total)
         if factsRequested || sizesReady { startFactScan() }
     }
@@ -603,7 +601,7 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     private var warmedIds: [PHAsset] = []
 
     /// 让 PHCachingImageManager 先把首屏几十张缩略图解好。
-    private func warmThumbnails(_ visible: [PhotoItem]) {
+    private func warmThumbnails() {
         var assets: [PHAsset] = []
         outer: for year in sections {
             for day in year.days {

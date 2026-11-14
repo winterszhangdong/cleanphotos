@@ -152,8 +152,6 @@ class TrayRulesTest {
         assertEquals(150f, TagPlacement.left(centerX = 200f, width = 100f, screenWidth = 360f, margin = 8f), 0f)
         assertEquals(8f, TagPlacement.left(centerX = 20f, width = 100f, screenWidth = 360f, margin = 8f), 0f)
         assertEquals(252f, TagPlacement.left(centerX = 350f, width = 100f, screenWidth = 360f, margin = 8f), 0f)
-        assertEquals(64f, TagPlacement.width(30f, 64f, 160f), 0f)
-        assertEquals(160f, TagPlacement.width(300f, 64f, 160f), 0f)
     }
 
     @Test

@@ -23,13 +23,7 @@ object PermissionChecker {
     fun canReadVideos(context: Context): Boolean =
         isVideoReadable(Build.VERSION.SDK_INT) { granted(context, it) }
 
-    fun getRequiredPermission(): String {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_IMAGES
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-    }
+    fun getRequiredPermission(): String = requiredPermission(Build.VERSION.SDK_INT)
 
     /** 系统授权弹窗请求的权限组；Android 13+ 带上视频，14+ 再带部分访问。 */
     fun requestPermissions(): Array<String> = permissionsToRequest(Build.VERSION.SDK_INT)

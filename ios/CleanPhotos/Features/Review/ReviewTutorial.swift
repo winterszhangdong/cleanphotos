@@ -5,7 +5,6 @@ enum ReviewPrefs {
     static let tutorialKey = "has_seen_review_tutorial"
     static let swipeCountKey = "review_swipe_action_count"
     /// 累计成功上滑 / 下滑。清理页不再画方向提示；计数仍记着（撤回不回退）。
-    static let hintHideAfter = 20
 
     static var hasSeenTutorial: Bool {
         if AuditHooks.enabled, ProcessInfo.processInfo.arguments.contains("-cpForceTutorial") { return false }
@@ -14,7 +13,6 @@ enum ReviewPrefs {
     static func markTutorialSeen() { if !PerfDryRun.on { UserDefaults.standard.set(true, forKey: tutorialKey) } }
     static var swipeCount: Int { UserDefaults.standard.integer(forKey: swipeCountKey) }
     static func recordSwipe() { if !PerfDryRun.on { UserDefaults.standard.set(swipeCount + 1, forKey: swipeCountKey) } }
-    static var showDirectionHints: Bool { swipeCount < hintHideAfter }
 }
 
 /// CSS 关键帧求值：stops 为 (0..1, 值)，每段内按 --ease-out（0.2, 0.8, 0.2, 1）。

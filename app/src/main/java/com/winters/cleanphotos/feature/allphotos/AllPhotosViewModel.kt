@@ -138,7 +138,6 @@ class AllPhotosViewModel @Inject constructor(
                         scope = scope,
                         unseenOnly = unseenOnly,
                         sections = settled.page.sections,
-                        seenIds = seenIds,
                         allSeenStats = stats,
                         hangPhotos = dateSorted.take(HANG_PHOTO_COUNT),
                         pages = built.mapValues { it.value.page },

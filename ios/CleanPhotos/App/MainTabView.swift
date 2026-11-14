@@ -78,7 +78,7 @@ struct MainTabView: View {
         // 但关掉系统上滑动画、背景透明：共享元素飞行 + 淡入淡出在 cover 里画，网格退场在下面同时进行。
         .fullScreenCover(item: $reviewLaunch) { launch in
             ZStack {
-                ReviewView(launch: launch, library: library, seedImage: seedImage, onGoTrash: { closeImmediately(); tab = .trash })
+                ReviewView(launch: launch, library: library, seedImage: seedImage)
                     .environment(\.reviewClose, ReviewCloseAction(handler: { id, img in collapse(photoId: id, image: img) }))
                     .environment(\.reviewSharedEntry, !reduceMotion)
                     .modifier(SharedRecede(role: .review, clock: clock, open: true))

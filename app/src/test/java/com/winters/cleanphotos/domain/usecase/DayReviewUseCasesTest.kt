@@ -10,7 +10,6 @@ import com.winters.cleanphotos.domain.model.PhotoSortOrder
 import com.winters.cleanphotos.domain.model.ReviewLedger
 import com.winters.cleanphotos.domain.model.ReviewOutcome
 import com.winters.cleanphotos.fake.FakePhotoRepository
-import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
 import com.winters.cleanphotos.domain.repository.SeenStateRepository
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -210,17 +209,6 @@ class DayReviewUseCasesTest {
         assertEquals(setOf(1L, 2L, 3L), state.libraryPhotos.map { it.id }.toSet())
         assertEquals(setOf(2L, 3L), state.processedIds)
         assertEquals(setOf(1L), state.seenIds)
-    }
-
-    // —— 方向提示小点（决定 10）——
-    @Test fun direction_hints_hidden_after_20_actions() = runTest {
-        val prefs = FakeUserPreferencesRepository()
-        val show = ObserveShowDirectionHintsUseCase(prefs)
-        val record = RecordSwipeActionUseCase(prefs)
-        repeat(19) { record() }
-        assertTrue(show().first())
-        record()
-        assertFalse(show().first())
     }
 
     // —— 文件大小文案 ——

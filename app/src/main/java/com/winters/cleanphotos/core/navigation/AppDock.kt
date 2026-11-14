@@ -1,29 +1,16 @@
 package com.winters.cleanphotos.core.navigation
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import com.winters.cleanphotos.core.design.BottomTab
 import com.winters.cleanphotos.core.design.LocalGlassHazeState
 import dev.chrisbanes.haze.HazeState
-import com.winters.cleanphotos.core.design.MotionDurations
-import com.winters.cleanphotos.core.design.MotionEasings
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * 共享底部导航的显示方式。导航胶囊只有一份，放在 NavHost 之上的公共层，

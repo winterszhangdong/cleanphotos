@@ -216,14 +216,12 @@ private fun SimilarCompareScreen(
         if (animations && motion.height > 0f) {
             if (flyingLast) onLastFlight(true)
             val flight = ExitFlight(
-                id = 0L,
                 page = ReviewPage.Photo(photo),
                 kind = ExitKind.Down,
                 startY = startY,
                 startScale = motion.zoom,
                 startSaturation = 1f,
                 startBrightness = startBrightness,
-                velocityY = 0f,
                 target = Offset(0f, motion.height),
                 rise = 0f,
             )

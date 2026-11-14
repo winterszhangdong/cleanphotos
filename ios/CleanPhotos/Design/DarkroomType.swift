@@ -2,17 +2,6 @@ import SwiftUI
 
 enum DarkroomFonts {
     // PostScript names from the bundled TTFs (registered via UIAppFonts).
-    static func noto(_ weight: Font.Weight) -> Font {
-        let name: String
-        switch weight {
-        case .medium: name = "NotoSansSC-Medium"
-        case .semibold: name = "NotoSansSC-SemiBold"
-        case .bold: name = "NotoSansSC-Bold"
-        default: name = "NotoSansSC-Regular"
-        }
-        return Font.custom(name, size: 14, relativeTo: .body)
-    }
-
     static func schibsted(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
         let name: String
         switch weight {

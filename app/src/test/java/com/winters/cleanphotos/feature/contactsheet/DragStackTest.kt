@@ -54,9 +54,9 @@ class DragStackTest {
     fun `从手指下的叠入袋时格子一直空着_点袋子起飞的不管`() {
         val a = createTestPhoto(id = 1)
         val visuals = FilingVisuals()
-        visuals.flight = FlightRun(1, listOf(a), 1, "Pictures/猫/", listOf(null), Offset(5f, 5f), 0, null)
+        visuals.flight = FlightRun(listOf(a), "Pictures/猫/", listOf(null), Offset(5f, 5f), 0, null)
         assertEquals(0f, visuals.slotAlpha(1), 0f)
-        visuals.flight = FlightRun(2, listOf(a), 1, "Pictures/猫/", listOf(null), null, 0, null)
+        visuals.flight = FlightRun(listOf(a), "Pictures/猫/", listOf(null), null, 0, null)
         assertEquals(1f, visuals.slotAlpha(1), 0f)
     }
 

@@ -30,10 +30,8 @@ data class ReviewUiState(
     val progress: Map<String, SessionDayProgress> = emptyMap(),
     /** 序列里小结插页的内容，按 dayKey。 */
     val summaries: Map<String, DaySummary> = emptyMap(),
-    val showDirectionHints: Boolean = false,
     val showTutorial: Boolean = false,
     val undo: UndoInfo? = null,
-    val trashCount: Int = 0,
     val errorMessage: UiText? = null,
     /** 会话没能建立：提示后返回入口页（否则只剩一块没有返回按钮的黑屏）。 */
     val loadFailed: Boolean = false,

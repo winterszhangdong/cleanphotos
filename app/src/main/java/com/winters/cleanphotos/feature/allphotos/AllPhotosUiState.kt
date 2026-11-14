@@ -149,7 +149,6 @@ data class AllPhotosUiState(
     /** 只作用于「全部」。不持久化。 */
     val viewMode: AllPhotosViewMode = AllPhotosViewMode.DateGrouped,
     val sections: List<PhotoDaySection> = emptyList(),
-    val seenIds: Set<Long> = emptySet(),
     /** 「全部看过了」三个数字（决定 11）。 */
     val allSeenStats: AllSeenStats = AllSeenStats(favoriteCount = 0, trashCount = 0, trashBytes = 0L),
     /** 晾绳上的三张照片。 */

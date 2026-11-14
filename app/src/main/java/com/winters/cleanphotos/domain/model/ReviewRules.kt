@@ -6,6 +6,4 @@ object ReviewRules {
     const val DAY_SUMMARY_MIN_PHOTOS = 6
     /** 进度条超过 40 张改为连续比例条。 */
     const val PROGRESS_CONTINUOUS_THRESHOLD = 40
-    /** 决定 10：累计 20 次成功上下滑后隐藏方向提示小点。 */
-    const val DIRECTION_HINT_HIDE_AFTER = 20
 }

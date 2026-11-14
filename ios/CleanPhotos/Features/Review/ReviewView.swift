@@ -23,9 +23,6 @@ struct ReviewView: View {
     private let startPhotoId: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    /// 菜单已去掉（不再有「去垃圾桶 / 回到照片」）。参数留着，MainTabView 不用改。
-    var onGoTrash: () -> Void = {}
-
     @StateObject private var session: ReviewSessionModel
     @StateObject private var images = ReviewImageStore()
 
@@ -74,8 +71,7 @@ struct ReviewView: View {
 
     enum DragAxis { case horizontal, vertical, pan }
 
-    init(launch: ReviewLaunch, library: PhotoLibraryService, seedImage: UIImage? = nil, onGoTrash: @escaping () -> Void = {}) {
-        self.onGoTrash = onGoTrash
+    init(launch: ReviewLaunch, library: PhotoLibraryService, seedImage: UIImage? = nil) {
         self.seedImage = seedImage
         self.startPhotoId = launch.startPhotoId
         let (items, start) = library.reviewQueue(scope: launch.scope, startingAt: launch.startPhotoId, dayId: launch.dayId)
@@ -1193,7 +1189,7 @@ struct ReviewView: View {
         withTransaction(t) {
             flights.removeAll { $0.page.id == ReviewPage.photo(acted.photo).id }
             receding = reduceMotion ? nil : page(at: session.index)
-            session.reinsert(acted.photo, kind: acted.kind)
+            session.reinsert(acted.photo)
             if !reduceMotion {
                 entry = EntryAnim(pageId: ReviewPage.photo(acted.photo).id, start: now, undoFrom: acted.target, undoKind: acted.kind)
             }
@@ -1459,7 +1455,6 @@ struct ReviewView: View {
         if let p = session.currentPhoto {
             // 性能测量（-cpAutoSwipe）在真机上跑的是用户自己的相册：不写「已看」，不改动用户数据
             if PerfAutoSwipe.count == 0 { library.markSeen([p.id]) }
-            session.markKeptCurrent()
         }
     }
 
@@ -1489,12 +1484,6 @@ private final class ReviewFileFlagsCache: @unchecked Sendable {
     static let shared = ReviewFileFlagsCache()
     private let lock = NSLock()
     private var map: [String: ReviewFileFlags] = [:]
-    /// 与 Android RawFile 同一份词表，另加 png（放大时才解更清楚的那张）。
-    private static let rawExtensions: Set<String> = [
-        "dng", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2",
-        "orf", "raf", "pef", "rw2", "srw", "gpr",
-    ]
-
     func flags(for asset: PHAsset) -> ReviewFileFlags {
         let id = asset.localIdentifier
         lock.lock()
@@ -1520,7 +1509,7 @@ private final class ReviewFileFlagsCache: @unchecked Sendable {
         var png = false
         for resource in PHAssetResource.assetResources(for: asset) {
             let ext = (resource.originalFilename as NSString).pathExtension.lowercased()
-            if Self.rawExtensions.contains(ext) { raw = true }
+            if ScopeRules.rawExtensions.contains(ext) { raw = true }
             if ext == "png" { png = true }
         }
         return ReviewFileFlags(raw: raw, heavy: raw || png)

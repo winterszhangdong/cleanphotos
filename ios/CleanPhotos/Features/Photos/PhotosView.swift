@@ -156,13 +156,6 @@ struct PhotosView: View {
                 expandedDayId = nil
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .cleanphotosEnterMultiselect)) { _ in
-            guard scope != .similar else { return }
-            let ids = Array(drawnOrder().prefix(4).map(\.id))
-            guard !ids.isEmpty else { return }
-            selecting = true
-            selected = Set(ids)
-        }
         .onReceive(NotificationCenter.default.publisher(for: .cleanphotosDragSelect)) { note in
             simulateDragSelect(steps: (note.object as? Int) ?? 6)
         }
@@ -1419,7 +1412,7 @@ struct AllSeenView: View {
                 L10n.string("all_seen_title", locale: locale),
                 L10n.pluralFormat("all_seen_body", count: library.totalCount, locale: locale, NumberFormatter.localizedString(from: NSNumber(value: library.totalCount), number: .decimal))
             )
-            let parts = TrashView.splitBytes(library.trashBytes, locale: locale)
+            let parts = FileSizeFormatter.parts(library.trashBytes)
             HStack(spacing: 24) {
                 stat("\(library.favoriteCount)", unit: nil, color: DarkroomColors.amber, label: "stat_favorites")
                 stat("\(library.trashCount)", unit: L10n.plural("count_unit", count: library.trashCount, locale: locale), color: DarkroomColors.fadeText, label: "stat_trash")

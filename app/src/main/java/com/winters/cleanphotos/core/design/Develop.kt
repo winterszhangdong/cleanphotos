@@ -32,11 +32,6 @@ class DevelopState internal constructor(val profile: DevelopProfile, developed: 
         progress.snapTo(0f)
         progress.animateTo(1f, tween(profile.durationMs, delayMillis = delayMs, easing = LinearEasing))
     }
-
-    /** 直接显示终态（命中缓存、往回翻、左右翻）。 */
-    suspend fun showDeveloped() {
-        progress.snapTo(1f)
-    }
 }
 
 @Composable

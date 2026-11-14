@@ -172,8 +172,8 @@ class ReviewStageStateTest {
     }
 
     private fun flight(kind: ExitKind, y: Float, scale: Float) = ExitFlight(
-        id = 1, page = photo(1), kind = kind, startY = y, startScale = scale, startSaturation = 0.5f,
-        startBrightness = 0.7f, velocityY = 0f, target = Offset(100f, 900f), rise = 40f,
+        page = photo(1), kind = kind, startY = y, startScale = scale, startSaturation = 0.5f,
+        startBrightness = 0.7f, target = Offset(100f, 900f), rise = 40f,
     )
 
     @Test fun `离场第一帧就在松手位置_不跳`() {

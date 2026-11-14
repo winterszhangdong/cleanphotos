@@ -16,8 +16,7 @@ enum LibraryScope: String, CaseIterable, Hashable {
 
     var isNarrow: Bool { self != .all && self != .similar }
 
-    /// 网格怎么分组。相似不画这张网格。
-    var groupsByDay: Bool { self == .all || self == .onThisDay || self == .similar }
+    /// 截图和聊天按月。大文件铺平。相似不画这张网格。
     var groupsByMonth: Bool { self == .screenshots || self == .chat }
     var isFlat: Bool { self == .largeFiles }
 }
@@ -160,7 +159,6 @@ enum ScopeRules {
 enum ScopeDialMath {
     static let minAlpha: CGFloat = 0.22
     static let falloff: CGFloat = 0.55
-    static let pageDim: CGFloat = 0.3
     /// 慢滑过视口大约三成就进下一页。
     static let snapFraction: CGFloat = 0.3
 

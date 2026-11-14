@@ -229,8 +229,4 @@ class PlaybackChromeTest {
         )
     }
 
-    @Test
-    fun `视频播完回到第 0 帧并显示中心键`() {
-        assertEquals(VideoEndedPose(positionMs = 0L, showCenter = true), videoEndedPose())
-    }
 }

@@ -34,9 +34,6 @@ import com.winters.cleanphotos.domain.usecase.LibraryDayState
 import com.winters.cleanphotos.domain.usecase.MarkPhotoSeenUseCase
 import com.winters.cleanphotos.domain.usecase.MovePhotoToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveLibraryDayStateUseCase
-import com.winters.cleanphotos.domain.usecase.ObserveShowDirectionHintsUseCase
-import com.winters.cleanphotos.domain.model.TrashSummary
-import com.winters.cleanphotos.domain.usecase.ObserveTrashSummaryUseCase
 import com.winters.cleanphotos.domain.usecase.ObserveTutorialStateUseCase
 import com.winters.cleanphotos.domain.usecase.RemoveFavoritePhotoUseCase
 import com.winters.cleanphotos.domain.usecase.SetTutorialSeenUseCase
@@ -88,8 +85,6 @@ class ReviewViewModel @Inject constructor(
     private val buildSessionDayProgressUseCase: BuildSessionDayProgressUseCase,
     private val buildDaySummaryUseCase: BuildDaySummaryUseCase,
     private val observeLibraryDayStateUseCase: ObserveLibraryDayStateUseCase,
-    private val observeShowDirectionHintsUseCase: ObserveShowDirectionHintsUseCase,
-    private val observeTrashSummaryUseCase: ObserveTrashSummaryUseCase,
     private val locateMotionPhotoVideoUseCase: LocateMotionPhotoVideoUseCase,
     private val operationQueue: ReviewOperationQueue,
     private val uptimeClock: UptimeClock,
@@ -144,11 +139,9 @@ class ReviewViewModel @Inject constructor(
         combine(
             core,
             observeLibraryDayStateUseCase().onStart { emit(EMPTY_LIBRARY) }.catch { emit(EMPTY_LIBRARY) },
-            observeShowDirectionHintsUseCase().onStart { emit(false) }.catch { emit(false) },
             observeTutorialStateUseCase().onStart { emit(true) }.catch { emit(true) },
-            observeTrashSummaryUseCase().catch { emit(TrashSummary(0, 0L)) },
-        ) { c, library, hints, tutorialSeen, trash ->
-            reuseUnchanged(buildUiState(c, library, hints, tutorialSeen, trash.count))
+        ) { c, library, tutorialSeen ->
+            reuseUnchanged(buildUiState(c, library, tutorialSeen))
         }
             // 序列、进度、小结和上游的全库 combine 都不在主线程算：一次滑动会连锁触发好几轮，正好压在离场动画里。
             // UI 不等这里——上下滑 / 翻页由 act() 同步返回的 key 在同一帧切换
@@ -489,9 +482,7 @@ class ReviewViewModel @Inject constructor(
     private fun buildUiState(
         c: Core,
         library: LibraryDayState,
-        hints: Boolean,
         tutorialSeen: Boolean,
-        trashCount: Int,
     ): ReviewUiState {
         val ledger = c.ledger
         val pages = pagesOf(c)
@@ -521,10 +512,8 @@ class ReviewViewModel @Inject constructor(
             currentKey = c.currentKey,
             progress = progress,
             summaries = summaries,
-            showDirectionHints = hints,
             showTutorial = !tutorialSeen && !c.tutorialDismissed && !c.loading,
             undo = c.undo,
-            trashCount = trashCount,
             errorMessage = c.error,
             loadFailed = c.loadFailed,
             isCompleted = !c.loading && ledger != null && c.currentKey == null && c.pendingOps == 0,
@@ -533,7 +522,7 @@ class ReviewViewModel @Inject constructor(
     }
 
     /**
-     * 内容没变的部分沿用上一份实例：垃圾桶计数、看过状态这类变化不该让清理页按「序列变了」整台重组。
+     * 内容没变的部分沿用上一份实例：看过状态这类变化不该让清理页按「序列变了」整台重组。
      */
     private fun reuseUnchanged(next: ReviewUiState): ReviewUiState {
         val prev = lastUi

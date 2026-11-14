@@ -122,16 +122,4 @@ class DateScrubberTest {
         assertEquals(3, indexOfAnchor(sections, true, 4L))
         assertEquals(0, indexOfAnchor(sections, false, 99L))
     }
-
-    @Test
-    fun item_index_lands_on_the_following_day() {
-        val sections = sections()
-        assertEquals(0, dayIndexAtItem(sections, false, 0))
-        assertEquals(0, dayIndexAtItem(sections, false, 3))
-        assertEquals(1, dayIndexAtItem(sections, false, 4))
-        assertEquals(2, dayIndexAtItem(sections, false, 6))
-        assertEquals(2, dayIndexAtItem(sections, false, 100))
-        assertEquals(0, dayIndexAtItem(sections, true, 1))
-        assertEquals(1, dayIndexAtItem(sections, true, 2))
-    }
 }

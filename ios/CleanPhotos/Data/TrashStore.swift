@@ -20,9 +20,6 @@ final class TrashStore: ObservableObject {
         }
     }
 
-    var count: Int { entries.count }
-    var totalBytes: Int64 { entries.values.reduce(0) { $0 + max(0, $1.byteSize) } }
-
     func contains(_ id: String) -> Bool { entries[id] != nil }
     func entry(_ id: String) -> TrashEntry? { entries[id] }
 

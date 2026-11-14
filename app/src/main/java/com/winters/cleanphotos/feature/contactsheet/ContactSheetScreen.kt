@@ -578,9 +578,7 @@ internal fun ContactSheetScreen(
                     launch = null
                     val intoSheet = l?.intoSheet == true && sheetOpen
                     val run = FlightRun(
-                        seq = e.seq,
                         photos = e.photos,
-                        total = e.photos.size,
                         relativePath = e.relativePath,
                         starts = e.photos.map { p -> (l as? Launch.Frames)?.rects?.get(p.id) },
                         stackAt = (l as? Launch.Stack)?.at,

@@ -9,9 +9,6 @@ import androidx.compose.ui.unit.IntSize
 import com.winters.cleanphotos.core.design.GestureTokens
 import com.winters.cleanphotos.core.design.MotionSprings
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-
 /**
  * 纯水平方向的滑动状态。
  *
@@ -36,10 +33,6 @@ class HorizontalSwipeState(
     private val offsetX = Animatable(0f)
 
     val currentOffsetX: Float get() = offsetX.value
-
-    // 水平切换进度（-1~1，负数向左/下一张，正数向右/上一张）
-    val horizontalProgress: Float
-        get() = (currentOffsetX / horizontalThreshold).coerceIn(-1f, 1f)
 
     val isSwipeLeftTriggered: Boolean
         get() = currentOffsetX < -horizontalThreshold
@@ -80,14 +73,7 @@ class HorizontalSwipeState(
 
     /** 水平达到阈值：平滑滑出当前照片。使用 100ms + EaseOut 让用户能感知到过渡动画。 */
     suspend fun flyHorizontal(targetOffsetX: Float) {
-        coroutineScope {
-            launch {
-                offsetX.animateTo(
-                    targetOffsetX,
-                    tween(100, easing = EaseOut)
-                )
-            }
-        }
+        offsetX.animateTo(targetOffsetX, tween(100, easing = EaseOut))
     }
 
     /** 重置到初始状态 */
