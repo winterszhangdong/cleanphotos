@@ -7,6 +7,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Changed
+
+- 安卓：拖动「全部」右侧日期滑块时，气泡写成一行「2024年8月3日」（英文 “Aug 3, 2024”）。「年」「月」「日」位置固定，只有数字变，气泡宽度不变。
+
+### Changed
+
+- Android: while dragging the date scrubber on All photos, the bubble is one line, “Aug 3, 2024” (Chinese “2024年8月3日”). The year, month, and day markers stay put and only the digits change, so the bubble does not resize.
+
 ## [1.7.9] - 2026-11-08
 
 ### Fixed

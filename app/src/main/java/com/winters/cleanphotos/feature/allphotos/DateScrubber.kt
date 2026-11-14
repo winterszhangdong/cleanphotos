@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -31,17 +32,22 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import com.winters.cleanphotos.R
 import com.winters.cleanphotos.core.design.DarkroomColors
+import com.winters.cleanphotos.core.design.DarkroomFonts
 import com.winters.cleanphotos.core.design.DarkroomText
 import com.winters.cleanphotos.core.design.Dimens
 import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
@@ -52,6 +58,8 @@ import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.domain.model.PhotoDaySection
 import com.winters.cleanphotos.domain.model.SectionHeader
 import kotlinx.coroutines.delay
+import java.time.LocalDate
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -111,6 +119,31 @@ internal fun scrubFractionFromTouch(y: Float, trackTop: Float, trackHeight: Floa
     val travel = (trackHeight - thumbHeight).coerceAtLeast(1f)
     return ((y - trackTop - thumbHeight / 2f) / travel).coerceIn(0f, 1f)
 }
+
+/**
+ * 滑块气泡的一行日期。中文「2024年8月3日」，英文「Aug 3, 2024」。
+ * 月、日是不补零的数字；界面给它们各留两位，个位数靠右，年、月、日三个字才不会跟着挪。
+ */
+internal data class ScrubDateLabel(
+    val year: String,
+    val month: String,
+    val day: String,
+    val chinese: Boolean,
+)
+
+internal fun scrubDateLabel(date: LocalDate, locale: Locale): ScrubDateLabel {
+    val chinese = locale.language == "zh"
+    return ScrubDateLabel(
+        year = date.year.toString(),
+        month = if (chinese) date.monthValue.toString() else DayDisplay.monthName(date.monthValue, locale),
+        day = date.dayOfMonth.toString(),
+        chinese = chinese,
+    )
+}
+
+/** 读屏用的整句，不含占位空格。 */
+internal fun scrubDatePhrase(label: ScrubDateLabel): String =
+    if (label.chinese) "${label.year}年${label.month}月${label.day}日" else "${label.month} ${label.day}, ${label.year}"
 
 /** 列表滚到哪，滑块就在哪。不满两项时停在顶上。 */
 internal fun scrubFractionForScroll(index: Int, offsetPx: Int, itemHeightPx: Int, itemCount: Int): Float {
@@ -220,7 +253,7 @@ internal fun DateScrubber(
     var scrollable by remember { mutableStateOf(false) }
     val scrubbing = remember { mutableStateOf(false) }
     val dragFraction = remember { mutableFloatStateOf(Float.NaN) }
-    var bubble by remember { mutableStateOf<String?>(null) }
+    var bubble by remember { mutableStateOf<ScrubBubble?>(null) }
     var trackHeightPx by remember { mutableStateOf(0) }
     val stopsState = rememberUpdatedState(stops)
     val itemIndicesState = rememberUpdatedState(itemIndices)
@@ -269,12 +302,12 @@ internal fun DateScrubber(
 
     if (stops.isEmpty() || (!present && !scrubbing.value)) return
 
-    fun labelAt(fraction: Float): String {
+    fun labelAt(fraction: Float): ScrubBubble {
         val list = stopsState.value
         val index = scrubDayIndex(fraction, list.size)
-        val key = list.getOrNull(index)?.dayKey ?: return unknown
-        val date = sectionsState.value.firstOrNull { it.dayKey == key }?.date ?: return unknown
-        return DayDisplay.cleanDate(date, locale)
+        val key = list.getOrNull(index)?.dayKey ?: return ScrubBubble.Unknown
+        val date = sectionsState.value.firstOrNull { it.dayKey == key }?.date ?: return ScrubBubble.Unknown
+        return ScrubBubble.Dated(scrubDateLabel(date, locale))
     }
 
     Box(
@@ -284,20 +317,21 @@ internal fun DateScrubber(
             .onSizeChanged { trackHeightPx = it.height }
             .graphicsLayer { this.alpha = alpha.value },
     ) {
-        val bubbleText = bubble
-        if (bubbleText != null) {
-            Text(
-                bubbleText,
-                style = DarkroomText.MenuItem.copy(color = DarkroomColors.Paper),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = Dimens.MinTouch + Dimens.ScrubberBubbleGap)
-                    .offsetThumb(dragFraction, gridState, thumbHeightPx, trackHeightPx)
-                    .clip(RoundedCornerShape(Dimens.MenuItemCorner))
-                    .background(DarkroomColors.Tray)
-                    .border(Dimens.Hairline, DarkroomColors.Rim, RoundedCornerShape(Dimens.MenuItemCorner))
-                    .padding(horizontal = Dimens.MenuHeaderPadding, vertical = Dimens.HeaderBottomPadding),
+        val shown = bubble
+        if (shown != null) {
+            val bubbleModifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = Dimens.MinTouch + Dimens.ScrubberBubbleGap)
+                .offsetThumb(dragFraction, gridState, thumbHeightPx, trackHeightPx)
+                .scrubBubbleFrame()
+            val bubbleStyle = DarkroomText.MenuItem.copy(
+                color = DarkroomColors.Paper,
+                fontFeatureSettings = DarkroomFonts.TABULAR,
             )
+            when (shown) {
+                ScrubBubble.Unknown -> Text(unknown, style = bubbleStyle, modifier = bubbleModifier)
+                is ScrubBubble.Dated -> ScrubDateLine(shown.label, locale, bubbleStyle, bubbleModifier)
+            }
         }
         Box(
             Modifier
@@ -327,8 +361,8 @@ internal fun DateScrubber(
                             fun at(y: Float) {
                                 val fraction = scrubFractionFromTouch(y, 0f, size.height.toFloat(), thumbHeightPx)
                                 dragFraction.floatValue = fraction
-                                val text = labelAt(fraction)
-                                if (bubble != text) bubble = text
+                                val next = labelAt(fraction)
+                                if (bubble != next) bubble = next
                                 val index = scrubDayIndex(fraction, stopsState.value.size)
                                 val offset = scrubContentScrollOffset(collapseOffsetState.value())
                                 if (index == lastIndex && kotlin.math.abs(offset - lastOffset) < 8) return
@@ -376,4 +410,67 @@ private fun Modifier.offsetThumb(
     }
     val travel = (trackHeightPx - thumbHeightPx).coerceAtLeast(0f)
     IntOffset(0, (fraction.coerceIn(0f, 1f) * travel).roundToInt())
+}
+
+private sealed interface ScrubBubble {
+    data class Dated(val label: ScrubDateLabel) : ScrubBubble
+    data object Unknown : ScrubBubble
+}
+
+private fun Modifier.scrubBubbleFrame(): Modifier =
+    clip(RoundedCornerShape(Dimens.MenuItemCorner))
+        .background(DarkroomColors.Tray)
+        .border(Dimens.Hairline, DarkroomColors.Rim, RoundedCornerShape(Dimens.MenuItemCorner))
+        .padding(horizontal = Dimens.MenuHeaderPadding, vertical = Dimens.HeaderBottomPadding)
+
+/** 一行日期。月、日各占两位，个位数靠右；英文月份占十二个月里最宽的那个空位。 */
+@Composable
+private fun ScrubDateLine(label: ScrubDateLabel, locale: Locale, style: TextStyle, modifier: Modifier) {
+    Row(
+        modifier.clearAndSetSemantics { contentDescription = scrubDatePhrase(label) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (label.chinese) {
+            Text(label.year, style = style, maxLines = 1, softWrap = false)
+            Text("年", style = style, maxLines = 1, softWrap = false)
+            DigitSlot(label.month, style)
+            Text("月", style = style, maxLines = 1, softWrap = false)
+            DigitSlot(label.day, style)
+            Text("日", style = style, maxLines = 1, softWrap = false)
+        } else {
+            MonthSlot(label.month, locale, style)
+            Text(" ", style = style, maxLines = 1, softWrap = false)
+            DigitSlot(label.day, style)
+            Text(", ", style = style, maxLines = 1, softWrap = false)
+            Text(label.year, style = style, maxLines = 1, softWrap = false)
+        }
+    }
+}
+
+/** 两位数字的空位。透明的「00」撑开宽度，可见数字靠右，所以「8」和「28」占的地方一样。 */
+@Composable
+private fun DigitSlot(value: String, style: TextStyle) {
+    Box(contentAlignment = Alignment.CenterEnd) {
+        Text(
+            "00",
+            style = style.copy(color = Color.Transparent),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.clearAndSetSemantics {},
+        )
+        Text(value, style = style, maxLines = 1, softWrap = false)
+    }
+}
+
+@Composable
+private fun MonthSlot(name: String, locale: Locale, style: TextStyle) {
+    val measurer = rememberTextMeasurer()
+    val widthPx = remember(locale, style) {
+        (1..12).maxOf { month ->
+            measurer.measure(DayDisplay.monthName(month, locale), style = style, maxLines = 1).size.width
+        }
+    }
+    Box(Modifier.width(with(LocalDensity.current) { widthPx.toDp() })) {
+        Text(name, style = style, maxLines = 1, softWrap = false)
+    }
 }

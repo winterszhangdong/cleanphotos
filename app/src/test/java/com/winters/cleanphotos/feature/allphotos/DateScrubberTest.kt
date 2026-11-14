@@ -5,7 +5,11 @@ import com.winters.cleanphotos.domain.model.ScopeLayout
 import com.winters.cleanphotos.domain.model.SectionHeader
 import com.winters.cleanphotos.domain.usecase.BuildPhotoSectionsUseCase
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
+import java.util.Locale
 
 class DateScrubberTest {
     private val build = BuildPhotoSectionsUseCase()
@@ -50,6 +54,28 @@ class DateScrubberTest {
         val flat = build(photos, photos, emptySet(), layout = ScopeLayout.Flat)
         assertEquals(SectionHeader.None, flat.single().header)
         assertEquals(emptyList<ScrubStop>(), scrubStops(flat, immersive = false))
+    }
+
+    @Test
+    fun bubble_puts_the_year_on_the_same_line() {
+        val zh = scrubDateLabel(LocalDate.of(2024, 8, 3), Locale.SIMPLIFIED_CHINESE)
+        val later = scrubDateLabel(LocalDate.of(2024, 12, 28), Locale.SIMPLIFIED_CHINESE)
+        assertTrue(zh.chinese)
+        assertEquals("2024", zh.year)
+        assertEquals("8", zh.month)
+        assertEquals("3", zh.day)
+        assertEquals("2024年8月3日", scrubDatePhrase(zh))
+        assertEquals("12", later.month)
+        assertEquals("28", later.day)
+        assertEquals("2024年12月28日", scrubDatePhrase(later))
+        assertTrue(scrubDateLabel(LocalDate.of(2024, 8, 3), Locale.TRADITIONAL_CHINESE).chinese)
+
+        val en = scrubDateLabel(LocalDate.of(2024, 8, 3), Locale.ENGLISH)
+        assertFalse(en.chinese)
+        assertEquals("Aug", en.month)
+        assertEquals("3", en.day)
+        assertEquals("2024", en.year)
+        assertEquals("Aug 3, 2024", scrubDatePhrase(en))
     }
 
     @Test
