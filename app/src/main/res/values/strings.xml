@@ -47,8 +47,8 @@
     <string name="similar_mark_remove">remove</string>
     <string name="similar_cue_keep">Keep swiping up to keep</string>
     <string name="similar_cue_release_keep">Release to keep</string>
-    <string name="similar_cue_remove">Keep swiping down to remove</string>
-    <string name="similar_cue_release_remove">Release to remove</string>
+    <string name="similar_cue_remove">Keep swiping down to trash</string>
+    <string name="similar_cue_release_remove">Release to move to trash</string>
     <string name="scope_seen_title">Everything here is seen</string>
     <string name="show_seen">Show seen</string>
     <string name="cd_more">More</string>

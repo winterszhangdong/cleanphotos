@@ -1,5 +1,7 @@
 package com.winters.cleanphotos.feature.similar
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +29,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,15 +69,19 @@ import com.winters.cleanphotos.core.design.GestureTokens
 import com.winters.cleanphotos.core.design.GlassIconButton
 import com.winters.cleanphotos.core.design.GlassSpecs
 import com.winters.cleanphotos.core.design.LocalAnimationsEnabled
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.design.glassBlur
 import com.winters.cleanphotos.core.design.plainClickable
 import com.winters.cleanphotos.core.navigation.AppDockEffect
 import com.winters.cleanphotos.core.navigation.DockMode
 import com.winters.cleanphotos.domain.model.PhotoItem
-import com.winters.cleanphotos.domain.model.SimilarGroup
+import com.winters.cleanphotos.domain.model.ReviewPage
 import com.winters.cleanphotos.domain.model.SimilarMark
 import com.winters.cleanphotos.domain.model.isHeavyStill
 import com.winters.cleanphotos.domain.model.isRawFileName
+import com.winters.cleanphotos.feature.review.ExitFlight
+import com.winters.cleanphotos.feature.review.ExitKind
+import com.winters.cleanphotos.feature.review.ExitPath
 import com.winters.cleanphotos.feature.review.ReviewGestureMath
 import com.winters.cleanphotos.feature.review.ReviewThresholds
 import com.winters.cleanphotos.feature.review.detectReviewGestures
@@ -82,10 +89,11 @@ import com.winters.cleanphotos.feature.review.rememberReviewImageRequest
 import com.winters.cleanphotos.feature.review.tone
 import kotlin.math.abs
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * 对比页和照片页共用同一个 [SimilarViewModel]，挂在 all_photos 的返回栈上。
- * 扫描把这组刷没了就回到列表。返回不提交。
+ * 看得见的只剩一张时留在这一页。再下滑，飞完才回到列表。返回不提交还没滑的标记。
  */
 @Composable
 fun SimilarCompareRoute(
@@ -100,22 +108,38 @@ fun SimilarCompareRoute(
     LaunchedEffect(Unit) {
         viewModel.start()
     }
-    val group = uiState.groups.firstOrNull { it.key == groupKey }
-    LaunchedEffect(group, uiState.phase) {
-        if (similarCompareShouldLeave(uiState.phase, group != null)) onBack()
+    var lastFlight by remember(groupKey) { mutableStateOf(false) }
+    var pinnedMarks by remember(groupKey) { mutableStateOf<Map<Long, SimilarMark>>(emptyMap()) }
+    val session = compareSession(groupKey, uiState.groups, uiState.hiddenIds, uiState.remainder[groupKey])
+    val liveMarks = session?.let { uiState.marks[it.sourceKey] }.orEmpty().ifEmpty {
+        uiState.remainder[groupKey]?.let { mapOf(it.photo.id to it.mark) }.orEmpty()
+    }
+    SideEffect {
+        if (session != null) pinnedMarks = liveMarks
+    }
+    val commitKey = session?.sourceKey ?: groupKey
+    LaunchedEffect(session, uiState.phase, lastFlight) {
+        if (similarCompareShouldLeave(uiState.phase, session != null || lastFlight)) onBack()
     }
     SimilarCompareScreen(
-        group = group,
+        routeKey = groupKey,
+        session = session,
         photoId = photoId,
-        marks = uiState.marks[groupKey].orEmpty(),
+        marks = if (session != null) liveMarks else pinnedMarks,
         moving = uiState.moving,
+        undo = uiState.undo,
         compareMotionId = uiState.compareMotionId,
         loadFailed = uiState.phase == SimilarPhase.Failed,
+        showCommit = uiState.groups.any { it.key == commitKey },
         onBack = onBack,
         onRetry = viewModel::start,
         onMark = viewModel::onMark,
-        onCommit = { viewModel.onCommit(groupKey, onBack) },
+        onSwipeTrash = viewModel::onSwipeTrash,
+        onCommit = { viewModel.onCommit(commitKey, onBack) },
+        onUndo = viewModel::onUndo,
+        onUndoExpired = viewModel::onUndoExpired,
         onWatch = viewModel::watchComparePhoto,
+        onLastFlight = { lastFlight = it },
     )
 }
 
@@ -125,20 +149,34 @@ internal fun similarCompareShouldLeave(phase: SimilarPhase, hasGroup: Boolean): 
 
 @Composable
 private fun SimilarCompareScreen(
-    group: SimilarGroup?,
+    routeKey: String,
+    session: CompareSession?,
     photoId: Long,
     marks: Map<Long, SimilarMark>,
     moving: Boolean,
+    undo: SimilarUndo?,
     compareMotionId: Long?,
     loadFailed: Boolean,
+    showCommit: Boolean,
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onMark: (String, Long, SimilarMark) -> Unit,
+    onSwipeTrash: (String, Long) -> Boolean,
     onCommit: () -> Unit,
+    onUndo: () -> Unit,
+    onUndoExpired: (Long) -> Unit,
     onWatch: (PhotoItem) -> Unit,
+    onLastFlight: (Boolean) -> Unit,
 ) {
     AppDockEffect(DockMode.Hidden)
-    if (group == null) {
+    var exit by remember { mutableStateOf<CompareExit?>(null) }
+    var pinned by remember(routeKey) { mutableStateOf<CompareSession?>(null) }
+    SideEffect {
+        if (session != null) pinned = session
+    }
+    // 最后一张飞走时会话已经空了，舞台还按飞之前的布局留着，避免飞到一半被顶栏和胶片条挤动。
+    val display = session ?: pinned?.takeIf { exit != null }
+    if (display == null) {
         Box(Modifier.fillMaxSize().background(DarkroomColors.Room)) {
             if (loadFailed) SimilarLoadFailed(onRetry)
             GlassIconButton(
@@ -155,11 +193,12 @@ private fun SimilarCompareScreen(
         }
         return
     }
-    val photos = group.photos
-    var index by rememberSaveable(group.key, photoId) {
-        mutableIntStateOf(photos.indexOfFirst { it.id == photoId }.coerceAtLeast(0))
-    }
-    val safeIndex = index.coerceIn(0, photos.lastIndex)
+    val photos = display.photos
+    val heroPhotos = if (session != null) photos else emptyList()
+    val sourceKey = display.sourceKey
+    var currentId by rememberSaveable(routeKey) { mutableLongStateOf(photoId) }
+    val found = photos.indexOfFirst { it.id == currentId }
+    val safeIndex = if (found >= 0) found else 0
     val scope = rememberCoroutineScope()
     val motion = remember { SimilarCompareMotion(scope) }
     val density = LocalDensity.current
@@ -168,30 +207,81 @@ private fun SimilarCompareScreen(
     val animations = LocalAnimationsEnabled.current
     val current = photos[safeIndex]
     val currentMark = marks[current.id] ?: SimilarMark.Keep
+    val beginExit = { photo: PhotoItem, startY: Float, startBrightness: Float ->
+        val next = nextComparePhotoId(photos, photo.id)
+        if (next != null) currentId = next
+        val flyingLast = next == null
+        if (animations && motion.height > 0f) {
+            if (flyingLast) onLastFlight(true)
+            val flight = ExitFlight(
+                id = 0L,
+                page = ReviewPage.Photo(photo),
+                kind = ExitKind.Down,
+                startY = startY,
+                startScale = motion.zoom,
+                startSaturation = 1f,
+                startBrightness = startBrightness,
+                velocityY = 0f,
+                target = Offset(0f, motion.height),
+                rise = 0f,
+            )
+            val leaving = CompareExit(flight, motion.zoomOffset)
+            exit = leaving
+            scope.launch {
+                flight.progress.animateTo(1f, tween(MotionDurations.EXIT_MAIN_MAX, easing = LinearEasing))
+                if (exit?.flight === flight) exit = null
+                if (flyingLast) onLastFlight(false)
+            }
+        }
+    }
     LaunchedEffect(current.id) { onWatch(current) }
     SideEffect {
+        if (found < 0 && photos.isNotEmpty()) currentId = photos[safeIndex].id
         motion.pageIndex = safeIndex
         motion.pageCount = photos.size
-        motion.accepting = !moving
+        motion.accepting = session != null && !moving
         motion.animationsEnabled = animations
-        motion.onCommitPage = { dir -> index = (safeIndex - dir).coerceIn(0, photos.lastIndex) }
+        motion.onCommitPage = { dir ->
+            val next = (safeIndex - dir).coerceIn(0, photos.lastIndex)
+            currentId = photos[next].id
+        }
         motion.onVertical = vert@{ up ->
-            val photo = photos.getOrNull(motion.pageIndex) ?: return@vert
-            onMark(group.key, photo.id, if (up) SimilarMark.Keep else SimilarMark.Remove)
+            val photo = photos.getOrNull(motion.pageIndex) ?: return@vert false
+            if (up) {
+                onMark(sourceKey, photo.id, SimilarMark.Keep)
+                return@vert true
+            }
+            if (!onSwipeTrash(sourceKey, photo.id)) return@vert false
+            val startY = motion.dy
+            beginExit(
+                photo,
+                startY,
+                similarHeroBrightness(
+                    slot = 0,
+                    fingerVertical = true,
+                    dy = startY,
+                    dx = 0f,
+                    width = motion.width,
+                    thresholds = motion.thresholds,
+                ),
+            )
+            true
         }
     }
     val keepLabel = stringResource(R.string.similar_action_keep)
-    val removeLabel = stringResource(R.string.similar_mark_remove)
-    val actions = remember(group.key, current.id, keepLabel, removeLabel) {
+    val trashLabel = stringResource(R.string.action_move_to_trash)
+    val trashCurrent = {
+        val accepted = !moving && onSwipeTrash(sourceKey, current.id)
+        if (accepted) beginExit(current, 0f, 1f)
+        accepted
+    }
+    val actions = remember(sourceKey, current.id, keepLabel, trashLabel, moving) {
         listOf(
             CustomAccessibilityAction(keepLabel) {
-                onMark(group.key, current.id, SimilarMark.Keep)
+                onMark(sourceKey, current.id, SimilarMark.Keep)
                 true
             },
-            CustomAccessibilityAction(removeLabel) {
-                onMark(group.key, current.id, SimilarMark.Remove)
-                true
-            },
+            CustomAccessibilityAction(trashLabel, trashCurrent),
         )
     }
     val removeCount = photos.count { (marks[it.id] ?: SimilarMark.Keep) == SimilarMark.Remove }
@@ -200,7 +290,7 @@ private fun SimilarCompareScreen(
             index = safeIndex,
             total = photos.size,
             mark = currentMark,
-            recommended = current.id == group.recommendedId && current.id in group.sharpness,
+            recommended = current.id == display.recommendedId && current.id in display.sharpness,
             onBack = onBack,
         )
         Box(
@@ -235,16 +325,24 @@ private fun SimilarCompareScreen(
             val imageSize = IntSize(stageSize.coerceAtLeast(1), stageHeight.coerceAtLeast(1))
             for (slot in -1..1) {
                 val page = safeIndex + slot
-                if (page !in photos.indices) continue
+                if (page !in heroPhotos.indices) continue
                 ComparePage(
-                    photo = photos[page],
-                    mark = marks[photos[page].id] ?: SimilarMark.Keep,
+                    photo = heroPhotos[page],
+                    mark = marks[heroPhotos[page].id] ?: SimilarMark.Keep,
                     slot = slot,
                     motion = motion,
                     imageSize = imageSize,
                 )
             }
             CompareCueLayer(motion = motion, modifier = Modifier.align(Alignment.Center))
+            val leaving = exit
+            if (leaving != null) {
+                CompareExitLayer(
+                    exit = leaving,
+                    imageSize = imageSize,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             val rawLabel = stringResource(R.string.mark_raw).takeIf { isRawFileName(current.displayName) }
             val motionLabel = stringResource(R.string.playback_motion).takeIf { compareMotionId == current.id }
             if (rawLabel != null || motionLabel != null) {
@@ -264,14 +362,53 @@ private fun SimilarCompareScreen(
             onSelect = { i ->
                 if (i != safeIndex) {
                     motion.prepareJump()
-                    index = i
+                    currentId = photos[i].id
                 }
             },
         )
-        CompareCommit(
-            label = similarCommitLabel(removeCount),
-            enabled = !moving,
-            onCommit = onCommit,
+        if (undo == null && showCommit) {
+            CompareCommit(
+                label = similarCommitLabel(removeCount),
+                enabled = !moving,
+                onCommit = onCommit,
+            )
+        }
+        SimilarUndoBar(
+            undo = undo,
+            visible = undo != null,
+            onUndo = onUndo,
+            onExpired = onUndoExpired,
+            aboveDock = false,
+        )
+    }
+}
+
+private class CompareExit(val flight: ExitFlight, val startOffset: Offset)
+
+@Composable
+private fun CompareExitLayer(exit: CompareExit, imageSize: IntSize, modifier: Modifier = Modifier) {
+    val photo = (exit.flight.page as ReviewPage.Photo).photo
+    val request = rememberReviewImageRequest(photo, imageSize, sharpen = false)
+    Box(
+        modifier.graphicsLayer {
+            val pose = ExitPath.pose(exit.flight, exit.flight.progress.value)
+            val remain = 1f - exit.flight.progress.value
+            translationX = pose.x + exit.startOffset.x * remain
+            translationY = pose.y + exit.startOffset.y * remain
+            scaleX = pose.scale
+            scaleY = pose.scale
+            alpha = pose.alpha
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = request,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize().tone(
+                saturation = { ExitPath.pose(exit.flight, exit.flight.progress.value).saturation },
+                brightness = { ExitPath.pose(exit.flight, exit.flight.progress.value).brightness },
+            ),
         )
     }
 }
@@ -398,7 +535,7 @@ private fun CompareCue(
     modifier: Modifier = Modifier,
 ) {
     val accent = DarkroomColors.Paper
-    val icon = if (up) DarkroomIcons.Check else DarkroomIcons.Down
+    val icon = if (up) DarkroomIcons.Check else DarkroomIcons.Trash
     val title = if (up) {
         if (past) R.string.similar_cue_release_keep else R.string.similar_cue_keep
     } else {

@@ -26,8 +26,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
- * 对比页手势。照片不飞走：上下滑松手弹回，只改标记。
- * 放大时单指是平移。缩放倍数和归一化中心在切页时保留。
+ * 对比页手势。上滑松手弹回，只改成留下。下滑过阈值由调用方把这一张送进垃圾桶，位移立刻归零，照片另画离场。
+ * 一次手势先被认成左右滑，松手就不会再删。放大时单指是平移。缩放倍数和归一化中心在切页时保留。
  */
 internal class SimilarCompareMotion(
     private val scope: CoroutineScope,
@@ -49,12 +49,17 @@ internal class SimilarCompareMotion(
 
     /** -1 下一张，1 上一张。松手决定翻页时立刻调用，不等弹簧结束。 */
     var onCommitPage: (Int) -> Unit = {}
-    var onVertical: (up: Boolean) -> Unit = {}
+
+    /**
+     * 上滑为 true。返回 false 表示这次没接住（下滑没删成），照片弹回去。
+     * 调用时 [dy] 还是松手那一帧的位移。
+     */
+    var onVertical: (up: Boolean) -> Boolean = { false }
 
     /** 手指还按在上下滑上。松手立刻变 false，提示不再跟回弹位移。 */
     var fingerVertical by mutableStateOf(false)
 
-    /** 松手那一帧的提示。淡出期间只用这些，不读 dy。上滑留下，下滑移走。 */
+    /** 松手那一帧的提示。淡出期间只用这些，不读 dy。上滑留下，下滑移到垃圾桶。 */
     var holding by mutableStateOf(false)
     var heldUp by mutableStateOf(false)
     var heldPast by mutableStateOf(false)
@@ -225,8 +230,14 @@ internal class SimilarCompareMotion(
 
     private fun releaseVertical(vy: Float) {
         holdCue()
-        val release = ReviewGestureMath.verticalRelease(dy, vy, thresholds)
-        if (accepting && release != VerticalRelease.None) onVertical(release == VerticalRelease.Up)
+        val release = if (accepting) ReviewGestureMath.verticalRelease(dy, vy, thresholds) else VerticalRelease.None
+        // 下滑删成了就停在新的一张上。不取消还在收回的横向位移，也不把这次手势再判成删除。
+        if (release == VerticalRelease.Down && onVertical(false)) {
+            dy = 0f
+            axis = DragAxis.None
+            return
+        }
+        if (release == VerticalRelease.Up) onVertical(true)
         springBack(0f, vy)
     }
 

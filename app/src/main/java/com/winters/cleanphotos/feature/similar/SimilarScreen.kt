@@ -98,9 +98,10 @@ fun SimilarList(
         SimilarLoadFailed(onRetry, modifier.padding(contentPadding))
         return
     }
+    val visibleGroups = uiState.groups.filter { similarGroupStillVisible(it, uiState.hiddenIds) }
     when {
-        uiState.groups.isNotEmpty() || uiState.phase != SimilarPhase.Ready -> {
-            val firstScreen = if (uiState.groups.isNotEmpty()) {
+        visibleGroups.isNotEmpty() || uiState.phase != SimilarPhase.Ready -> {
+            val firstScreen = if (visibleGroups.isNotEmpty()) {
                 rememberFirstScreen(listState, "similar") { listState.isScrollInProgress || listState.firstVisibleItemIndex > 0 }
             } else {
                 null
@@ -128,9 +129,10 @@ fun SimilarList(
                         SimilarSkeletonCard(card, modifier = similarItemMotion())
                     }
                 }
-                itemsIndexed(uiState.groups, key = { _, group -> group.key }, contentType = { _, _ -> "group" }) { index, group ->
+                itemsIndexed(visibleGroups, key = { _, group -> group.key }, contentType = { _, _ -> "group" }) { index, group ->
                     SimilarGroupCard(
                         group = group,
+                        photos = group.photos.filter { it.id !in uiState.hiddenIds },
                         marks = uiState.marks[group.key].orEmpty(),
                         enabled = !uiState.moving,
                         develop = tileDevelop,
@@ -225,6 +227,7 @@ private val eatHorizontalLeftover = object : NestedScrollConnection {
 @Composable
 private fun SimilarGroupCard(
     group: SimilarGroup,
+    photos: List<PhotoItem>,
     marks: Map<Long, SimilarMark>,
     enabled: Boolean,
     develop: TileDevelop?,
@@ -235,7 +238,7 @@ private fun SimilarGroupCard(
 ) {
     val shape = RoundedCornerShape(Dimens.FreeCorner)
     val locale = currentLocale()
-    val removeCount = group.photos.count { marks[it.id] == SimilarMark.Remove }
+    val removeCount = photos.count { marks[it.id] == SimilarMark.Remove }
     Column(
         modifier
             .padding(horizontal = Dimens.ScreenSide)
@@ -245,7 +248,7 @@ private fun SimilarGroupCard(
             .border(Dimens.Hairline, DarkroomColors.Rim, shape)
             .padding(Dimens.FreePadding),
     ) {
-        Text(similarTakenLabel(group.photos.first(), locale), style = DarkroomText.Body)
+        Text(similarTakenLabel(photos.first(), locale), style = DarkroomText.Body)
         val rowState = rememberLazyListState()
         val rowScrollable = rowState.canScrollForward || rowState.canScrollBackward
         LazyRow(
@@ -258,7 +261,7 @@ private fun SimilarGroupCard(
                 .then(if (rowScrollable) Modifier.nestedScroll(eatHorizontalLeftover) else Modifier),
             horizontalArrangement = Arrangement.spacedBy(Dimens.DayGap),
         ) {
-            itemsIndexed(group.photos, key = { _, photo -> photo.id }) { col, photo ->
+            itemsIndexed(photos, key = { _, photo -> photo.id }) { col, photo ->
                 val mark = marks[photo.id] ?: SimilarMark.Keep
                 SimilarThumb(
                     photo = photo,
@@ -362,6 +365,8 @@ fun SimilarUndoBar(
     onUndo: () -> Unit,
     onExpired: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** 对比页没有底部导航，胶囊贴着系统导航栏，让开提交按钮的位置。 */
+    aboveDock: Boolean = true,
 ) {
     UndoBar(
         content = undo?.let {
@@ -380,7 +385,11 @@ fun SimilarUndoBar(
         onExpired = onExpired,
         modifier = modifier
             .navigationBarsPadding()
-            .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.NavBottom + Dimens.NavHeight + Dimens.UndoAboveNav)
+            .padding(
+                start = Dimens.ScreenSide,
+                end = Dimens.ScreenSide,
+                bottom = if (aboveDock) Dimens.NavBottom + Dimens.NavHeight + Dimens.UndoAboveNav else Dimens.FreePadding,
+            )
             .fillMaxWidth(),
     )
 }

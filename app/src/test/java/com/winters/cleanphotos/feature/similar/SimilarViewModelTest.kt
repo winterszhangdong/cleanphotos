@@ -13,6 +13,7 @@ import com.winters.cleanphotos.domain.model.SimilarSharpnessProgress
 import com.winters.cleanphotos.domain.repository.MotionPhotoRepository
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
 import com.winters.cleanphotos.core.coroutines.UptimeClock
+import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.domain.usecase.BatchMovePhotosToTrashUseCase
 import com.winters.cleanphotos.domain.usecase.EnsurePhotosLoadedUseCase
 import com.winters.cleanphotos.domain.usecase.GroupSimilarPhotosUseCase
@@ -360,6 +361,157 @@ class SimilarViewModelTest {
         vm.watchComparePhoto(shot(1, 1_000))
         advanceUntilIdle()
         assertNull(vm.uiState.value.compareMotionId)
+    }
+
+    @Test
+    fun `下滑只删这一张，连着滑合成一次撤回并重算期限`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000), shot(4, 4_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        assertTrue(vm.onSwipeTrash(key, 4L))
+        advanceUntilIdle()
+        assertEquals(listOf(4L), calls("trash"))
+        assertEquals(setOf(4L), vm.uiState.value.hiddenIds)
+        val first = vm.uiState.value.undo!!
+        assertTrue(first.burst)
+        assertEquals(UiText.Plural(R.plurals.batch_undo_trash, 1), first.title)
+        assertEquals(MotionDurations.UNDO_COUNTDOWN.toLong(), first.deadlineUptimeMillis)
+        val marks = vm.uiState.value.marks.getValue(key)
+        assertFalse(marks.containsKey(4L))
+        assertEquals(SimilarMark.Remove, marks[3L])
+        assertEquals(2, vm.uiState.value.removableCount)
+
+        now = 1_000
+        assertTrue(vm.onSwipeTrash(key, 3L))
+        advanceUntilIdle()
+        val second = vm.uiState.value.undo!!
+        assertEquals(listOf(4L, 3L), second.trashed!!.photos.map { it.id })
+        assertEquals(1_000L + MotionDurations.UNDO_COUNTDOWN, second.deadlineUptimeMillis)
+        assertTrue(second.seq != first.seq)
+        assertEquals(1, vm.uiState.value.removableCount)
+
+        vm.onUndo()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.hiddenIds.isEmpty())
+        assertNull(vm.uiState.value.undo)
+        assertEquals(listOf(4L, 3L), calls("restore"))
+        val restored = vm.uiState.value.marks.getValue(key)
+        assertEquals(SimilarMark.Remove, restored[4L])
+        assertEquals(SimilarMark.Remove, restored[3L])
+    }
+
+    @Test
+    fun `下滑失败把照片放回原来的标记`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000)))
+        review.batchMoveResult = PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        vm.onMark(key, 2L, SimilarMark.Keep)
+        assertTrue(vm.onSwipeTrash(key, 2L))
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.hiddenIds.isEmpty())
+        assertNull(vm.uiState.value.undo)
+        assertEquals(SimilarMark.Keep, vm.uiState.value.marks.getValue(key)[2L])
+    }
+
+    @Test
+    fun `过了期的下滑另起一条撤回`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        vm.onSwipeTrash(key, 3L)
+        advanceUntilIdle()
+        now = vm.uiState.value.undo!!.deadlineUptimeMillis
+        vm.onSwipeTrash(key, 2L)
+        advanceUntilIdle()
+        assertEquals(listOf(2L), vm.uiState.value.undo!!.trashed!!.photos.map { it.id })
+        assertEquals(setOf(3L, 2L), vm.uiState.value.hiddenIds)
+    }
+
+    @Test
+    fun `提交盖住下滑撤回，不再删已经滑走的`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000), shot(4, 4_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        vm.onSwipeTrash(key, 4L)
+        advanceUntilIdle()
+        vm.onCommit(key)
+        advanceUntilIdle()
+        assertEquals(listOf(listOf(4L), listOf(2L, 3L)), review.batchCalls.filter { it.first == "trash" }.map { it.second })
+        val undo = vm.uiState.value.undo!!
+        assertFalse(undo.burst)
+        assertEquals(listOf(2L, 3L), undo.trashed!!.photos.map { it.id })
+    }
+
+    @Test
+    fun `扫描少了已删照片时，剩下的标记跟着新组`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000), shot(4, 4_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        vm.onMark(key, 2L, SimilarMark.Keep)
+        vm.onSwipeTrash(key, 4L)
+        advanceUntilIdle()
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000)))
+        advanceUntilIdle()
+        val group = vm.uiState.value.groups.single()
+        assertEquals(listOf(1L, 2L, 3L), group.photos.map { it.id })
+        assertTrue(vm.uiState.value.hiddenIds.isEmpty())
+        val marks = vm.uiState.value.marks.getValue(group.key)
+        assertEquals(SimilarMark.Keep, marks[1L])
+        assertEquals(SimilarMark.Keep, marks[2L])
+        assertEquals(SimilarMark.Remove, marks[3L])
+    }
+
+    @Test
+    fun `下滑到只剩一张时对比页还停在这一张`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        vm.onSwipeTrash(key, 2L)
+        advanceUntilIdle()
+        val stayed = vm.uiState.value
+        assertEquals(0, stayed.removableCount)
+        assertEquals(listOf(1L), compareSession(key, stayed.groups, stayed.hiddenIds, stayed.remainder[key])!!.photos.map { it.id })
+        assertFalse(similarCompareShouldLeave(SimilarPhase.Ready, hasGroup = true))
+        vm.onSwipeTrash(key, 1L)
+        advanceUntilIdle()
+        val done = vm.uiState.value
+        assertNull(compareSession(key, done.groups, done.hiddenIds, done.remainder[key]))
+        assertTrue(similarCompareShouldLeave(SimilarPhase.Ready, hasGroup = false))
+        assertEquals(listOf(2L, 1L), done.undo!!.trashed!!.photos.map { it.id })
+    }
+
+    @Test
+    fun `扫描拆掉这组后最后一张还能下滑删掉`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        vm.onSwipeTrash(key, 2L)
+        advanceUntilIdle()
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100)))
+        advanceUntilIdle()
+        val stayed = vm.uiState.value
+        assertTrue(stayed.groups.isEmpty())
+        assertEquals(1L, stayed.remainder.getValue(key).photo.id)
+        assertEquals(listOf(1L), compareSession(key, stayed.groups, stayed.hiddenIds, stayed.remainder[key])!!.photos.map { it.id })
+        assertTrue(vm.onSwipeTrash(key, 1L))
+        advanceUntilIdle()
+        assertEquals(listOf(2L, 1L), vm.uiState.value.undo!!.trashed!!.photos.map { it.id })
+        assertNull(compareSession(key, vm.uiState.value.groups, vm.uiState.value.hiddenIds, vm.uiState.value.remainder[key]))
     }
 
     private fun calls(kind: String): List<Long> =

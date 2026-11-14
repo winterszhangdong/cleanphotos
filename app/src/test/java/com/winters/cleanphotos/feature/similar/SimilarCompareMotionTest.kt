@@ -36,7 +36,7 @@ class SimilarCompareMotionTest {
         try {
             val motion = motion(scope)
             var up: Boolean? = null
-            motion.onVertical = { up = it }
+            motion.onVertical = { up = it; true }
             motion.onDragStart(DragAxis.Vertical)
             motion.onDrag(DragAxis.Vertical, Offset(0f, 200f))
             motion.onDragEnd(DragAxis.Vertical, Velocity.Zero)
@@ -44,8 +44,24 @@ class SimilarCompareMotionTest {
             assertTrue(motion.holding)
             assertEquals(1f, motion.cueAlpha, 0f)
             assertEquals(false, up)
+            assertEquals(0f, motion.dy, 0f)
             assertFalse(motion.heldUp)
             assertTrue(motion.heldPast)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun downSwipeSpringsBackWhenTrashIsDeclined() {
+        val scope = scope()
+        try {
+            val motion = motion(scope)
+            motion.onVertical = { false }
+            motion.onDragStart(DragAxis.Vertical)
+            motion.onDrag(DragAxis.Vertical, Offset(0f, 200f))
+            motion.onDragEnd(DragAxis.Vertical, Velocity.Zero)
+            assertEquals(200f, motion.dy, 0.01f)
         } finally {
             scope.cancel()
         }
@@ -57,7 +73,7 @@ class SimilarCompareMotionTest {
         try {
             val motion = motion(scope)
             var called = false
-            motion.onVertical = { called = true }
+            motion.onVertical = { called = true; true }
             motion.onDragStart(DragAxis.Vertical)
             motion.onDrag(DragAxis.Vertical, Offset(0f, -30f))
             motion.onDragEnd(DragAxis.Vertical, Velocity.Zero)
@@ -97,7 +113,7 @@ class SimilarCompareMotionTest {
             var committed = 0
             motion.onCommitPage = { committed = it }
             var up: Boolean? = null
-            motion.onVertical = { up = it }
+            motion.onVertical = { up = it; true }
             motion.onDragStart(DragAxis.Horizontal)
             motion.onDrag(DragAxis.Horizontal, Offset(-100f, 0f))
             motion.onDragEnd(DragAxis.Horizontal, Velocity.Zero)
@@ -143,9 +159,12 @@ class SimilarCompareMotionTest {
             val motion = motion(scope)
             motion.pageCount = 3
             motion.width = 400f
+            var trashed = false
+            motion.onVertical = { trashed = true; true }
             motion.onDragStart(DragAxis.Horizontal)
             motion.onDrag(DragAxis.Horizontal, Offset(-100f, 0f))
             motion.onDragEnd(DragAxis.Horizontal, Velocity.Zero)
+            assertFalse(trashed)
             assertFalse(motion.fingerVertical)
             assertFalse(motion.holding)
         } finally {
