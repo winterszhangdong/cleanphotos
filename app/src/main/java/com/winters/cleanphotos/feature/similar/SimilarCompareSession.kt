@@ -45,6 +45,21 @@ internal fun compareSession(
     return CompareSession(routeKey, listOf(photo), photo.id, emptyMap())
 }
 
+/**
+ * 路由上的组 key 可能还是最初那一串。最后一张若记在后来变短的组 key 上，也能对上。
+ */
+internal fun remainderForRoute(
+    routeKey: String,
+    remainder: Map<String, CompareRemainder>,
+): CompareRemainder? {
+    remainder[routeKey]?.let { return it }
+    val ids = routeKey.split(',').mapNotNull { it.toLongOrNull() }.toSet()
+    return remainder.entries
+        .filter { it.value.photo.id in ids }
+        .maxByOrNull { (key, _) -> key.split(',').count { it.toLongOrNull() in ids } }
+        ?.value
+}
+
 /** 下滑删掉当前张之后要停住的下一张。已经是最后一张时没有下一张。 */
 internal fun nextComparePhotoId(photos: List<PhotoItem>, removedId: Long): Long? {
     val index = photos.indexOfFirst { it.id == removedId }

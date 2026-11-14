@@ -141,6 +141,7 @@ class SimilarViewModel @Inject constructor(
         if (state.moving || photoId in state.hiddenIds) return false
         val group = state.groups.firstOrNull { it.key == groupKey }
         val held = state.remainder[groupKey]
+            ?: state.remainder.values.firstOrNull { it.photo.id == photoId }
         val photo = group?.photos?.firstOrNull { it.id == photoId }
             ?: held?.photo?.takeIf { group == null && it.id == photoId }
             ?: return false

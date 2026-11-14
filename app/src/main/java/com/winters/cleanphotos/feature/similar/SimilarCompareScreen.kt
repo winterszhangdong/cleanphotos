@@ -110,9 +110,10 @@ fun SimilarCompareRoute(
     }
     var lastFlight by remember(groupKey) { mutableStateOf(false) }
     var pinnedMarks by remember(groupKey) { mutableStateOf<Map<Long, SimilarMark>>(emptyMap()) }
-    val session = compareSession(groupKey, uiState.groups, uiState.hiddenIds, uiState.remainder[groupKey])
+    val held = remainderForRoute(groupKey, uiState.remainder)
+    val session = compareSession(groupKey, uiState.groups, uiState.hiddenIds, held)
     val liveMarks = session?.let { uiState.marks[it.sourceKey] }.orEmpty().ifEmpty {
-        uiState.remainder[groupKey]?.let { mapOf(it.photo.id to it.mark) }.orEmpty()
+        held?.let { mapOf(it.photo.id to it.mark) }.orEmpty()
     }
     SideEffect {
         if (session != null) pinnedMarks = liveMarks

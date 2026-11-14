@@ -514,6 +514,30 @@ class SimilarViewModelTest {
         assertNull(compareSession(key, vm.uiState.value.groups, vm.uiState.value.hiddenIds, vm.uiState.value.remainder[key]))
     }
 
+    @Test
+    fun `组 key 变短之后，原来的路由还能删掉最后一张`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000), shot(4, 4_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val routeKey = vm.uiState.value.groups.single().key
+        vm.onSwipeTrash(routeKey, 1L)
+        vm.onSwipeTrash(routeKey, 2L)
+        advanceUntilIdle()
+        photos.setPhotos(listOf(shot(3, 3_000), shot(4, 4_000, width = 100)))
+        advanceUntilIdle()
+        val pair = vm.uiState.value.groups.single()
+        vm.onSwipeTrash(pair.key, 3L)
+        advanceUntilIdle()
+        photos.setPhotos(listOf(shot(4, 4_000, width = 100)))
+        advanceUntilIdle()
+        val state = vm.uiState.value
+        val held = remainderForRoute(routeKey, state.remainder)
+        val session = compareSession(routeKey, state.groups, state.hiddenIds, held)
+        assertEquals(listOf(4L), session!!.photos.map { it.id })
+        assertTrue(vm.onSwipeTrash(routeKey, 4L))
+    }
+
     private fun calls(kind: String): List<Long> =
         review.batchCalls.filter { it.first == kind }.map { it.second }.flatten()
 

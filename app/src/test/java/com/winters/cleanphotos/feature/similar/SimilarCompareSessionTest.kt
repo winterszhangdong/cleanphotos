@@ -52,6 +52,19 @@ class SimilarCompareSessionTest {
     }
 
     @Test
+    fun lastPhotoStaysOnTheOriginalRouteAfterTheGroupKeyChanges() {
+        val original = SimilarGroup(listOf(shot(1), shot(2), shot(3), shot(4)), recommendedId = 4)
+        val pair = SimilarGroup(listOf(shot(3), shot(4)), recommendedId = 4)
+        val marks = mapOf(pair.key to mapOf(3L to SimilarMark.Remove, 4L to SimilarMark.Keep))
+        val kept = soleRemainder(listOf(pair), emptyList(), setOf(3L), marks, emptyMap())
+        assertEquals(pair.key, kept.keys.single())
+        val held = remainderForRoute(original.key, kept)
+        assertEquals(SimilarMark.Keep, held!!.mark)
+        val session = compareSession(original.key, emptyList(), setOf(1L, 2L, 3L), held)
+        assertEquals(listOf(4L), session!!.photos.map { it.id })
+    }
+
+    @Test
     fun trashingTheRecommendedPhotoPicksTheNextSharpest() {
         val photos = listOf(shot(1), shot(2), shot(3))
         val group = SimilarGroup(photos, recommendedId = 1, sharpness = mapOf(1L to 1.0, 2L to 9.0, 3L to 4.0))
