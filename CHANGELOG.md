@@ -7,13 +7,29 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.10] - 2026-11-14
+
+### Fixed
+
+- 安卓：清理页和相似对比里，截图和普通 PNG 不放大时按屏幕大小显示，不再发糊。特别大的 PNG 仍先出小图，停在当前这一张再变清楚。RAW 不放大时用相机放在文件里的预览；预览比屏幕小的，停住后再解清楚。放大仍只给当前这一张换更清楚的。JPEG 和 HEIC 不变。
+
 ### Changed
 
 - 安卓：拖动「全部」右侧日期滑块时，气泡写成一行「2024年8月3日」（英文 “Aug 3, 2024”）。「年」「月」「日」位置固定，只有数字变，气泡宽度不变。
+- 安卓：相似对比里，下滑过阈值立刻把眼前这一张送进垃圾桶并飞走，不用等底部胶囊。连着滑合成一条撤回，4 秒从最后一滑重算。只剩一张时页面还在，再下滑才回到列表。上滑仍只是留下。
+- 这次只发安卓，不附 iOS 安装包。
+
+---
+
+### Fixed
+
+- Android: in review and similar compare, screenshots and ordinary PNGs are shown at screen size when you are not zoomed in, so they are no longer blurry. A very large PNG still starts as a small preview and sharpens when you stop on it. A RAW photo uses the preview stored in the file; if that preview is smaller than the screen, it sharpens after you stop. Zooming still loads a sharper image of the current photo only. JPEG and HEIC are unchanged.
 
 ### Changed
 
 - Android: while dragging the date scrubber on All photos, the bubble is one line, “Aug 3, 2024” (Chinese “2024年8月3日”). The year, month, and day markers stay put and only the digits change, so the bubble does not resize.
+- Android: on the similar-photo compare screen, swiping down past the threshold moves the photo you are looking at into the trash and it flies away. You do not wait for the button at the bottom. Swipes in a row share one undo, and the 4 seconds restart from the last swipe. When one photo is left, the page stays; another swipe down returns to the list. Swiping up still only marks it to keep.
+- This release is Android only and does not include an iOS build.
 
 ## [1.7.9] - 2026-11-08
 
@@ -637,7 +653,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.9...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.10...HEAD
+[1.7.10]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.7...v1.7.8
 [1.7.7]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.6...v1.7.7
