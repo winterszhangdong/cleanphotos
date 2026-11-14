@@ -22,8 +22,8 @@ android {
         applicationId = "com.winters.cleanphotos"
         minSdk = 26
         targetSdk = 36
-        versionCode = 26
-        versionName = "1.7.10"
+        versionCode = 27
+        versionName = "1.7.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

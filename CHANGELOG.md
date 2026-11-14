@@ -7,6 +7,20 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.11] - 2026-11-15
+
+### Changed
+
+- 安卓和 iOS：删掉已经没有人读的方向提示、没人调用的参数和重复的小函数。画面和手势不变。成功上下滑的次数仍会记下。
+- 这次只发安卓，不附 iOS 安装包。
+
+---
+
+### Changed
+
+- Android and iOS: removed direction-hint reads nobody used, unused parameters, and duplicate helpers. The screen and gestures are unchanged. A count of successful up and down swipes is still stored.
+- This release is Android only and does not include an iOS build.
+
 ## [1.7.10] - 2026-11-14
 
 ### Fixed
@@ -653,7 +667,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.10...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.11...HEAD
+[1.7.11]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.10...v1.7.11
 [1.7.10]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.8...v1.7.9
 [1.7.8]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.7...v1.7.8
