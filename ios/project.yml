@@ -24,6 +24,9 @@ targets:
         buildPhase: resources
         excludes:
           - "**/.DS_Store"
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.winters.cleanphotos
@@ -33,21 +36,25 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_EMIT_LOC_STRINGS: YES
+        "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": NO
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_IDENTITY: "-"
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: $(CLEANPHOTOS_TEAM_ID)
   CleanPhotosTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - path: CleanPhotosTests
       - path: CleanPhotos/Domain
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.winters.cleanphotos.tests
+        "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": NO
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: $(CLEANPHOTOS_TEAM_ID)
   CleanPhotosUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -55,13 +62,17 @@ targets:
       - path: CleanPhotosUITests
     dependencies:
       - target: CleanPhotos
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.winters.cleanphotos.uitests
         TEST_TARGET_NAME: CleanPhotos
+        "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": NO
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: $(CLEANPHOTOS_TEAM_ID)
 schemes:
   CleanPhotos:
     build:

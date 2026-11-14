@@ -54,6 +54,7 @@ make build         # 构建 debug APK
 make test          # 运行单元测试
 make lint          # 运行 Lint 检查
 make install       # 安装到设备
+make run-ios       # 编译并安装到已连接的 iPhone，然后打开
 make logcat        # 查看应用日志
 ```
 

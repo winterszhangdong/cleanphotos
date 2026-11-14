@@ -12,7 +12,7 @@ The Xcode project is generated from `project.yml` and is not checked in.
 ```bash
 cd ios
 xcodegen generate
-open CleanPhotos.xcodeproj          # 真机运行时在 Signing 里选自己的 Team / pick your team for device runs
+open CleanPhotos.xcodeproj
 # 或命令行 / or:
 xcodebuild -project CleanPhotos.xcodeproj -scheme CleanPhotos \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
@@ -20,7 +20,14 @@ xcodebuild -project CleanPhotos.xcodeproj -scheme CleanPhotos \
   -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:CleanPhotosTests test
 ```
 
-动效流畅度以 Release 包、真机为准。Judge smoothness on a Release build on a real device.
+仓库根目录：
+
+```bash
+make run-ios                         # 装到当前连上的 iPhone 并打开（保留本机数据）
+make run-ios IOS_DEVICE=<UDID>      # 连着多台时指定
+```
+
+真机签名用本机 `Secrets.xcconfig` 里的 Team（从 `Secrets.example.xcconfig` 复制）。模拟器构建不签名。动效流畅度以 Release 包、真机为准。Judge smoothness on a Release build on a real device.
 
 ## 目录 / Layout
 
