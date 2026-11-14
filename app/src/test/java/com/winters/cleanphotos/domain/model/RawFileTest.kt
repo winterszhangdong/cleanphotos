@@ -39,14 +39,24 @@ class RawFileTest {
     }
 
     @Test
-    fun `RAW 和 PNG 是重图，JPEG 和没有扩展名不是`() {
+    fun `RAW 和大 PNG 是重图，屏幕大小的 PNG 以及 JPEG 不是`() {
         assertTrue(isHeavyStill("a.dng"))
         assertTrue(isHeavyStill("a.DNG"))
         assertTrue(isHeavyStill("a.CR2"))
+        assertTrue(isHeavyStill("a.dng", 1440, 3168))
+        // 不传边长、边长缺失或不是正数时，PNG 走稳妥的重图路径
         assertTrue(isHeavyStill("shot.png"))
         assertTrue(isHeavyStill("shot.PNG"))
+        assertTrue(isHeavyStill("shot.png", null, 100))
+        assertTrue(isHeavyStill("shot.png", 100, null))
+        assertTrue(isHeavyStill("shot.png", 0, 100))
+        assertTrue(isHeavyStill("shot.png", PNG_SCREEN_MAX_EDGE + 1, 10))
+        assertTrue(isHeavyStill("shot.png", 10, PNG_SCREEN_MAX_EDGE + 1))
+        assertFalse(isHeavyStill("shot.png", 1440, 3168))
+        assertFalse(isHeavyStill("shot.PNG", PNG_SCREEN_MAX_EDGE, PNG_SCREEN_MAX_EDGE))
         assertFalse(isHeavyStill("a.jpg"))
         assertFalse(isHeavyStill("a.JPEG"))
+        assertFalse(isHeavyStill("a.jpg", 8000, 6000))
         assertFalse(isHeavyStill("a.heic"))
         assertFalse(isHeavyStill("a.HEIF"))
         assertFalse(isHeavyStill("archive.dng.jpg"))
@@ -56,6 +66,30 @@ class RawFileTest {
         assertFalse(isHeavyStill("photo."))
         assertFalse(isHeavyStill(null))
         assertFalse(isHeavyStill(""))
+    }
+
+    @Test
+    fun `一倍图来源：RAW 用内嵌预览，大 PNG 用系统缩略图，其余解原图`() {
+        assertEquals(GlanceKind.RawEmbedded, glanceKind("a.dng", 4000, 3000))
+        assertEquals(GlanceKind.SystemThumb, glanceKind("shot.png", null, null))
+        assertEquals(GlanceKind.SystemThumb, glanceKind("shot.PNG", 6000, 4000))
+        assertEquals(GlanceKind.Original, glanceKind("shot.png", 1440, 3168))
+        assertEquals(GlanceKind.Original, glanceKind("a.jpg", 8000, 6000))
+        assertEquals(GlanceKind.Original, glanceKind("a.heic", null, null))
+        assertEquals(GlanceKind.Original, glanceKind(null, null, null))
+    }
+
+    @Test
+    fun `已经解好的更清楚图不退回一倍图`() {
+        assertEquals(StillFrame.Glance, stillFrame(false, false, false, true, true))
+        assertEquals(StillFrame.Glance, stillFrame(false, true, true, false, false))
+        assertEquals(StillFrame.Screen, stillFrame(false, true, true, true, false))
+        assertEquals(StillFrame.Screen, stillFrame(true, true, true, true, false))
+        assertEquals(StillFrame.Sharp, stillFrame(true, true, true, true, true))
+        assertEquals(StillFrame.Sharp, stillFrame(false, true, true, false, true))
+        assertEquals(StillFrame.Sharp, stillFrame(false, false, true, false, true))
+        assertEquals(StillFrame.Glance, stillFrame(true, false, true, false, false))
+        assertEquals(StillFrame.Screen, stillFrame(false, true, false, true, false))
     }
 
     @Test
