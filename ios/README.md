@@ -1,8 +1,8 @@
 # CleanPhotos iOS（理照）
 
-SwiftUI 版「理照」，功能、交互和「暗房」视觉与安卓版对齐（规格见仓库根目录 `docs/`）。最低 iOS 17，仅暗色。
+SwiftUI 版「理照」。照片页范围、相似、收藏整理、清理页、垃圾桶，以及视频和实况照片的播放已与安卓版对齐（规格见仓库根目录 `docs/`）。安卓上嵌在 JPEG 里的厂商动态照片没有搬过来。收藏整理写进系统相册，不是安卓那种搬文件。最低 iOS 17，仅暗色。
 
-SwiftUI port of CleanPhotos with the same features, interactions and "darkroom" look as the Android app (specs in `docs/`). iOS 17+, dark only.
+SwiftUI port of CleanPhotos. Photo scopes, similar photos, filing, review, trash, and playback of videos and Live Photos match the Android app (specs in `docs/`). Vendor motion clips embedded in JPEG files are not ported. Filing adds photos to PhotoKit albums instead of moving files. iOS 17+, dark only.
 
 ## 构建 / Build
 
@@ -28,7 +28,7 @@ xcodebuild -project CleanPhotos.xcodeproj -scheme CleanPhotos \
 - `CleanPhotos/Design`：颜色、字体、间距、动效 token 与通用组件
 - `CleanPhotos/Data`：PhotoKit 读取与删除，收藏 / 已看 / 垃圾桶本地存储
 - `CleanPhotos/Domain`：与 UI 无关的规则（审阅账本、小结页、垃圾桶溶解时钟），有单元测试
-- `CleanPhotos/Features`：Auth / Photos / Review / Favorites / Trash
+- `CleanPhotos/Features`：Auth / Photos / Review / Favorites / Trash / Playback
 
 图库还在分批读取时，照片页和收藏页先不进入清理，避免会话停在首屏那一批。垃圾桶预览在列表被系统相册缩短后仍用夹紧后的下标画邻页。
 - `scripts/`：模拟器截图、录屏、性能采集等开发脚本（`perf-device.sh` / `perf-exit.sh` 需设置 `DEV` 与 `TEAM`）

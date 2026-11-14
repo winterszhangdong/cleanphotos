@@ -4,7 +4,7 @@ import SwiftUI
 enum ReviewPrefs {
     static let tutorialKey = "has_seen_review_tutorial"
     static let swipeCountKey = "review_swipe_action_count"
-    /// 决定 10：累计成功上滑 / 下滑不足 20 次时显示方向提示小点（撤回不回退计数）。
+    /// 累计成功上滑 / 下滑。清理页不再画方向提示；计数仍记着（撤回不回退）。
     static let hintHideAfter = 20
 
     static var hasSeenTutorial: Bool {

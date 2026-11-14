@@ -8,6 +8,8 @@ enum DarkroomColors {
     static let rim = Color(red: 1, green: 240/255, blue: 225/255).opacity(0.09)
     static let rim2 = Color(red: 1, green: 240/255, blue: 225/255).opacity(0.16)
     static let paper = Color(red: 0xEE/255, green: 0xE9/255, blue: 0xE2/255)
+    /// 播放进度条还没播到的那一段。已播和拇指用 paper。
+    static let playbackTrack = paper.opacity(0.24)
     static let dim = Color(red: 0x8C/255, green: 0x85/255, blue: 0x7D/255)
     static let faint = Color(red: 0x5B/255, green: 0x55/255, blue: 0x4F/255)
     static let fade = Color(red: 0x6E/255, green: 0x68/255, blue: 0x62/255)

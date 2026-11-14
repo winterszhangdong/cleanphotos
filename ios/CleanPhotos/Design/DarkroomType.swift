@@ -34,6 +34,9 @@ enum DarkroomType {
     static let countUnit = Font.custom("NotoSansSC-Regular", size: 13)
     static let countSub = DarkroomFonts.plexMono(size: 11)
     static let eyebrow = Font.custom("NotoSansSC-Regular", size: 12)
+    /// 范围刻度 14/20 500。
+    static let scopeDial = Font.custom("NotoSansSC-Medium", size: 14)
+    static let tileBadge = DarkroomFonts.plexMono(size: 10)
     static let navLabel = Font.custom("NotoSansSC-Regular", size: 13)
     static let navBadge = DarkroomFonts.plexMono(size: 10)
     static let dayNumber = DarkroomFonts.schibsted(size: 24, weight: .semibold)

@@ -53,7 +53,8 @@ struct DevelopModifier: ViewModifier {
             .opacity(enabled ? (0.08 + 0.92 * progress) : 1)
             .saturation(enabled ? progress : 1)
             .brightness(enabled ? (-0.15 + 0.15 * progress) : 0)
-            .onAppear {
+            .task(id: enabled) {
+                // 延迟动画会被父级刷新取消，progress 停在 0，格子就一直近乎透明。到点强制走完。
                 guard enabled else {
                     progress = 1
                     return
@@ -62,6 +63,9 @@ struct DevelopModifier: ViewModifier {
                 withAnimation(DarkroomMotion.developCurve.delay(delay)) {
                     progress = 1
                 }
+                let wait = delay + DarkroomMotion.develop + 0.05
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                progress = 1
             }
     }
 }

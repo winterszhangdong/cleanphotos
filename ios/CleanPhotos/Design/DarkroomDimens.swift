@@ -15,6 +15,19 @@ enum DarkroomDimens {
     static let toolIcon: CGFloat = 18
     static let headerHeight: CGFloat = 84
     static let headerBottomPadding: CGFloat = 12
+    /// 照片页顶栏（收藏 / 垃圾桶仍用上面的 84）。Android `HeaderHeight` / `HeaderBottomPadding`。
+    static let photosHeaderHeight: CGFloat = 56
+    static let photosHeaderBottom: CGFloat = 8
+    static let scopeRowHeight: CGFloat = 40
+    static let scopeDialGap: CGFloat = 22
+    static let scopeDialEdgeFade: CGFloat = 40
+    static let scopeDialTextTop: CGFloat = 6
+    static let scopeDialIndicatorTop: CGFloat = 32
+    static let minTouch: CGFloat = 48
+    static let scrubberThumbWidth: CGFloat = 4
+    static let scrubberThumbHeight: CGFloat = 36
+    static let scrubberInset: CGFloat = 6
+    static let scrubberBubbleGap: CGFloat = 12
     static let screenSide: CGFloat = 16
     static let headerActionGap: CGFloat = 8
 
@@ -39,4 +52,15 @@ enum DarkroomDimens {
 
     static let langSheetCorner: CGFloat = 20
     static let langItemHeight: CGFloat = 48
+
+    static let playbackCenter: CGFloat = 64
+    static let playbackRowHeight: CGFloat = 48
+    static let playbackTrackHeight: CGFloat = 3
+    static let playbackThumb: CGFloat = 12
+    static let playbackThumbDrag: CGFloat = 16
+    static let playbackPillPadH: CGFloat = 14
+    static let playbackPillGap: CGFloat = 6
+    static let playbackMotionIcon: CGFloat = 18
+    static let playbackSoundIcon: CGFloat = 20
+    static let playbackGap: CGFloat = 8
 }

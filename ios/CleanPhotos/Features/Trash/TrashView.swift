@@ -25,16 +25,21 @@ struct TrashView: View {
     @State private var toast: String?
     @State private var toastToken = 0
     @State private var dissolveSizes: [String: Int64] = [:]
+    @StateObject private var freedBytes = FreedBytesStore()
     /// 清空进行中（系统确认框 → 删除完成 → 溶解起播之前）：网格和「可释放」照旧显示要删的这批，不在中间闪一帧空状态。
     @State private var pendingDelete: (items: [PhotoItem], bytes: Int64)?
     /// 网格宽量自列表（横屏左右安全区；竖屏 = 屏宽）。
     @State private var listWidth: CGFloat = UIScreen.main.bounds.width
+    /// 这次进垃圾桶记住的静音。关掉预览不重置；离开这一页，视图拆掉，下次进来重新静音。
+    @State private var playbackMuted = true
 
     init(dimTabBar: Binding<Bool> = .constant(false)) { _dimTabBar = dimTabBar }
 
     struct DissolveRun: Equatable {
         let items: [PhotoItem]
         let bytes: Int64
+        /// 溶解开始前记下的「最早一张已放 N 天」；条目已经删掉，不能再从 TrashStore 算。
+        let oldestDays: Int?
         /// 首帧真正上屏时才起表（清空后整页重排那一帧可能很重，按设置时间起表会吃掉开头几帧）
         var start: Date?
         var clockEnd: Double { DissolveTiming.clockEnd(count: items.count) }
@@ -56,7 +61,7 @@ struct TrashView: View {
                             Color.clear.frame(height: DarkroomDimens.headerHeight)
                             // 「可释放」900ms 三次减速滚到 0
                             let p = min(1, t / 0.9)
-                            freeCard(bytes: Int64(Double(run.bytes) * pow(1 - p, 3)), enabled: false)
+                            freeCard(bytes: Int64(Double(run.bytes) * pow(1 - p, 3)), enabled: false, oldestDays: run.oldestDays)
                             // Android TrashDissolveGrid：第 0 项是 header，所以第 i 张从 (i+1)·60ms 起；
                             // 单一时钟走到最后一张可见格子的起点 + 380ms，每格都溶解完才收起（与 Android 修复后一致）
                             let clock = min(t, run.clockEnd)
@@ -75,7 +80,7 @@ struct TrashView: View {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: DarkroomDimens.headerHeight)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
-                        if selecting { selectionSummary } else { freeCard(bytes: pendingDelete?.bytes ?? library.trashBytes, enabled: true) }
+                        if selecting { selectionSummary } else { freeCard(bytes: pendingDelete?.bytes ?? library.trashBytes, enabled: true, oldestDays: oldestDaysNow()) }
                         grid(items: pendingDelete?.items ?? library.trashItems, dissolve: nil)
                         Color.clear.frame(height: DarkroomDimens.navBottom + DarkroomDimens.navHeight + 48)
                     }
@@ -108,13 +113,16 @@ struct TrashView: View {
         .animation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short), value: toast)
         .environment(\.locale, loc)
         .onChange(of: confirmEmpty) { _, v in dimTabBar = v }
+        .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessTrashPreview)) { _ in
+            if previewId == nil { previewId = library.trashItems.first?.id }
+        }
         .onDisappear { dimTabBar = false }
         .fullScreenCover(isPresented: Binding(
             get: { previewId != nil },
             set: { if !$0 { previewId = nil } }
         )) {
             if let previewId {
-                TrashPreview(startId: previewId, onRestored: { showToast(L10n.string("msg_restored", locale: loc)) }) { self.previewId = nil }
+                TrashPreview(startId: previewId, muted: $playbackMuted, onRestored: { showToast(L10n.string("msg_restored", locale: loc)) }) { self.previewId = nil }
                     .environmentObject(library)
                     .environmentObject(language)
                     .reduceMotionGate()
@@ -133,6 +141,21 @@ struct TrashView: View {
 
     private var selectedBytes: Int64 {
         selected.reduce(Int64(0)) { $0 + bytes(of: $1) }
+    }
+
+    /// 最早一张移入已满 30 个 24 小时日时返回整天数，否则 nil（副文字保持 free_sub）。
+    private func oldestDaysNow() -> Int? {
+        oldestDays(of: library.trashItems)
+    }
+
+    private func oldestDays(of items: [PhotoItem]) -> Int? {
+        let moved = items.compactMap { library.trash.entry($0.id)?.movedToTrashAt }
+        return TrashAge.wholeDays(movedAtMs: moved.map(TrashAge.unixMillis), nowMs: TrashAge.unixMillis(Date().timeIntervalSince1970))
+    }
+
+    /// 即将删除的条目大小之和。未知或非正记 0；合计为 0 不写入累计。
+    private func recordedBytes(of items: [PhotoItem]) -> Int64 {
+        items.reduce(0) { $0 + max(0, library.trash.entry($1.id)?.byteSize ?? 0) }
     }
 
     /// 垃圾桶照片的大小：移入时已经记在 TrashEntry 里，不在主线程逐格查 PHAssetResource。
@@ -206,8 +229,8 @@ struct TrashView: View {
 
     // MARK: - Grid header
 
-    /// .free：「清空后可释放」卡片（外边距 4 16 16）。
-    private func freeCard(bytes: Int64, enabled: Bool) -> some View {
+    /// .free：「清空后可释放」卡片（外边距 4 16 16）。满 30 个 24 小时日才换副文字。
+    private func freeCard(bytes: Int64, enabled: Bool, oldestDays: Int?) -> some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(L10n.string("free_label", locale: loc))
@@ -227,10 +250,11 @@ struct TrashView: View {
                 }
                 .frame(height: 36)
                 .padding(.top, 4)
-                Text(L10n.string("free_sub", locale: loc))
+                Text(oldestDays.map { TrashCopy.oldestDays($0, locale: loc) } ?? L10n.string("free_sub", locale: loc))
                     .font(Font.custom("NotoSansSC-Regular", size: 11))
                     .foregroundStyle(DarkroomColors.faint)
-                    .frame(height: 16)
+                    .lineLimit(2)
+                    .frame(minHeight: 16, alignment: .leading)
                     .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -317,18 +341,48 @@ struct TrashView: View {
     // MARK: - Empty
 
     /// 空状态：一叠相纸往下沉（垃圾桶图标、箭头朝下）+「垃圾桶是空的」+ 正文（刚清空时为「刚刚释放了 X」）。
+    /// 累计已释放 > 0 时，正文下方再加一行（只在这一页）。
     private var emptyState: some View {
-        EmptyStateArea {
+        let bodyText = justFreed.map { L10n.format("trash_just_freed", locale: loc, FileSizeFormatter.format($0)) }
+            ?? L10n.string("trash_empty_body", locale: loc)
+        return EmptyStateArea {
             EmptyPileArt(sink: true).padding(.bottom, 32)
-            EmptyTitleAndBody(
-                L10n.string("trash_empty_title", locale: loc),
-                justFreed.map { L10n.format("trash_just_freed", locale: loc, FileSizeFormatter.format($0)) }
-                    ?? L10n.string("trash_empty_body", locale: loc)
-            )
+            if freedBytes.total > 0 {
+                emptyTitleBodyAndTotal(bodyText)
+            } else {
+                EmptyTitleAndBody(L10n.string("trash_empty_title", locale: loc), bodyText)
+            }
         }
         .opacity(min(1, max(0, emptyRise)))
         .offset(y: 12.6 * (1 - emptyRise))
         .accessibilityIdentifier("trash-empty-state")
+    }
+
+    /// 有累计行时自己排正文：间距 8，累计行用 11pt 等宽 faint，下边距仍是 24。
+    private func emptyTitleBodyAndTotal(_ bodyText: String) -> some View {
+        VStack(spacing: 0) {
+            Text(L10n.string("trash_empty_title", locale: loc))
+                .font(Font.custom("NotoSansSC-SemiBold", size: 18))
+                .foregroundStyle(DarkroomColors.paper)
+                .multilineTextAlignment(.center)
+                .frame(minHeight: 24)
+            Text(bodyText)
+                .font(Font.custom("NotoSansSC-Regular", size: 13))
+                .lineSpacing(5)
+                .foregroundStyle(DarkroomColors.dim)
+                .multilineTextAlignment(.center)
+                .frame(width: 232)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+            Text(TrashCopy.totalFreed(FileSizeFormatter.format(freedBytes.total), locale: loc))
+                .font(DarkroomFonts.plexMono(size: 11))
+                .foregroundStyle(DarkroomColors.faint)
+                .multilineTextAlignment(.center)
+                .frame(width: 232)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
+                .accessibilityIdentifier("trash-total-freed")
+        }
     }
 
     // MARK: - Dialog
@@ -398,11 +452,15 @@ struct TrashView: View {
         guard pendingDelete == nil, dissolve == nil else { return }
         let items = library.trashItems
         let bytes = library.trashBytes
+        let freedNow = recordedBytes(of: items)
+        let oldest = oldestDays(of: items)
         dissolveSizes = Dictionary(items.map { ($0.id, self.bytes(of: $0.id)) }, uniquingKeysWith: { a, _ in a })
         pendingDelete = (items, bytes)
+        let store = freedBytes
         Task {
             do {
                 try await library.permanentlyDelete(ids: items.map(\.id))
+                if freedNow > 0 { store.add(freedNow) }
                 pendingDelete = nil
                 justFreed = bytes
                 if reduceMotion {
@@ -410,7 +468,7 @@ struct TrashView: View {
                     showToast(L10n.string("msg_trash_emptied", locale: loc))
                 } else {
                     emptyRise = 0
-                    dissolve = DissolveRun(items: items, bytes: bytes, start: nil)
+                    dissolve = DissolveRun(items: items, bytes: bytes, oldestDays: oldest, start: nil)
                 }
             } catch {
                 pendingDelete = nil
@@ -446,107 +504,164 @@ struct TrashView: View {
     }
 }
 
-/// 垃圾桶全屏预览（mock 12 / Android TrashPreviewOverlay）：暗室底；顶栏玻璃返回 +「垃圾桶 / i / N」；
-/// 照片放在状态栏下 144、宽 = 屏宽的正方形里 contain，饱和 70% / 亮度 86%；下方两行等宽元信息；
-/// 底部「移出后回到照片页的 9月21日」+ 52pt 相纸白「移出垃圾桶」。左右滑切换，双击放大。
+/// 垃圾桶全屏预览：黑底；照片按原始宽高比居中（fit），不大方框、不去色。
+/// 顶栏玻璃返回 +「垃圾桶 / i / N」；下方两行等宽元信息；
+/// 底部「移出后回到照片页的 9月21日」+ 52pt 相纸白胶囊「移出垃圾桶」（没有分享图标）。左右滑切换，双击放大。
 struct TrashPreview: View {
     let startId: String
+    @Binding var muted: Bool
     var onRestored: () -> Void = {}
     var onClose: () -> Void
     @EnvironmentObject private var library: PhotoLibraryService
     @EnvironmentObject private var language: LanguageStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var playback = PlaybackEngine()
     @State private var index: Int = 0
     @State private var dx: CGFloat = 0
     @State private var zoom: CGFloat = 1
     @State private var images: [String: UIImage] = [:]
     @State private var requests: [String: PHImageRequestID] = [:]
     @State private var didInit = false
+    @State private var transportShown = false
+    @State private var playbackPinnedId: String?
+    @State private var playbackUnsettled = false
+    @State private var playbackHoldToken = 0
+    @State private var dragOpen = false
+    @State private var tapTask: Task<Void, Never>?
     @GestureState private var dragLive = false
 
     private var items: [PhotoItem] { library.trashItems }
     private var loc: Locale { language.effectiveLocale }
+    private var currentItem: PhotoItem? {
+        guard let i = TrashPreviewWindow.clampedIndex(index, count: items.count) else { return nil }
+        return items[i]
+    }
 
     var body: some View {
-        GeometryReader { geo in
-            // 竖屏：屏宽方框距顶 144（原样）。横屏：屏高放不下屏宽方框 —— 方框按可用高度居中，文件信息和「移出」放右侧一栏
-            let land = geo.size.width > geo.size.height
-            let w = land ? max(120, geo.size.height - 64 - 12) : geo.size.width
-            let column = land ? max(160, (geo.size.width - w) / 2 - 32) : geo.size.width
-            ZStack(alignment: .top) {
-                DarkroomColors.room.ignoresSafeArea()
-                // 照片：三页并排跟手
-                ZStack {
-                    // 列表被外部一次删短时，先夹到有效下标再取邻页。不能用旧 index 拼闭区间，onChange 来不及挡住这次 body。
-                    let shown = TrashPreviewWindow.clampedIndex(index, count: items.count)
-                    ForEach(TrashPreviewWindow.neighbors(index: index, count: items.count), id: \.self) { i in
-                        photo(items[i], side: w)
-                            .scaleEffect(i == shown ? zoom : 1)
-                            .offset(x: CGFloat(i - (shown ?? 0)) * w + dx)
-                    }
-                }
-                .frame(width: w, height: w)
-                .clipped()
-                .padding(.top, land ? 64 : 144)
-                .contentShape(Rectangle())
-                .gesture(drag(width: w).updating($dragLive) { _, live, _ in live = true })
-                .onChange(of: dragLive) { _, live in
-                    // 系统打断手势（不会有 onEnded）：拖了一半的照片弹回
-                    if !live { DispatchQueue.main.async { if dx != 0 { withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0 } } } }
-                }
-                .onTapGesture(count: 2) {
-                    withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoom = zoom > 1.01 ? 1 : 2 }
-                }
-                if let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) {
-                    if land {
-                        meta(items[shown])
-                            .frame(width: column)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .padding(.trailing, 16)
-                            .padding(.top, 64)
-                    } else {
-                        meta(items[shown])
-                            .padding(.top, 144 + w + 16)
-                    }
-                }
-                topBar
-                    .padding(.top, 12)
-                    .padding(.horizontal, 12)
-                VStack(spacing: 0) {
-                    Spacer()
-                    if let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) {
-                        Text(L10n.format("trash_restore_hint", locale: loc, cleanDate(items[shown].creationDate)))
-                            .font(Font.custom("NotoSansSC-Regular", size: 11))
-                            .foregroundStyle(DarkroomColors.faint)
-                            .padding(.bottom, 100 - 40 - 52 - 0)
-                    }
-                    Button { restore() } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "square.and.arrow.up").font(.system(size: 17, weight: .medium))
-                            Text(L10n.string("restore_from_trash", locale: loc))
+        ZStack {
+            Color.black.ignoresSafeArea()
+            GeometryReader { geo in
+                let pageW = geo.size.width
+                let pageH = geo.size.height
+                ZStack(alignment: .top) {
+                    // 照片铺满这一页再 aspect fit，黑边是这一页的底，不是正方形裁框。
+                    ZStack {
+                        // 列表被外部一次删短时，先夹到有效下标再取邻页。不能用旧 index 拼闭区间，onChange 来不及挡住这次 body。
+                        let shown = TrashPreviewWindow.clampedIndex(index, count: items.count)
+                        ForEach(TrashPreviewWindow.neighbors(index: index, count: items.count), id: \.self) { i in
+                            photo(items[i], width: pageW, height: pageH)
+                                .scaleEffect(i == shown ? zoom : 1)
+                                .offset(x: CGFloat(i - (shown ?? 0)) * pageW + dx)
                         }
-                        .font(Font.custom("NotoSansSC-SemiBold", size: 15))
-                        .foregroundStyle(DarkroomColors.room)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(DarkroomColors.paper, in: Capsule())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("trash-preview-restore")
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 40)
+                    .frame(width: pageW, height: pageH)
+                    .clipped()
+                    .contentShape(Rectangle())
+                    .gesture(drag(width: pageW).updating($dragLive) { _, live, _ in live = true })
+                    .onChange(of: dragLive) { _, live in
+                        // 系统打断手势（不会有 onEnded）：拖了一半的照片弹回
+                        if !live {
+                            DispatchQueue.main.async {
+                                guard dragOpen else { return }
+                                dragOpen = false
+                                if dx != 0 { withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0 } }
+                                releasePlayback(after: DarkroomMotion.long)
+                            }
+                        }
+                    }
+                    .onTapGesture(count: 2) {
+                        tapTask?.cancel()
+                        withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoom = zoom > 1.01 ? 1 : 2 }
+                    }
+                    .onTapGesture(count: 1) { scheduleTap() }
+                    if let photo = currentItem {
+                        let decision = playbackChrome(for: photo)
+                        PlaybackCenterButton(
+                            visible: decision.showCenter,
+                            showPause: decision.showPauseIcon,
+                            label: decision.showPauseIcon ? PlaybackCopy.pause(zh: language.isChineseUI) : PlaybackCopy.play(zh: language.isChineseUI)
+                        ) {
+                            playback.togglePlay()
+                            transportShown = false
+                        }
+                        .position(x: pageW / 2, y: pageH / 2)
+                    }
+                    topBar
+                        .padding(.top, 12)
+                        .padding(.horizontal, 12)
+                    VStack(spacing: 0) {
+                        Spacer()
+                        if let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) {
+                            let photo = items[shown]
+                            let decision = playbackChrome(for: photo)
+                            if decision.showProgress {
+                                PlaybackProgressRow(engine: playback, muted: muted, zh: language.isChineseUI, onMute: {
+                                    muted.toggle()
+                                }, onSeeked: {
+                                    transportShown = false
+                                })
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, DarkroomDimens.playbackGap)
+                            }
+                            meta(photo)
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 16)
+                                .allowsHitTesting(false)
+                            Text(L10n.format("trash_restore_hint", locale: loc, cleanDate(photo.creationDate)))
+                                .font(Font.custom("NotoSansSC-Regular", size: 11))
+                                .foregroundStyle(DarkroomColors.faint)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 8)
+                                .allowsHitTesting(false)
+                        }
+                        Button { restore() } label: {
+                            Text(L10n.string("restore_from_trash", locale: loc))
+                                .font(Font.custom("NotoSansSC-SemiBold", size: 15))
+                                .foregroundStyle(DarkroomColors.room)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                                .background(DarkroomColors.paper, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("trash-preview-restore")
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 40)
+                    }
                 }
-                .frame(width: land ? column + 32 : nil)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(width: pageW, height: pageH)
             }
         }
         .environment(\.locale, loc)
         .onAppear {
             if !didInit { index = items.firstIndex { $0.id == startId } ?? 0; didInit = true }
             load()
+            loadCurrentPlayback()
         }
-        .onChange(of: index) { _, _ in load() }
+        .onDisappear {
+            tapTask?.cancel()
+            playbackHoldToken += 1
+            playback.release()
+        }
+        .onChange(of: index) { _, _ in
+            transportShown = false
+            load()
+            if playbackSettled { loadCurrentPlayback() }
+        }
+        .onChange(of: muted) { _, value in playback.applyMute(remembered: value) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { playback.noteBackground() }
+            else if phase == .active { playback.noteActive() }
+        }
         .onChange(of: items.count) { _, n in if n == 0 { onClose() } else if index >= n { index = n - 1 } }
+        .background {
+            PlaybackAutoplayGate(
+                engine: playback,
+                settled: playbackSettled && playbackHostPhotoId == currentItem?.id,
+                animationsEnabled: !reduceMotion
+            )
+        }
     }
 
     private var topBar: some View {
@@ -556,6 +671,14 @@ struct TrashPreview: View {
                     .accessibilityLabel(Text(L10n.string("cd_back", locale: loc)))
                     .accessibilityIdentifier("trash-preview-back")
                 Spacer()
+                if let photo = currentItem, isCurrentMotion(photo) {
+                    PlaybackMotionPill(
+                        title: PlaybackCopy.motion(zh: language.isChineseUI),
+                        label: PlaybackCopy.replay(zh: language.isChineseUI)
+                    ) {
+                        playback.replayMotion()
+                    }
+                }
             }
             VStack(spacing: 0) {
                 Text(L10n.string("tab_trash", locale: loc))
@@ -567,20 +690,28 @@ struct TrashPreview: View {
                     .foregroundStyle(DarkroomColors.dim)
                     .frame(height: 16)
             }
+            .allowsHitTesting(false)
         }
         .frame(height: 40)
     }
 
-    private func photo(_ item: PhotoItem, side: CGFloat) -> some View {
+    /// 整页里 aspect fit，保持原色。黑边来自背后的全屏黑底，不另套方框。
+    private func photo(_ item: PhotoItem, width: CGFloat, height: CGFloat) -> some View {
         ZStack {
             if let img = images[item.id] {
                 Image(uiImage: img).resizable().scaledToFit()
                     .accessibilityHidden(true)
-                    .saturation(0.7)
-                    .colorMultiply(Color(white: 0.86))
+            }
+            if item.id == playbackHostPhotoId {
+                PlaybackSurface(
+                    player: playback.player,
+                    fadeOut: playback.loaded?.kind == .motion && playback.ended,
+                    animateFade: !reduceMotion
+                )
+                .allowsHitTesting(false)
             }
         }
-        .frame(width: side, height: side)
+        .frame(width: width, height: height)
     }
 
     private func meta(_ item: PhotoItem) -> some View {
@@ -611,10 +742,15 @@ struct TrashPreview: View {
         DragGesture(minimumDistance: 8)
             .onChanged { v in
                 guard zoom <= 1.01 else { return }
+                if !dragOpen {
+                    dragOpen = true
+                    pinPlayback()
+                }
                 dx = previewDX(v.translation.width, width: width)
             }
             .onEnded { v in
                 guard zoom <= 1.01 else { return }
+                dragOpen = false
                 let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) ?? 0
                 dx = previewDX(v.translation.width, width: width)
                 let dir = ReviewMath.horizontalRelease(dx: dx, vx: v.velocity.width, width: width)
@@ -623,6 +759,7 @@ struct TrashPreview: View {
                     else if dir == 1 && shown > 0 { index = shown - 1 }
                     dx = 0
                 }
+                releasePlayback(after: DarkroomMotion.medium)
             }
     }
 
@@ -651,17 +788,106 @@ struct TrashPreview: View {
         for i in near {
             let item = items[i]
             if images[item.id] != nil || requests[item.id] != nil { continue }
-            // 方框按 fill 裁切：短边要铺满屏宽 × scale，所以长边按比例放大请求（否则非方图短边不足，发虚）；
-            // 全景图长宽比很大时封顶 4 倍屏宽，免得一张几十 MB
-            let w = CGFloat(max(1, item.asset.pixelWidth)), h = CGFloat(max(1, item.asset.pixelHeight))
-            let screenW = UIScreen.main.bounds.width
-            let side = min(screenW * max(w, h) / min(w, h), screenW * 4)
+            // 全屏 fit，双击放到 2 倍：按屏幕长边的 2 倍取图，原色，不按方框去裁。
+            let screen = UIScreen.main.bounds
+            let side = max(screen.width, screen.height) * 2
             let id = item.id
             requests[id] = library.requestFullImage(for: item.asset, maxSide: side) { img in
                 Task { @MainActor in
                     guard requests[id] != nil else { return }
                     if let img, (images[id].map { $0.size.width * $0.scale < img.size.width * img.scale } ?? true) { images[id] = img }
                 }
+            }
+        }
+    }
+
+    /// 动画事务里 dx 立刻归零，弹簧还在走。停稳看 token，不看 dx。
+    private var playbackSettled: Bool { !playbackUnsettled && playbackPinnedId == nil }
+
+    private var playbackHostPhotoId: String? {
+        if let playbackPinnedId { return playbackPinnedId }
+        guard let photo = currentItem, playback.loaded?.id == photo.id, !playback.loadFailed else { return nil }
+        return photo.id
+    }
+
+    private func pageIsVideo(_ photo: PhotoItem) -> Bool { photo.isVideo }
+
+    private func isCurrentMotion(_ photo: PhotoItem) -> Bool {
+        playback.loaded?.id == photo.id && playback.loaded?.kind == .motion && !playback.loadFailed
+    }
+
+    private func playbackChrome(for photo: PhotoItem) -> PlaybackChromeState {
+        let identified = playback.loaded?.id == photo.id
+        let video = pageIsVideo(photo)
+        let failed = identified && playback.loadFailed
+        let phase = PlaybackRules.phase(
+            started: playback.started, userPaused: playback.userPaused, ended: playback.ended, playing: playback.isPlaying)
+        let awaiting = video && !failed && PlaybackRules.awaitingAutoplay(
+            animationsEnabled: !reduceMotion,
+            settled: playbackSettled && (identified || playback.loaded == nil),
+            resumed: playback.resumed,
+            started: playback.started,
+            userPaused: playback.userPaused,
+            ended: playback.ended)
+        return PlaybackRules.chrome(
+            isVideo: video && (identified || playback.loaded == nil),
+            phase: phase,
+            gestureActive: playbackUnsettled,
+            pinnedOrExiting: playbackPinnedId != nil,
+            awaitingAutoplay: awaiting,
+            transportShown: transportShown)
+    }
+
+    private func loadCurrentPlayback() {
+        guard playbackPinnedId == nil else { return }
+        if let photo = currentItem {
+            playback.ensureLoaded(id: photo.id, asset: photo.asset)
+            if let i = TrashPreviewWindow.clampedIndex(index, count: items.count), i + 1 < items.count {
+                LiveVideoCache.prefetch(items[i + 1].asset)
+            }
+        } else {
+            playback.clear()
+        }
+        playback.applyMute(remembered: muted)
+    }
+
+    private func pinPlayback() {
+        playbackHoldToken += 1
+        playbackUnsettled = true
+        if playbackPinnedId == nil { playbackPinnedId = currentItem?.id }
+        playback.pauseForGesture()
+        transportShown = false
+    }
+
+    private func releasePlayback(after seconds: Double) {
+        playbackHoldToken += 1
+        let token = playbackHoldToken
+        playbackUnsettled = true
+        let delay = reduceMotion ? 0 : seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard token == playbackHoldToken else { return }
+            playbackUnsettled = false
+            playbackPinnedId = nil
+            loadCurrentPlayback()
+        }
+    }
+
+    /// 单击等一下，确认不是双击放大。只有正在播的视频才切换控件。
+    private func scheduleTap() {
+        tapTask?.cancel()
+        guard currentItem != nil else { return }
+        tapTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled, let photo = currentItem else { return }
+            switch PlaybackRules.trashPhotoTap(
+                isVideo: pageIsVideo(photo),
+                playing: playback.isPlaying,
+                transportShown: transportShown
+            ) {
+            case .toggleTransport(let show):
+                withAnimation(DarkroomMotion.shortCurve) { transportShown = show }
+            case nil:
+                break
             }
         }
     }

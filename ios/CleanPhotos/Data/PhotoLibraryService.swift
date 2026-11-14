@@ -20,17 +20,24 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     @Published var undoBanner: UndoBanner?
     /// 清理页在前台时为 true：照片 / 收藏 / 垃圾桶页不显示撤回条（Android 的单张撤回属于 ReviewViewModel，离开清理页即消失）。
     @Published var reviewActive = false
-    @Published var sortOrder: PhotoSortOrder = PhotoSortOrder(rawValue: UserDefaults.standard.string(forKey: "cleanphotos.sortOrder") ?? "") ?? .newestFirst {
-        didSet {
-            UserDefaults.standard.set(sortOrder.rawValue, forKey: "cleanphotos.sortOrder")
-            if oldValue != sortOrder { rebuildDerived() }
-        }
+    /// 排序不写 UserDefaults。每次启动都是最新优先；这次进程里换过的选择留着。
+    @Published var sortOrder: PhotoSortOrder = .newestFirst {
+        didSet { if oldValue != sortOrder { rebuildDerived() } }
     }
-    @Published var filterMode: PhotoFilterMode = .allPhotos {
-        didSet { if oldValue != filterMode { rebuildDerived() } }
-    }
-    /// 筛选后列表张数（「仅未看过」时顶栏大数字）。
+    /// 照片页停稳的范围。不持久化。
+    @Published private(set) var pageScope: LibraryScope = .all
+    /// 当前范围叠上「只看没看过」之后的张数。
     @Published private(set) var visibleCount: Int = 0
+    /// 当前范围、还没叠「只看没看过」的张数。
+    @Published private(set) var scopeCount: Int = 0
+    /// 可见照片的 size 之和，还没查到的记 0。
+    @Published private(set) var visibleBytes: Int64 = 0
+    /// 全部照片里「那年今天」命中的张数，不受「看过」影响。
+    @Published private(set) var onThisDayCount: Int = 0
+    /// 大文件要等大小算完才列得出来。算大小发生在进入需要大小的范围时，不在首次读库。
+    @Published private(set) var sizesReady = false
+    /// 每个范围一份列表，左右滑时邻居页不用再等。
+    @Published private(set) var pages: [LibraryScope: ScopePage] = [:]
 
     let seen = SeenStore()
     let favorites = FavoriteStore()
@@ -60,6 +67,18 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     private var reloadAgain = false
     /// 首屏先建多少张（够铺满两三屏），其余在后台补齐。
     private static let firstChunk = 240
+    /// 「只看没看过」。相似范围分组时不吃它。不持久化。
+    private var pageUnseen = false
+    /// 用户相册标题命中截图 / 聊天的 asset id。没有 relativePath，不能在逐张元数据里看路径。
+    private var screenshotAlbumIds: Set<String> = []
+    private var chatAlbumIds: Set<String> = []
+    /// 原始文件名命中截图的 id。和文件大小一起，在进入截图 / 大文件 / 聊天时才查。
+    private var screenshotNameIds: Set<String> = []
+    /// 那年今天用的「今天」。只在列表或看过变化导致重算时更新，跨午夜不自动刷新。
+    private var today = Date()
+    private var factsRequested = false
+    private var factScan: Task<Void, Never>?
+    private static let favoriteImportKey = "cleanphotos.didImportSystemFavorites"
 
     override init() {
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -190,7 +209,13 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
             let options = PHFetchOptions()
             options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
             options.includeHiddenAssets = false
-            let r = PHAsset.fetchAssets(with: .image, options: options)
+            // 图片和视频同一套列表。不在这里读 PHAssetResource（文件大小 / 原始文件名），那一步会把首次加载拖住。
+            options.predicate = NSPredicate(
+                format: "mediaType == %d OR mediaType == %d",
+                PHAssetMediaType.image.rawValue,
+                PHAssetMediaType.video.rawValue
+            )
+            let r = PHAsset.fetchAssets(with: options)
             _ = r.count
             return r
         }.value
@@ -198,6 +223,7 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         let count = result.count
         PerfLog.mark("fetchDone", "count=\(count)")
 
+        today = Date()
         let snap = snapshot()
         let total = count
 
@@ -213,27 +239,32 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
             let hidden = snap.favorites.count + snap.trash.count
             totalCount = max(head.photosOrdered.count, total - hidden)
             unseenCount = max(head.unseenCount, totalCount - snap.seen.count)
-            visibleCount = snap.filter == .unseenOnly ? unseenCount : totalCount
+            visibleCount = (pageUnseen && pageScope != .similar) ? unseenCount : totalCount
             isPartial = true
             PerfLog.mark("firstChunk", "items=\(head.visible.count) sections=\(head.sections.count)")
             warmThumbnails(head.visible)
         }
 
-        // 2) 全量：后台遍历 + 分组，完成后一次性替换。
-        let full: (items: [PhotoItem], derived: Derived) = await Task.detached(priority: .userInitiated) {
+        // 2) 全量：后台遍历 + 相册标题分类，完成后一次性替换。
+        // 相册标题不是逐张 fileSize。iOS 没有 relativePath，截图 / 聊天只能看相册名（外加截图的 mediaSubtype）。
+        let full: (items: [PhotoItem], albums: AlbumMarks) = await Task.detached(priority: .userInitiated) {
             let items = Self.makeItems(result, range: 0..<total)
-            return (items, Self.derive(source: items, snap: snap))
+            return (items, Self.classifyAlbums())
         }.value
         PerfLog.mark("fullBuilt", "items=\(full.items.count)")
-        // 后台期间用户可能收藏/删除过：快照变了就按最新状态在主线程重算一次
-        if snapshot() == snap {
-            apply(full.derived, source: full.items)
+        screenshotAlbumIds = full.albums.shots
+        chatAlbumIds = full.albums.chats
+        let imported = importSystemFavoritesIfNeeded(full.items)
+        // 后台期间用户可能收藏/删除过，或这次刚导入系统收藏：按最新状态重算。
+        if !imported && snapshot() == snap {
+            apply(Self.derive(source: full.items, snap: snap), source: full.items)
         } else {
             fetchOrdered = full.items
             rebuildDerived()
         }
         if !isPartial { warmThumbnails(visiblePhotos) }
         await cleanupStores(libraryIds: Set(full.items.map(\.id)), libraryCount: total)
+        if factsRequested || sizesReady { startFactScan() }
     }
 
     /// 失效条目清理（Android PhotoRepositoryImpl.cleanupStores）：收藏 / 看过 / 垃圾桶里已经不在图库的照片。
@@ -264,12 +295,23 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
 
     // MARK: - Derived state
 
+    struct AlbumMarks: Sendable {
+        var shots: Set<String>
+        var chats: Set<String>
+    }
+
     struct Snapshot: Equatable, Sendable {
         var seen: Set<String>
         var favorites: [String: FavoriteEntry]
         var trash: [String: TrashEntry]
-        var filter: PhotoFilterMode
         var sort: PhotoSortOrder
+        var scope: LibraryScope
+        var unseen: Bool
+        var screenshotAlbum: Set<String>
+        var chatAlbum: Set<String>
+        var screenshotNames: Set<String>
+        var sizesReady: Bool
+        var today: Date
     }
 
     struct Derived {
@@ -277,14 +319,51 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         var photosOrdered: [PhotoItem]
         var visible: [PhotoItem]
         var sections: [PhotoYearGroup]
+        var pages: [LibraryScope: ScopePage]
         var favoriteSections: [PhotoYearGroup]
         var trashed: [PhotoItem]
         var unseenCount: Int
         var favoriteCount: Int
+        var onThisDayCount: Int
+        var scopeCount: Int
+        var visibleBytes: Int64
     }
 
     private func snapshot() -> Snapshot {
-        Snapshot(seen: seen.seenIds, favorites: favorites.entries, trash: trash.entries, filter: filterMode, sort: sortOrder)
+        Snapshot(
+            seen: seen.seenIds,
+            favorites: favorites.entries,
+            trash: trash.entries,
+            sort: sortOrder,
+            scope: pageScope,
+            unseen: pageUnseen,
+            screenshotAlbum: screenshotAlbumIds,
+            chatAlbum: chatAlbumIds,
+            screenshotNames: screenshotNameIds,
+            sizesReady: sizesReady,
+            today: today
+        )
+    }
+
+    /// 照片页换范围或「只看没看过」。相似不吃这个开关，但开关本身留着。
+    func setPage(scope: LibraryScope, unseenOnly: Bool) {
+        let scopeChanged = pageScope != scope
+        let unseenChanged = pageUnseen != unseenOnly
+        pageScope = scope
+        pageUnseen = unseenOnly
+        if scope.showsByteTotal {
+            factsRequested = true
+            startFactScan()
+        }
+        if unseenChanged || pages[scope] == nil {
+            rebuildDerived()
+        } else if scopeChanged, let page = pages[scope] {
+            sections = page.groups
+            visiblePhotos = page.flat
+            visibleCount = page.visibleCount
+            scopeCount = page.scopeCount
+            visibleBytes = page.visibleBytes
+        }
     }
 
     nonisolated private static func makeItems(_ result: PHFetchResult<PHAsset>, range: Range<Int>) -> [PhotoItem] {
@@ -292,14 +371,37 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         var out: [PhotoItem] = []
         out.reserveCapacity(range.count)
         result.enumerateObjects(at: IndexSet(integersIn: range), options: []) { asset, _, _ in
+            let video = asset.mediaType == .video
             out.append(PhotoItem(
                 id: asset.localIdentifier,
                 asset: asset,
                 creationDate: asset.creationDate ?? Date.distantPast,
-                isUnseen: true, isFavorite: false, isTrashed: false
+                isUnseen: true, isFavorite: false, isTrashed: false,
+                isVideo: video,
+                duration: video ? asset.duration : 0,
+                systemScreenshot: asset.mediaSubtypes.contains(.photoScreenshot)
             ))
         }
         return out
+    }
+
+    /// 用户相册标题。系统「截图」智能相册不必扫：那些资产的 mediaSubtype 已经标了 photoScreenshot。
+    nonisolated private static func classifyAlbums() -> AlbumMarks {
+        let albums = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil)
+        var shots = Set<String>()
+        var chats = Set<String>()
+        albums.enumerateObjects { collection, _, _ in
+            let title = collection.localizedTitle
+            let shot = ScopeRules.isScreenshot(systemScreenshot: false, albumTitle: title, filename: nil)
+            let chat = ScopeRules.isChatAlbumTitle(title)
+            guard shot || chat else { return }
+            let assets = PHAsset.fetchAssets(in: collection, options: nil)
+            assets.enumerateObjects { asset, _, _ in
+                if shot { shots.insert(asset.localIdentifier) }
+                if chat { chats.insert(asset.localIdentifier) }
+            }
+        }
+        return AlbumMarks(shots: shots, chats: chats)
     }
 
     nonisolated private static func derive(source: [PhotoItem], snap: Snapshot) -> Derived {
@@ -324,18 +426,65 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         }
         favs.sort { (snap.favorites[$0.id]?.favoritedAt ?? 0) > (snap.favorites[$1.id]?.favoritedAt ?? 0) }
         trashed.sort { (snap.trash[$0.id]?.movedToTrashAt ?? 0) > (snap.trash[$1.id]?.movedToTrashAt ?? 0) }
-        var visible = snap.filter == .unseenOnly ? ordered.filter(\.isUnseen) : ordered
-        if snap.sort == .oldestFirst { visible.reverse() }
+        let oldest = snap.sort == .oldestFirst
+        let dateOrder = oldest ? Array(ordered.reversed()) : ordered
+        var onThisDay = 0
+        for item in ordered where isOnThisDay(item, snap) { onThisDay += 1 }
+        var built: [LibraryScope: ScopePage] = [:]
+        for scope in LibraryScope.allCases {
+            let scoped = scopedItems(dateOrder: dateOrder, newest: ordered, scope: scope, snap: snap)
+            let visible = (snap.unseen && scope != .similar) ? scoped.filter(\.isUnseen) : scoped
+            let layout: GroupLayout = scope.isFlat ? .flat : (scope.groupsByMonth ? .month : .day)
+            let cap: Int? = scope == .onThisDay ? ScopeRules.dayVisibleCap : nil
+            let groups = buildGroups(visible: visible, pool: scoped, layout: layout, cap: cap, ascending: scope.isFlat ? false : oldest)
+            let bytes = visible.reduce(Int64(0)) { $0 + (AssetSizeCache.shared.cachedBytes($1.id) ?? 0) }
+            built[scope] = ScopePage(groups: groups, flat: visible, scopeCount: scoped.count, visibleCount: visible.count, visibleBytes: bytes)
+        }
+        let active = built[snap.scope] ?? ScopePage(groups: [], flat: [], scopeCount: 0, visibleCount: 0, visibleBytes: 0)
         return Derived(
             allById: byId,
             photosOrdered: ordered,
-            visible: visible,
-            sections: group(items: visible, gridCap: 8, ascending: snap.sort == .oldestFirst),
-            favoriteSections: group(items: favs, gridCap: 8),
+            visible: active.flat,
+            sections: active.groups,
+            pages: built,
+            favoriteSections: buildGroups(visible: favs, pool: favs, layout: .day, cap: ScopeRules.dayVisibleCap, ascending: false),
             trashed: trashed,
             unseenCount: unseen,
-            favoriteCount: favs.count
+            favoriteCount: favs.count,
+            onThisDayCount: onThisDay,
+            scopeCount: active.scopeCount,
+            visibleBytes: active.visibleBytes
         )
+    }
+
+    nonisolated private static func isOnThisDay(_ item: PhotoItem, _ snap: Snapshot) -> Bool {
+        ScopeRules.isOnThisDay(date: item.creationDate, today: snap.today, calendar: .current)
+    }
+
+    nonisolated private static func scopedItems(dateOrder: [PhotoItem], newest: [PhotoItem], scope: LibraryScope, snap: Snapshot) -> [PhotoItem] {
+        switch scope {
+        case .all, .similar:
+            return dateOrder
+        case .screenshots:
+            return dateOrder.filter {
+                $0.systemScreenshot || snap.screenshotAlbum.contains($0.id) || snap.screenshotNames.contains($0.id)
+            }
+        case .chat:
+            return dateOrder.filter { snap.chatAlbum.contains($0.id) }
+        case .onThisDay:
+            return dateOrder.filter { isOnThisDay($0, snap) }
+        case .largeFiles:
+            // 大小还没逐张查过时不把未知 size 算进去。调用方用骨架等着。
+            guard snap.sizesReady else { return [] }
+            return newest.filter { ScopeRules.isLargeFile(bytes: AssetSizeCache.shared.cachedBytes($0.id)) }
+                .sorted { a, b in
+                    let sa = AssetSizeCache.shared.cachedBytes(a.id) ?? -1
+                    let sb = AssetSizeCache.shared.cachedBytes(b.id) ?? -1
+                    if sa != sb { return sa > sb }
+                    if a.creationDate != b.creationDate { return a.creationDate > b.creationDate }
+                    return a.id < b.id
+                }
+        }
     }
 
     private func apply(_ d: Derived, source: [PhotoItem]?) {
@@ -349,9 +498,70 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         trashBytes = TrashTotals.bytes(entrySizes: trash.entries.mapValues(\.byteSize), present: d.trashed.map(\.id))
         visiblePhotos = d.visible
         visibleCount = d.visible.count
+        scopeCount = d.scopeCount
+        visibleBytes = d.visibleBytes
+        onThisDayCount = d.onThisDayCount
+        pages = d.pages
         sections = d.sections
         favoriteSections = d.favoriteSections
         trashItems = d.trashed
+    }
+
+    /// 第一次完整或「部分照片」读库：把系统收藏夹里的资产放进 FavoriteStore，然后打上标记，以后不再导入。
+    private func importSystemFavoritesIfNeeded(_ items: [PhotoItem]) -> Bool {
+        guard UserDefaults.standard.object(forKey: Self.favoriteImportKey) == nil else { return false }
+        let ids = items.filter { $0.asset.isFavorite }.map(\.id)
+        if !ids.isEmpty { favorites.add(ids) }
+        UserDefaults.standard.set(true, forKey: Self.favoriteImportKey)
+        return true
+    }
+
+    /// 进入大文件 / 截图 / 聊天才查 PHAssetResource。截图文件名和大小是同一次查询。
+    private func startFactScan() {
+        guard factsRequested, !isPartial, factScan == nil else { return }
+        let source = fetchOrdered
+        let pending = source.filter { AssetSizeCache.shared.cachedBytes($0.id) == nil }
+        if pending.isEmpty {
+            refreshScreenshotNames(source)
+            if !sizesReady {
+                sizesReady = true
+                rebuildDerived()
+            }
+            return
+        }
+        let box = pending.map { ($0.id, $0.asset) }
+        factScan = Task.detached(priority: .utility) {
+            var names = Set<String>()
+            for pair in box {
+                if Task.isCancelled { return }
+                let info = AssetSizeCache.shared.info(for: pair.1)
+                if ScopeRules.filenameLooksLikeScreenshot(info.originalFilename) {
+                    names.insert(pair.0)
+                }
+            }
+            let found = names
+            await MainActor.run {
+                self.factScan = nil
+                self.screenshotNameIds.formUnion(found)
+                self.refreshScreenshotNames(self.fetchOrdered)
+                self.sizesReady = true
+                self.rebuildDerived()
+                if self.factsRequested && self.fetchOrdered.contains(where: { AssetSizeCache.shared.cachedBytes($0.id) == nil }) {
+                    self.startFactScan()
+                }
+            }
+        }
+    }
+
+    private func refreshScreenshotNames(_ source: [PhotoItem]) {
+        var names = Set<String>()
+        for item in source {
+            if let file = AssetSizeCache.shared.cachedOriginalFilename(item.id),
+               ScopeRules.filenameLooksLikeScreenshot(file) {
+                names.insert(item.id)
+            }
+        }
+        screenshotNameIds = names
     }
 
     /// 「全部看过了」晾绳上的三张（Android hangPhotos = 按当前排序的前 3 张）。
@@ -362,6 +572,7 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     }
 
     private func rebuildDerived() {
+        today = Date()
         // 首屏批次还没补全时 fetchOrdered 为空：用已有的 allById 兜底
         let source = fetchOrdered.isEmpty ? Array(allById.values).sorted { $0.creationDate > $1.creationDate } : fetchOrdered
         apply(Self.derive(source: source, snap: snapshot()), source: nil)
@@ -685,50 +896,106 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         return (base, 0)
     }
 
-    /// 分组：输入已按时间排好，同一天的照片连续出现，所以只有跨天时才算一次日历区间，
-    /// 不再每张照片建 DateFormatter / 格式化字符串（几万张时这是主要耗时之一）。
-    nonisolated private static func group(items: [PhotoItem], gridCap: Int, ascending: Bool = false) -> [PhotoYearGroup] {
+    private enum GroupLayout { case day, month, flat }
+
+    /// 收藏页仍只露出每天前 8 张。照片页「全部」不截断；那年今天 cap 为 8，其余放进 overflow。
+    /// 同一天连续出现时只算一次日历区间。收藏按收藏时间穿插时，离开当天再回来会并回同一组。
+    nonisolated private static func buildGroups(
+        visible: [PhotoItem],
+        pool: [PhotoItem],
+        layout: GroupLayout,
+        cap: Int?,
+        ascending: Bool
+    ) -> [PhotoYearGroup] {
         let cal = Calendar.current
-        var dayOrder: [Int] = []
-        var dayMap: [Int: (Date, [PhotoItem])] = [:]
-        var curStart = Date.distantFuture, curEnd = Date.distantPast, curKey = 0
-        for item in items {
-            let d = item.creationDate
-            if DayKeyRule.isUnknown(d) {
-                // 没有拍摄时间：单独一组「未知日期」，键 -1（最新在前时排最后、最早在前时排最前，与 Android 按 0 排序一致）
-                if dayMap[-1] == nil { dayMap[-1] = (d, []); dayOrder.append(-1) }
-                dayMap[-1]!.1.append(item)
-                curStart = .distantFuture; curEnd = .distantPast
-                continue
-            }
-            if !(d >= curStart && d < curEnd) {
-                guard let iv = cal.dateInterval(of: .day, for: d) else { continue }
-                curStart = iv.start; curEnd = iv.end
-                let c = cal.dateComponents([.year, .month, .day], from: iv.start)
-                curKey = (c.year ?? 0) * 10000 + (c.month ?? 0) * 100 + (c.day ?? 0)
-                if dayMap[curKey] == nil { dayMap[curKey] = (iv.start, []); dayOrder.append(curKey) }
-            }
-            dayMap[curKey]!.1.append(item)
+        var poolMap: [String: [PhotoItem]] = [:]
+        var poolCursor = DateCursor()
+        for item in pool {
+            poolMap[groupKey(item, layout: layout, cal: cal, cursor: &poolCursor), default: []].append(item)
         }
-        let dayKeys = ascending ? dayOrder.sorted(by: <) : dayOrder.sorted(by: >)
+        var visibleMap: [String: [PhotoItem]] = [:]
+        var order: [String] = []
+        var visibleCursor = DateCursor()
+        for item in visible {
+            let key = groupKey(item, layout: layout, cal: cal, cursor: &visibleCursor)
+            if visibleMap[key] == nil { order.append(key) }
+            visibleMap[key, default: []].append(item)
+        }
+        let keys = order.sorted { lhs, rhs in
+            let a = groupSortKey(lhs)
+            let b = groupSortKey(rhs)
+            return ascending ? a < b : a > b
+        }
         var years: [Int] = []
         var yearMap: [Int: [PhotoDaySection]] = [:]
-        for key in dayKeys {
-            guard let (date, list) = dayMap[key] else { continue }
-            let y = key < 0 ? 0 : key / 10000
-            let id = key < 0 ? DayKeyRule.unknown : String(format: "%04d-%02d-%02d", y, (key / 100) % 100, key % 100)
+        for key in keys {
+            let members = visibleMap[key] ?? []
+            let poolMembers = poolMap[key] ?? members
+            let shown: [PhotoItem]
+            let overflow: [PhotoItem]
+            if let cap, layout == .day {
+                shown = Array(members.prefix(cap))
+                overflow = Array(members.dropFirst(cap))
+            } else {
+                shown = members
+                overflow = []
+            }
+            let year = groupYear(key)
+            let header: SectionHeaderKind = layout == .flat ? .none : (layout == .month ? .month : .day)
             let section = PhotoDaySection(
-                id: id,
-                date: date,
-                items: Array(list.prefix(gridCap)),
-                allItems: list,
-                totalCount: list.count,
-                unseenCount: list.reduce(0) { $0 + ($1.isUnseen ? 1 : 0) }
+                id: key == "flat" ? "flat" : key,
+                date: members.first?.creationDate ?? .distantPast,
+                items: shown,
+                allItems: members,
+                totalCount: poolMembers.count,
+                unseenCount: poolMembers.reduce(0) { $0 + ($1.isUnseen ? 1 : 0) },
+                overflow: overflow,
+                header: header
             )
-            if yearMap[y] == nil { years.append(y) }
-            yearMap[y, default: []].append(section)
+            if yearMap[year] == nil { years.append(year) }
+            yearMap[year, default: []].append(section)
         }
         return years.map { PhotoYearGroup(id: String($0), year: $0, days: yearMap[$0] ?? []) }
+    }
+
+    private struct DateCursor {
+        var start = Date.distantFuture
+        var end = Date.distantPast
+        var key = ""
+    }
+
+    nonisolated private static func groupKey(_ item: PhotoItem, layout: GroupLayout, cal: Calendar, cursor: inout DateCursor) -> String {
+        if layout == .flat { return "flat" }
+        let date = item.creationDate
+        if DayKeyRule.isUnknown(date) {
+            cursor.start = .distantFuture
+            cursor.end = .distantPast
+            return DayKeyRule.unknown
+        }
+        if date >= cursor.start && date < cursor.end && !cursor.key.isEmpty { return cursor.key }
+        let unit: Calendar.Component = layout == .month ? .month : .day
+        guard let interval = cal.dateInterval(of: unit, for: date) else { return DayKeyRule.unknown }
+        cursor.start = interval.start
+        cursor.end = interval.end
+        let c = cal.dateComponents([.year, .month, .day], from: interval.start)
+        if layout == .month {
+            cursor.key = String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
+        } else {
+            cursor.key = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+        }
+        return cursor.key
+    }
+
+    /// 未知日期用最小键：最新优先（降序）排最后，最早优先排最前。
+    nonisolated private static func groupSortKey(_ key: String) -> Int {
+        if key == DayKeyRule.unknown || key == "flat" { return Int.min }
+        let digits = key.replacingOccurrences(of: "-", with: "")
+        return Int(digits) ?? 0
+    }
+
+    nonisolated private static func groupYear(_ key: String) -> Int {
+        if key == DayKeyRule.unknown || key == "flat" { return 0 }
+        return Int(key.prefix(4)) ?? 0
     }
 }
 

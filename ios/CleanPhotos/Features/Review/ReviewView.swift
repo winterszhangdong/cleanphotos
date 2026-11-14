@@ -8,6 +8,8 @@ import os
 /// - 上下拖动整页（环境光 + 照片）像拎起的相纸：1 → 0.9、32pt 圆角、下滑去色压暗、上滑底部琥珀光 / 下滑暗角；
 /// - 提示圆：上滑在底部、下滑在顶部；过阈值 32 → 56 实心 + 1.14 pop；
 /// - 过阈值松手：离场层 250ms 飞向导航「收藏 / 垃圾桶」位置，当前页立刻换下一张（0.94 / 亮度 0.6 升起），不锁输入。
+/// - 进入只留当天进度条。点一下照片才显示返回、日期、星期·时间、文件名 · 大小，再点一下收回。
+///   左右或上下一拖就收回，松手不自动再出现。进度条不跟这面旗子走（教学期间仍按原规则藏起来）。
 struct ReviewView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     @EnvironmentObject private var language: LanguageStore
@@ -20,7 +22,8 @@ struct ReviewView: View {
     private let seedImage: UIImage?
     private let startPhotoId: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// 「⋯」菜单「去垃圾桶」：关掉清理页并切到垃圾桶（Android onNavigateToTrash）。
+    @Environment(\.scenePhase) private var scenePhase
+    /// 菜单已去掉（不再有「去垃圾桶 / 回到照片」）。参数留着，MainTabView 不用改。
     var onGoTrash: () -> Void = {}
 
     @StateObject private var session: ReviewSessionModel
@@ -42,9 +45,11 @@ struct ReviewView: View {
     @State private var receding: ReviewPage?
     /// 首次教学（has_seen_review_tutorial）：点「知道了」或完成任意一次翻页 / 滑动后永久关闭。
     @State private var tutorial = !ReviewPrefs.hasSeenTutorial
-    /// 方向提示小点：累计成功上滑 / 下滑不足 20 次时显示。
-    @State private var showHints = ReviewPrefs.showDirectionHints
-    @State private var menuOpen = false
+    /// 返回、日期、文件名。进入时关；点一下开，再点或开始拖动就关，松手不自动再开。
+    @State private var showDetails = false
+    /// 单击要等一下，确认不是双击的第一下（双击放大不能先闪出详情）。
+    @State private var detailsTask: Task<Void, Never>?
+    @State private var suppressDetailsUntil = Date.distantPast
     /// 双指缩放 / 双击放大（Android ReviewStageState zoom）：0.8–3×，静止范围 1–3×，松手低于 1× 弹跳回 1×。
     @State private var zoom: CGFloat = 1
     @State private var zoomOffset: CGSize = .zero
@@ -58,6 +63,14 @@ struct ReviewView: View {
     /// 只把 GestureState 复位 —— 靠它把拎起一半 / 拖了一半的照片弹回原位。
     @GestureState private var dragLive = false
     @GestureState private var pinchLive = false
+    @StateObject private var playback = PlaybackEngine()
+    /// 这次进入清理页记住的静音。默认静音，不写盘。实况照片不改这个开关。
+    @State private var playbackMuted = true
+    @State private var transportShown = false
+    /// 拖动 / 翻页弹簧 / 离场期间，播放器留在离开的那一张上。
+    @State private var playbackPinnedId: String?
+    @State private var playbackUnsettled = false
+    @State private var playbackHoldToken = 0
 
     enum DragAxis { case horizontal, vertical, pan }
 
@@ -89,7 +102,12 @@ struct ReviewView: View {
                     .contentShape(Rectangle())
                     .gesture(dragGesture(size: size, insets: insets).updating($dragLive) { _, live, _ in live = true })
                     .simultaneousGesture(pinchGesture(size: size, insets: insets).updating($pinchLive) { _, live, _ in live = true })
-                    .onTapGesture(count: 2, coordinateSpace: .local) { loc in doubleTap(at: loc, size: size, insets: insets) }
+                    .onTapGesture(count: 2, coordinateSpace: .local) { loc in
+                        cancelDetailsToggle()
+                        suppressDetailsUntil = Date().addingTimeInterval(0.35)
+                        doubleTap(at: loc, size: size, insets: insets)
+                    }
+                    .onTapGesture(count: 1) { scheduleDetailsToggle() }
                     .modifier(StageAccessibility(
                         photo: session.isOnSummary ? nil : session.currentPhoto,
                         favorites: session.scope == .favorites,
@@ -109,7 +127,6 @@ struct ReviewView: View {
                     if tutorialVisible {
                         ReviewTutorialOverlay(topInset: insets.top, bottomInset: insets.bottom, locale: language.effectiveLocale) { dismissTutorial() }
                     }
-                    moreMenu(insets: insets)
                 }
             }
             .frame(width: size.width, height: size.height)
@@ -118,6 +135,7 @@ struct ReviewView: View {
                 library.reviewActive = true
                 if let id = startPhotoId { images.seed(id, seedImage) }
                 prepare(size: size, insets: insets); markSeenCurrent()
+                loadCurrentPlayback()
                 if PerfAutoSwipe.count > 0 { runAutoSwipe(size: size, insets: insets) }
                 if sharedEntry {
                     let s = NavChromeFade.State(start: Date(), entering: true)
@@ -127,12 +145,37 @@ struct ReviewView: View {
                     }
                 }
             }
-            .onDisappear { FrameMonitor.shared.stop("review"); library.endReview() }
-            .onChange(of: session.index) { _, _ in prepareSoon(size: size, insets: insets); markSeenCurrent(); resetZoom() }
+            .onDisappear {
+                detailsTask?.cancel()
+                playbackHoldToken += 1
+                playback.release()
+                FrameMonitor.shared.stop("review")
+                library.endReview()
+            }
+            .onChange(of: session.index) { _, _ in
+                transportShown = false
+                if playbackSettled { loadCurrentPlayback() }
+                prepareSoon(size: size, insets: insets); markSeenCurrent(); resetZoom()
+            }
+            .onChange(of: playbackMuted) { _, muted in playback.applyMute(remembered: muted) }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background { playback.noteBackground() }
+                else if phase == .active { playback.noteActive() }
+            }
+            .background {
+                PlaybackAutoplayGate(
+                    engine: playback,
+                    settled: playbackSettled && playbackHostPhotoId == session.currentPhoto?.id,
+                    animationsEnabled: !reduceMotion
+                )
+            }
             .onChange(of: dragLive) { _, live in if !live { DispatchQueue.main.async { dragCancelledIfNeeded(size: size) } } }
             .onChange(of: pinchLive) { _, live in if !live { DispatchQueue.main.async { pinchCancelledIfNeeded(size: size, insets: insets) } } }
             .onChange(of: zoom > 1.01) { _, z in
-                if z, let p = session.currentPhoto { images.ensureZoom(p, library: library, side: max(size.width, size.height)) }
+                // 捏合或双击越过 1× 才解当前这一张。JPEG/HEIC 仍是屏幕长边；RAW/PNG 约 3 倍。不预取邻页。
+                guard z, let p = session.currentPhoto else { return }
+                let heavy = reviewFileFlags(p.asset).heavy
+                images.ensureZoom(p, library: library, side: max(size.width, size.height), sharpScale: heavy ? 3 : 1)
             }
             .onChange(of: session.pages.count) { _, _ in
                 prepareSoon(size: size, insets: insets)
@@ -159,6 +202,7 @@ struct ReviewView: View {
             if let p = page(at: i), case .photo(let ph) = p { return ph } else { return nil }
         }
         AssetSizeCache.shared.prefetch(window.map(\.asset))
+        ReviewFileFlagsCache.shared.prefetch(window.map(\.asset))
         var keep = Set(flights.compactMap { f -> String? in if case .photo(let p) = f.page { return p.id } else { return nil } })
         // 还能撤回的那张：翻出去几页后它的图也别丢，撤回飞回来时才有画面
         if let acted = lastActed { keep.insert(acted.photo.id) }
@@ -209,6 +253,7 @@ struct ReviewView: View {
                 let q = CGFloat(CubicBezier.decelerate(min(1, now.timeIntervalSince(e.start) / (ReviewTokens.undoFlight * 0.3))))
                 pageContent(r, size: size, insets: insets, rim: false)
                     .colorMultiply(Color(white: Double(1 - (1 - 0.35) * q)))
+                    .overlay(alignment: .bottomLeading) { rawMark(for: r, size: size, insets: insets) }
                     .scaleEffect(1 - (1 - 0.94) * q)
                     .zIndex(2.5)
             }
@@ -301,8 +346,11 @@ struct ReviewView: View {
             offset = CGSize(width: dx + CGFloat(item.role) * size.width, height: 0)
         }
         return pageContent(item.page, size: size, insets: insets, rim: isCur && vertical && !isSummary)
+            .overlay { videoPlate(item.page, size: size, insets: insets) }
             .saturation(sat)
             .overlay { Color.black.opacity(max(0, 1 - bright)).allowsHitTesting(false) }
+            // RAW 在色调层外面：下滑去色压暗不把它带灰。详情 / 教学 / 撤回胶囊出现时自己淡出。
+            .overlay(alignment: .bottomLeading) { rawMark(for: item.page, size: size, insets: insets) }
             .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
             .scaleEffect(scale)
             .opacity(alpha)
@@ -324,8 +372,10 @@ struct ReviewView: View {
             let dim = tutorialVisible && isPhotoPage(item.page)
             let isSummary: Bool = { if case .summary = item.page { return true }; return false }()
             pageContent(item.page, size: size, insets: insets, rim: vertical && !isSummary)
+                .overlay { videoPlate(item.page, size: size, insets: insets) }
                 .saturation(Double(ReviewMath.dragSaturation(vertical && !isSummary ? dy : 0) * (e?.saturation(now) ?? 1)) * (dim ? 0.6 : 1))
                 .colorMultiply(Color(white: Double(ReviewMath.dragBrightness(vertical && !isSummary ? dy : 0) * entryBright) * (dim ? 0.32 : 1)))
+                .overlay(alignment: .bottomLeading) { rawMark(for: item.page, size: size, insets: insets) }
                 .clipShape(RoundedRectangle(cornerRadius: (e?.undoFrom != nil) ? ReviewTokens.liftCorner : ReviewTokens.liftCorner * lift, style: .continuous))
                 .scaleEffect(s)
                 .opacity(Double(e?.alpha(now) ?? 1))
@@ -334,7 +384,9 @@ struct ReviewView: View {
             let side = CGFloat(item.role)
             let towards = item.role == 1 ? min(0, dx) : max(0, dx)
             pageContent(item.page, size: size, insets: insets, rim: false)
+                .overlay { videoPlate(item.page, size: size, insets: insets) }
                 .colorMultiply(Color(white: Double(ReviewMath.enteringBrightness(towards, width: size.width))))
+                .overlay(alignment: .bottomLeading) { rawMark(for: item.page, size: size, insets: insets) }
                 .offset(x: dx + side * size.width)
         }
     }
@@ -445,8 +497,10 @@ struct ReviewView: View {
     private func flightLayer(_ f: ExitFlight, size: CGSize, insets: EdgeInsets, now: Date) -> some View {
         let pose = f.pose(f.progress(now))
         return pageContent(f.page, size: size, insets: insets, rim: false)
+            .overlay { videoPlate(f.page, size: size, insets: insets) }
             .saturation(Double(pose.saturation))
             .colorMultiply(Color(white: Double(pose.brightness)))
+            .overlay(alignment: .bottomLeading) { rawMark(for: f.page, size: size, insets: insets) }
             .clipShape(RoundedRectangle(cornerRadius: ReviewTokens.liftCorner, style: .continuous))
             .scaleEffect(pose.scale)
             .opacity(Double(pose.alpha))
@@ -540,10 +594,13 @@ struct ReviewView: View {
 
     static let warmBlack = Color(red: 0x0A/255, green: 0x09/255, blue: 0x08/255)
 
-    /// 页面装饰（Android ReviewScreen）：上下暖黑渐变、当天进度条、顶栏、元信息行；教学期间只留顶栏返回钮。
-    /// 横屏（mock 17）：顶部渐变 96、无底部渐变，进度条左 48 右 24，顶栏左 40 右 24，元信息左 48 底 20、不显示方向小点。
+    /// 页面装饰（Android ReviewScreen）：进度条一直在（教学期间藏起，竖拖时跟 chromeAlpha 淡出再回来）。
+    /// 返回、日期、星期·时间、文件名只在点开详情或教学时出现。渐变只垫详情。
+    /// 横屏（mock 17）：顶部渐变 96、无底部渐变，进度条左 48 右 24，顶栏左 40 右 24，元信息左 48 底 20。
     private struct ChromeKey: Equatable {
-        let photo: PhotoItem; let cells: [DayCellState]; let tutorial: Bool; let undoNil: Bool; let hints: Bool
+        let photo: PhotoItem; let cells: [DayCellState]; let tutorial: Bool; let undoNil: Bool; let details: Bool
+        let showCenter: Bool; let showPause: Bool; let showProgress: Bool; let motion: Bool; let muted: Bool
+        let fileDuration: Bool
         let size: CGSize; let insets: EdgeInsets; let locale: String
     }
 
@@ -551,10 +608,18 @@ struct ReviewView: View {
     private func chrome(size: CGSize, insets: EdgeInsets) -> some View {
         if let photo = session.currentPhoto {
             let cells = session.cells(for: photo)
+            let decision = playbackChrome(for: photo)
+            let details = effectiveDetails(decision, photo: photo)
+            let showProgress = decision.showProgress && library.undoBanner == nil && !tutorialVisible
+            let motion = isCurrentMotion(photo) && details && !tutorialVisible
             EquatableBox(key: ChromeKey(photo: photo, cells: cells, tutorial: tutorialVisible, undoNil: library.undoBanner == nil,
-                                        hints: showHints, size: size, insets: insets,
-                                        locale: language.effectiveLocale.identifier)) {
-                chromeBody(photo, cells: cells, size: size, insets: insets)
+                                        details: details, showCenter: decision.showCenter && !tutorialVisible,
+                                        showPause: decision.showPauseIcon, showProgress: showProgress, motion: motion,
+                                        muted: playbackMuted, fileDuration: photo.isVideo && details && !showProgress,
+                                        size: size, insets: insets, locale: language.effectiveLocale.identifier)) {
+                chromeBody(photo, cells: cells, size: size, insets: insets, details: details,
+                           showCenter: decision.showCenter && !tutorialVisible, showPause: decision.showPauseIcon,
+                           showProgress: showProgress, motion: motion)
             }
             .equatable()
             .opacity(chromeAlpha)
@@ -562,10 +627,15 @@ struct ReviewView: View {
         }
     }
 
-    private func chromeBody(_ photo: PhotoItem, cells: [DayCellState], size: CGSize, insets: EdgeInsets) -> some View {
+    private func chromeBody(_ photo: PhotoItem, cells: [DayCellState], size: CGSize, insets: EdgeInsets,
+                            details: Bool, showCenter: Bool, showPause: Bool, showProgress: Bool, motion: Bool) -> some View {
             let land = size.width > size.height
+            let zh = language.isChineseUI
+            let bottom = insets.bottom + (land ? 20 : 32)
+            let fileDuration = photo.isVideo && details && !showProgress && photo.duration > 0
+                ? ScopeRules.formatDuration(seconds: photo.duration) : nil
             return ZStack {
-                if !tutorialVisible {
+                if details {
                     VStack(spacing: 0) {
                         LinearGradient(colors: [Self.warmBlack.opacity(0.62), .clear], startPoint: .top, endPoint: .bottom)
                             .frame(height: land ? 96 : 160)
@@ -576,6 +646,7 @@ struct ReviewView: View {
                         }
                     }
                     .allowsHitTesting(false)
+                    .transition(.opacity)
                 }
 
                 VStack(spacing: 0) {
@@ -584,18 +655,41 @@ struct ReviewView: View {
                         .padding(.trailing, land ? 24 + insets.trailing : 16)
                         .padding(.top, insets.top + (land ? 12 : 8))
                         .opacity(tutorialVisible ? 0 : 1)
-                    topBar(photo)
-                        .padding(.leading, land ? 40 - 12 + insets.leading : 0)
-                        .padding(.trailing, land ? 24 - 12 + insets.trailing : 0)
-                        .padding(.top, land ? 12 : 12)
-                    Spacer()
-                    if library.undoBanner == nil && !tutorialVisible {
-                        ReviewMetaRow(photo: photo, scope: session.scope, locale: language.effectiveLocale, showHints: showHints && !land)
-                            .padding(.leading, land ? 48 + insets.leading : 16)
-                            .padding(.trailing, land ? 16 + insets.trailing : 16)
-                            .padding(.bottom, insets.bottom + (land ? 20 : 32))
+                        .allowsHitTesting(false)
+                    if details || tutorialVisible {
+                        topBar(photo, motion: motion)
+                            .padding(.leading, land ? 40 - 12 + insets.leading : 0)
+                            .padding(.trailing, land ? 24 - 12 + insets.trailing : 0)
+                            .padding(.top, land ? 12 : 12)
                             .transition(.opacity)
                     }
+                    Spacer()
+                    if showProgress {
+                        PlaybackProgressRow(engine: playback, muted: playbackMuted, zh: zh, onMute: {
+                            playbackMuted.toggle()
+                        }, onSeeked: {
+                            transportShown = false
+                        })
+                        .padding(.leading, land ? 48 + insets.leading : 16)
+                        .padding(.trailing, land ? 16 + insets.trailing : 16)
+                        .padding(.bottom, details ? DarkroomDimens.playbackGap : bottom)
+                    }
+                    if details && library.undoBanner == nil {
+                        ReviewMetaRow(photo: photo, duration: fileDuration)
+                            .padding(.leading, land ? 48 + insets.leading : 16)
+                            .padding(.trailing, land ? 16 + insets.trailing : 16)
+                            .padding(.bottom, bottom)
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
+                    }
+                }
+                PlaybackCenterButton(
+                    visible: showCenter,
+                    showPause: showPause,
+                    label: showPause ? PlaybackCopy.pause(zh: zh) : PlaybackCopy.play(zh: zh)
+                ) {
+                    playback.togglePlay()
+                    transportShown = false
                 }
             }
     }
@@ -610,18 +704,22 @@ struct ReviewView: View {
         handler(id, id.flatMap { images.image($0) })
     }
 
-    /// .rv-top：40pt 玻璃返回 + 日期 15/20 500 + mono 10.5「星期 · 时间」相纸白 66% + 右侧「⋯」（教学期间隐藏）。
-    private func topBar(_ photo: PhotoItem) -> some View {
+    /// .rv-top：40pt 玻璃返回 + 日期 15/20 500 + mono 10.5「星期 · 时间」相纸白 66%。没有右上角菜单。
+    private func topBar(_ photo: PhotoItem, motion: Bool) -> some View {
         ZStack {
             HStack {
                 GlassCircleButton(systemName: "chevron.left") { close() }
                     .accessibilityLabel(Text(L10n.string("cd_back", locale: language.effectiveLocale)))
                     .accessibilityIdentifier("review-back")
                 Spacer()
-                if !tutorialVisible {
-                    GlassCircleButton(systemName: "ellipsis") { withAnimation(DarkroomMotion.menuIn) { menuOpen = true } }
-                        .accessibilityLabel(Text(L10n.string("cd_more", locale: language.effectiveLocale)))
-                        .accessibilityIdentifier("review-more")
+                if motion {
+                    PlaybackMotionPill(
+                        title: PlaybackCopy.motion(zh: language.isChineseUI),
+                        label: PlaybackCopy.replay(zh: language.isChineseUI)
+                    ) {
+                        playback.replayMotion()
+                        showDetails = false
+                    }
                 }
             }
             VStack(spacing: 0) {
@@ -636,6 +734,8 @@ struct ReviewView: View {
             }
             // 翻页在 snappy 弹簧事务里换 index：不让这里的文字跟着做隐式插值（带阴影的文字组每帧都要在主线程 CPU 重画）。
             // 日期里程表自己按时间轴滚动，不受影响；时间行与 Android 一样直接换字。
+            // 日期不吃点击，点在字上也能收回详情；返回钮自己可点。
+            .allowsHitTesting(false)
             .transaction { if !PerfLegacy.on { $0.animation = nil } }
             .shadow(color: .black.opacity(0.4), radius: 10, y: 2.6)
             .accessibilityElement(children: .combine)
@@ -643,32 +743,6 @@ struct ReviewView: View {
         }
         .frame(height: 40)
         .padding(.horizontal, 12)
-    }
-
-    /// 「⋯」更多菜单：去垃圾桶（带数量）/ 回到照片。
-    @ViewBuilder
-    private func moreMenu(insets: EdgeInsets) -> some View {
-        if menuOpen {
-            ZStack(alignment: .topTrailing) {
-                DarkroomColors.menuScrim
-                    .contentShape(Rectangle())
-                    .onTapGesture { withAnimation(DarkroomMotion.menuIn) { menuOpen = false } }
-                    .accessibilityHidden(true)
-                DarkroomMenuView(header: L10n.string("menu_more_header", locale: language.effectiveLocale), options: [
-                    DarkroomMenuOption(label: L10n.string("review_go_trash", locale: language.effectiveLocale),
-                                       trailing: library.trash.count > 0 ? "\(library.trash.count)" : nil, selected: false) {
-                        menuOpen = false
-                        onGoTrash()
-                    },
-                    DarkroomMenuOption(label: L10n.string("back_to_photos", locale: language.effectiveLocale), trailing: nil, selected: false) {
-                        menuOpen = false
-                        close()
-                    },
-                ])
-                .padding(.top, insets.top + 8 + 2 + 12 + 40 + 8)
-                .padding(.trailing, 12)
-            }
-        }
     }
 
     private struct UndoKey: Equatable {
@@ -778,6 +852,7 @@ struct ReviewView: View {
                 if pinched { return } // 这次触摸里捏合过：单指位移交给缩放
                 if axis == nil, zoom > 1.01 {
                     axis = .pan; panBase = zoomOffset
+                    cancelDetailsToggle()
                 }
                 if axis == .pan {
                     zoomOffset = clampZoomOffset(ReviewGestureEnd.panOffset(base: panBase, translation: t), zoom, size: size, insets: insets)
@@ -894,6 +969,12 @@ struct ReviewView: View {
         // 定方向那一刻扣掉 touch slop，跟手不跳
         let along = a == .horizontal ? t.width : t.height
         slop = (along < 0 ? -1 : 1) * min(ReviewTokens.touchSlop, abs(along))
+        if a == .horizontal || a == .vertical {
+            // 进度条不跟这面旗子走：横滑它留着，竖滑仍走原来的 chromeAlpha 淡出。
+            pinPlayback()
+            cancelDetailsToggle()
+            hideDetails()
+        }
         if a == .vertical {
             ReviewHaptics.prepare()
             dx = 0
@@ -932,10 +1013,12 @@ struct ReviewView: View {
         switch a {
         case .horizontal:
             withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0 }
+            releasePlayback(after: DarkroomMotion.long)
         case .vertical:
             if past { setPast(false) }
             withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dy = 0 }
             withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
+            releasePlayback(after: DarkroomMotion.long)
         case .pan:
             break
         }
@@ -975,6 +1058,7 @@ struct ReviewView: View {
         } else {
             let rel = dx == 0 ? 0 : Double(-vx / dx)
             withAnimation(reduceMotion ? nil : SpringToken.settle.animation(initialVelocity: rel)) { dx = 0 }
+            releasePlayback(after: DarkroomMotion.long)
         }
     }
 
@@ -982,6 +1066,9 @@ struct ReviewView: View {
     /// direction: -1 = 下一张，+1 = 上一张。
     private func advance(_ direction: Int, size: CGSize, velocity: CGFloat = 0) {
         // 只有用户翻页才关教学（Android：页面 settle 到别的页）；重建页序导致的 index 变化不算
+        if playbackPinnedId == nil, session.currentPhoto != nil { pinPlayback() }
+        cancelDetailsToggle()
+        hideDetails()
         dismissTutorial()
         let fromDay = session.currentPhoto.map { ReviewSessionModel.dayKey($0.creationDate) }
         let remaining = size.width - abs(dx)
@@ -993,6 +1080,7 @@ struct ReviewView: View {
         }
         let toDay = session.currentPhoto.map { ReviewSessionModel.dayKey($0.creationDate) }
         if fromDay != nil, toDay != nil, fromDay != toDay { ReviewHaptics.tick() }
+        releasePlayback(after: DarkroomMotion.medium)
     }
 
     private func releaseVertical(vy: CGFloat, size: CGSize, insets: EdgeInsets) {
@@ -1008,6 +1096,7 @@ struct ReviewView: View {
             withAnimation(reduceMotion ? nil : SpringToken.settle.animation(initialVelocity: rel)) { dy = 0 }
             axis = nil
             withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
+            releasePlayback(after: DarkroomMotion.long)
             return
         }
         trigger(photo, up: release == .up, vy: vy, size: size, insets: insets)
@@ -1016,6 +1105,7 @@ struct ReviewView: View {
     /// 读屏自定义操作：和过阈值松手走同一条路径（离场 + 撤回条）。
     private func a11ySwipe(up: Bool, size: CGSize, insets: EdgeInsets) {
         guard !session.isOnSummary, let photo = session.currentPhoto else { return }
+        hideDetails()
         trigger(photo, up: up, vy: up ? -1500 : 1500, size: size, insets: insets)
     }
 
@@ -1070,9 +1160,14 @@ struct ReviewView: View {
             }
         }
         ReviewPrefs.recordSwipe()
-        showHints = ReviewPrefs.showDirectionHints
+        hideDetails()
         dismissTutorial()
         withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
+        if playbackPinnedId == nil {
+            playbackPinnedId = photo.id
+            playback.pauseForGesture()
+        }
+        releasePlayback(after: ReviewTokens.exitDuration)
         let fid = flight.id
         // 收藏离场的两层余影比主体晚 20% / 40%：离场层留到最后一层余影走完再拿掉（之前 250ms 一到，余影在 80% / 60% 处整块消失）
         let life = ReviewTokens.exitDuration * (up ? 1 + (ReviewTokens.afterimages.map(\.0).max() ?? 0) : 1)
@@ -1117,11 +1212,13 @@ struct ReviewView: View {
                 guard session.currentPhoto != nil, !session.isOnSummary else { return }
                 if pinchBase == nil {
                     pinched = true
+                    cancelDetailsToggle()
                     if axis == .horizontal || axis == .vertical {
-                        // 拖动中第二根手指落下：取消拖动，切到缩放
+                        // 拖动中第二根手指落下：取消拖动，切到缩放。缩放本身不暂停。
                         if past { setPast(false) }
                         withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0; dy = 0 }
                         withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
+                        releasePlayback(after: DarkroomMotion.long)
                     }
                     pinchBase = (zoom, zoomOffset)
                     if zoom >= GestureTokensIOS.zoomRestMin { rawZoom = zoom }
@@ -1183,6 +1280,167 @@ struct ReviewView: View {
         ReviewPrefs.markTutorialSeen()
     }
 
+    /// 系统会把单击立刻交上来。等 280ms，双击放大或拖动开始就取消，避免详情闪一下。
+    private func scheduleDetailsToggle() {
+        detailsTask?.cancel()
+        guard Date() >= suppressDetailsUntil else { return }
+        guard tutorialVisible == false, session.currentPhoto != nil else { return }
+        detailsTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled, Date() >= suppressDetailsUntil else { return }
+            guard axis == nil, !tutorialVisible, let photo = session.currentPhoto else { return }
+            switch PlaybackRules.reviewPhotoTap(
+                isVideo: pageIsVideo(photo),
+                playing: playback.isPlaying,
+                transportShown: transportShown,
+                detailsOpen: showDetails
+            ) {
+            case .toggleTransport(let show):
+                withAnimation(DarkroomMotion.shortCurve) { transportShown = show }
+            case .toggleDetails(let show):
+                withAnimation(.timingCurve(0.2, 0, 0, 1, duration: showDetails ? DarkroomMotion.micro : DarkroomMotion.short)) {
+                    showDetails = show
+                }
+            case nil:
+                break
+            }
+        }
+    }
+
+    private func cancelDetailsToggle() {
+        detailsTask?.cancel()
+        detailsTask = nil
+    }
+
+    /// 拖动一开始就收，不跟进度条的淡出。松手后的 chromeAlpha 还原不会把它再打开。
+    private func hideDetails() {
+        guard showDetails else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { showDetails = false }
+    }
+
+    // MARK: - Playback
+
+    /// `withAnimation` 会立刻把 dx 写成 0，弹簧只活在渲染里。停稳靠这次手势的 token，不看 dx。
+    private var playbackSettled: Bool {
+        !playbackUnsettled && playbackPinnedId == nil && axis != .horizontal && axis != .vertical
+    }
+
+    private var playbackHostPhotoId: String? {
+        if let playbackPinnedId { return playbackPinnedId }
+        guard let photo = session.currentPhoto, playback.loaded?.id == photo.id, !playback.loadFailed else { return nil }
+        return photo.id
+    }
+
+    /// 已知视频加载失败仍算视频，中心键留下可以重试。实况照片不是视频。
+    private func pageIsVideo(_ photo: PhotoItem) -> Bool { photo.isVideo }
+
+    private func isCurrentMotion(_ photo: PhotoItem) -> Bool {
+        playback.loaded?.id == photo.id && playback.loaded?.kind == .motion && !playback.loadFailed
+    }
+
+    private func playbackChrome(for photo: PhotoItem) -> PlaybackChromeState {
+        let identified = playback.loaded?.id == photo.id
+        let video = pageIsVideo(photo)
+        let failed = identified && playback.loadFailed
+        let phase = PlaybackRules.phase(
+            started: playback.started, userPaused: playback.userPaused, ended: playback.ended, playing: playback.isPlaying)
+        let awaiting = video && !failed && PlaybackRules.awaitingAutoplay(
+            animationsEnabled: !reduceMotion,
+            settled: playbackSettled && (identified || playback.loaded == nil),
+            resumed: playback.resumed,
+            started: playback.started,
+            userPaused: playback.userPaused,
+            ended: playback.ended)
+        return PlaybackRules.chrome(
+            isVideo: video && (identified || playback.loaded == nil),
+            phase: phase,
+            gestureActive: playbackUnsettled || axis == .horizontal || axis == .vertical,
+            pinnedOrExiting: playbackPinnedId != nil,
+            awaitingAutoplay: awaiting,
+            transportShown: transportShown)
+    }
+
+    private func effectiveDetails(_ chrome: PlaybackChromeState, photo: PhotoItem) -> Bool {
+        switch chrome.details {
+        case .hidden: return false
+        case .shown: return true
+        case .keep: return showDetails && !tutorialVisible
+        }
+    }
+
+    private func loadCurrentPlayback() {
+        guard playbackPinnedId == nil else { return }
+        if let photo = session.currentPhoto {
+            playback.ensureLoaded(id: photo.id, asset: photo.asset)
+            if let next = page(at: session.index + 1), case .photo(let item) = next {
+                LiveVideoCache.prefetch(item.asset)
+            }
+        } else {
+            playback.clear()
+        }
+        playback.applyMute(remembered: playbackMuted)
+    }
+
+    private func pinPlayback() {
+        playbackHoldToken += 1
+        playbackUnsettled = true
+        if playbackPinnedId == nil { playbackPinnedId = session.currentPhoto?.id }
+        playback.pauseForGesture()
+        transportShown = false
+    }
+
+    private func releasePlayback(after seconds: Double) {
+        playbackHoldToken += 1
+        let token = playbackHoldToken
+        playbackUnsettled = true
+        let delay = reduceMotion ? 0 : seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard token == playbackHoldToken, axis == nil else { return }
+            playbackUnsettled = false
+            playbackPinnedId = nil
+            loadCurrentPlayback()
+        }
+    }
+
+    @ViewBuilder
+    private func videoPlate(_ page: ReviewPage, size: CGSize, insets: EdgeInsets) -> some View {
+        if case .photo(let photo) = page, photo.id == playbackHostPhotoId {
+            let fitted = ZoomClamp.fit(
+                pixelWidth: photo.asset.pixelWidth, pixelHeight: photo.asset.pixelHeight,
+                screen: size, top: insets.top, bottom: insets.bottom)
+            PlaybackSurface(
+                player: playback.player,
+                fadeOut: playback.loaded?.kind == .motion && playback.ended,
+                animateFade: !reduceMotion
+            )
+            .frame(width: fitted.size.width, height: fitted.size.height)
+            .offset(y: fitted.centerShiftY)
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// 照片左下角「RAW」。跟页面一起移动缩放，但不进饱和度 / 压暗。详情、教学或撤回胶囊占着底部时淡出。
+    @ViewBuilder
+    private func rawMark(for page: ReviewPage, size: CGSize, insets: EdgeInsets) -> some View {
+        if case .photo(let photo) = page, reviewFileFlags(photo.asset).raw {
+            let land = size.width > size.height
+            let hidden = showDetails || tutorialVisible || library.undoBanner != nil
+            Text("RAW")
+                .font(DarkroomFonts.plexMono(size: 10.5))
+                .tracking(0.21)
+                .foregroundStyle(DarkroomColors.paper.opacity(0.88))
+                .shadow(color: .black.opacity(0.8), radius: 4, y: 1)
+                .padding(.leading, land ? 48 + insets.leading : 16)
+                .padding(.bottom, insets.bottom + (land ? 20 : 32))
+                .opacity(hidden ? 0 : 1)
+                .animation(.timingCurve(0.2, 0, 0, 1, duration: hidden ? DarkroomMotion.micro : DarkroomMotion.short), value: hidden)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
     // MARK: - Helpers
 
     /// 清理页撤回条：单张主文案 + 副文案（「可释放 2.4 MB」/「9月21日 · 第 3 张」）。
@@ -1213,6 +1471,59 @@ struct ReviewView: View {
     private func timeLine(_ date: Date) -> String {
         if DayKeyRule.isUnknown(date) { return "" } // Android reviewMeta：没有拍摄时间时为空
         return DateFormatCache.string(date, format: "EEE · HH:mm", locale: language.effectiveLocale)
+    }
+}
+
+/// 原始文件名的扩展名。只看最后一个扩展名，不看 UTI。没有扩展名就不是。
+private func reviewFileFlags(_ asset: PHAsset) -> ReviewFileFlags {
+    ReviewFileFlagsCache.shared.flags(for: asset)
+}
+
+private struct ReviewFileFlags: Equatable {
+    var raw: Bool
+    var heavy: Bool
+}
+
+/// 清理页判断 RAW / 大文件（RAW 或 PNG）。结果按 asset id 缓存，拖动的每一帧不再查 PHAssetResource。
+private final class ReviewFileFlagsCache: @unchecked Sendable {
+    static let shared = ReviewFileFlagsCache()
+    private let lock = NSLock()
+    private var map: [String: ReviewFileFlags] = [:]
+    /// 与 Android RawFile 同一份词表，另加 png（放大时才解更清楚的那张）。
+    private static let rawExtensions: Set<String> = [
+        "dng", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2",
+        "orf", "raf", "pef", "rw2", "srw", "gpr",
+    ]
+
+    func flags(for asset: PHAsset) -> ReviewFileFlags {
+        let id = asset.localIdentifier
+        lock.lock()
+        if let cached = map[id] { lock.unlock(); return cached }
+        lock.unlock()
+        let computed = Self.compute(asset)
+        lock.lock()
+        if let cached = map[id] { lock.unlock(); return cached }
+        map[id] = computed
+        lock.unlock()
+        return computed
+    }
+
+    func prefetch(_ assets: [PHAsset]) {
+        guard !assets.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async {
+            for asset in assets { _ = self.flags(for: asset) }
+        }
+    }
+
+    private static func compute(_ asset: PHAsset) -> ReviewFileFlags {
+        var raw = false
+        var png = false
+        for resource in PHAssetResource.assetResources(for: asset) {
+            let ext = (resource.originalFilename as NSString).pathExtension.lowercased()
+            if Self.rawExtensions.contains(ext) { raw = true }
+            if ext == "png" { png = true }
+        }
+        return ReviewFileFlags(raw: raw, heavy: raw || png)
     }
 }
 

@@ -235,7 +235,7 @@ final class ReviewImageStore: ObservableObject {
     @Published private(set) var images: [String: UIImage] = [:]
     /// 预渲染好的环境光位图（放大 1.2、模糊 36、饱和 1.3、亮度 40%），翻页时只平移贴图、不再每帧实时模糊。
     @Published private(set) var glows: [String: UIImage] = [:]
-    /// 放大查看时才要的高清图（长边 = 屏幕长边像素，与改动前的请求尺寸一致）。
+    /// 放大超过 1× 才解码的高清图。JPEG/HEIC 长边与以前一样；RAW/PNG 约 3 倍。缩回 1× 不丢。
     @Published private(set) var zoomed: [String: UIImage] = [:]
     private var requests: [String: PHImageRequestID] = [:]
     private var zoomRequests: [String: PHImageRequestID] = [:]
@@ -319,24 +319,32 @@ final class ReviewImageStore: ObservableObject {
         }
     }
 
-    /// 放大当前照片时补一张高清（长边 = 屏幕长边像素）；缩回不丢，翻走时随窗口回收。
-    func ensureZoom(_ item: PhotoItem, library: PhotoLibraryService, side: CGFloat) {
+    /// 放大当前这一张时补高清。`side` 仍是屏幕长边（点，requestFullImage 再乘屏幕 scale）；
+    /// `sharpScale` 为 1（JPEG/HEIC）或约 3（RAW/PNG）。失败、或解出来比屏幕上这张更小：保持原图。
+    /// 缩回 1× 后位图留着；翻出预取窗口才回收。不在这里预取邻页。
+    func ensureZoom(_ item: PhotoItem, library: PhotoLibraryService, side: CGFloat, sharpScale: CGFloat = 1) {
         let id = item.id
         guard zoomRequests[id] == nil else { return }
-        zoomRequests[id] = library.requestFullImage(for: item.asset, maxSide: side) { [weak self] img in
+        let maxSide = side * max(sharpScale, 1)
+        zoomRequests[id] = library.requestFullImage(for: item.asset, maxSide: maxSide) { [weak self] img in
             guard let img else { return }
             Self.work.async {
                 let ready = img.preparingForDisplay() ?? img
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         guard let self, self.zoomRequests[id] != nil else { return }
-                        if let cur = self.zoomed[id], ready.size.width * ready.scale <= cur.size.width * cur.scale { return }
+                        if let cur = self.zoomed[id], Self.pixelLongEdge(ready) <= Self.pixelLongEdge(cur) { return }
+                        if let screen = self.images[id], Self.pixelLongEdge(ready) + 0.5 < Self.pixelLongEdge(screen) { return }
                         self.zoomed[id] = ready
                         self.revs[id, default: 0] += 1
                     }
                 }
             }
         }
+    }
+
+    private static func pixelLongEdge(_ img: UIImage) -> CGFloat {
+        max(img.size.width, img.size.height) * img.scale
     }
 
     nonisolated(unsafe) private static let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,

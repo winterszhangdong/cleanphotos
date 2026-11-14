@@ -6,19 +6,23 @@ struct PhotoTileView: View {
     let side: CGFloat
     var develop: Bool
     var developDelay: Double
-    var showUnseen: Bool = true
+    var showUnseen: Bool = false
     var selecting: Bool = false
     var selected: Bool = false
+    /// 大文件格子左下角的大小。nil 不写大小。RAW 另查文件名，和大小合成一行。
+    var sizeText: String? = nil
 
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var image: UIImage?
     @State private var requestID: PHImageRequestID?
+    @State private var raw = false
 
     private static let pickCurve = Animation.timingCurve(0.2, 0, 0, 1, duration: 0.16)
+    /// 有角标时底部 28pt 暗角，字才看得清。
+    private static let scrimHeight: CGFloat = 28
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // 选中时缩小露出的是暗房底（.grid4.sel .tile 背景 room）
             (selecting ? DarkroomColors.room : DarkroomColors.tileFill)
             ZStack {
                 DarkroomColors.tileFill
@@ -33,11 +37,34 @@ struct PhotoTileView: View {
                 }
             }
             .frame(width: side, height: side)
+            .overlay(alignment: .bottom) {
+                if markLine != nil || durationText != nil {
+                    LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: Self.scrimHeight)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if let markLine {
+                    Text(markLine)
+                        .font(DarkroomType.tileBadge)
+                        .foregroundStyle(DarkroomColors.paper)
+                        .lineLimit(1)
+                        .padding(DarkroomDimens.unseenInset)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let durationText {
+                    Text(durationText)
+                        .font(DarkroomType.tileBadge)
+                        .foregroundStyle(DarkroomColors.paper)
+                        .padding(DarkroomDimens.unseenInset)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: selected ? 6 : 0, style: .continuous))
             .scaleEffect(selected ? 0.86 : 1)
             .animation(Self.pickCurve, value: selected)
 
-            // 未看光点：多选中照常显示（ui-design 3.1a）
             if showUnseen && item.isUnseen {
                 UnseenDot()
                     .padding(DarkroomDimens.unseenInset)
@@ -53,23 +80,32 @@ struct PhotoTileView: View {
         .animation(Self.pickCurve, value: selected)
         .frame(width: side, height: side)
         .contentShape(Rectangle())
-        // 读屏：整格一个按钮，读拍摄时间（Android 读文件名；这里不为每格查 PHAssetResource）+「未看过」；多选时带「已选中」
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(a11yLabel))
         .accessibilityAddTraits(selecting && selected ? [.isButton, .isSelected] : .isButton)
         .modifier(SharedTileHide(id: item.id))
-        // 共享元素起点 / 终点：登记全局 frame（不触发刷新）
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { f in
             PhotoOpenTransition.shared.register(item.id, frame: f)
         }
-        .onAppear { load() }
+        .onAppear { load(); resolveRaw() }
         .onDisappear { cancel(); PhotoOpenTransition.shared.unregister(item.id) }
+    }
+
+    private var markLine: String? {
+        ScopeRules.photoMarkLine(raw: raw ? "RAW" : nil, size: sizeText)
+    }
+
+    private var durationText: String? {
+        guard item.isVideo else { return nil }
+        return ScopeRules.formatDuration(seconds: item.duration)
     }
 
     @Environment(\.locale) private var locale
     private var a11yLabel: String {
-        let base = Self.formatter(locale).string(from: item.creationDate)
-        return showUnseen && item.isUnseen ? base + ", " + L10n.string("a11y_unseen", locale: locale) : base
+        var base = Self.formatter(locale).string(from: item.creationDate)
+        if showUnseen && item.isUnseen { base += ", " + L10n.string("a11y_unseen", locale: locale) }
+        if let durationText { base += ", " + durationText }
+        return base
     }
     private static var formatters: [String: DateFormatter] = [:]
     private static func formatter(_ locale: Locale) -> DateFormatter {
@@ -79,6 +115,20 @@ struct PhotoTileView: View {
         f.setLocalizedDateFormatFromTemplate("MMMdjmm")
         formatters[locale.identifier] = f
         return f
+    }
+
+    /// 缓存里没有原始文件名时才查 PHAssetResource。不在首次读库时对全库做这件事。
+    private func resolveRaw() {
+        if let name = AssetSizeCache.shared.cachedOriginalFilename(item.id) {
+            raw = ScopeRules.isRawFileName(name)
+            return
+        }
+        let asset = item.asset
+        Task.detached(priority: .utility) {
+            let info = AssetSizeCache.shared.info(for: asset)
+            let isRaw = ScopeRules.isRawFileName(info.originalFilename)
+            await MainActor.run { raw = isRaw }
+        }
     }
 
     private func load() {

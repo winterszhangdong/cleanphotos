@@ -28,19 +28,31 @@ enum ScreenshotHarness {
         try? await Task.sleep(nanoseconds: 600_000_000)
 
         // Seed favorite + trash so Favorites/Trash shots are non-empty
-        let ids = library.photosOrdered.prefix(4).map(\.id)
+        let ids = library.photosOrdered.prefix(6).map(\.id)
         if library.favoriteCount == 0, let first = ids.first {
             _ = library.favorite(ids: [first], showUndo: false)
         }
         if library.trashCount == 0, ids.count > 1 {
             _ = library.moveToTrash(ids: [ids[1]], showUndo: false)
         }
+        if let chatId = ids.dropFirst(2).first ?? ids.first {
+            let albums = await AlbumLibrary.fetchUserAlbums()
+            if !albums.contains(where: { ScopeRules.isChatAlbumTitle($0.title) }) {
+                _ = try? await AlbumLibrary.create(title: "WeChat", assetIds: [chatId])
+                var sawLoading = false
+                for _ in 0..<40 {
+                    if library.isLoading { sawLoading = true }
+                    if sawLoading && !library.isLoading { break }
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
+            }
+        }
         try? await Task.sleep(nanoseconds: 400_000_000)
 
         // 1) Photos grid (also cropped on host for the unseen-dot close-up)
         tab.wrappedValue = .photos
         reviewLaunch.wrappedValue = nil
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        try? await Task.sleep(nanoseconds: 1_600_000_000)
         await waitForShot(named: "photos")
 
         // 2) Sort / filter menus
@@ -51,6 +63,15 @@ enum ScreenshotHarness {
         try? await Task.sleep(nanoseconds: 500_000_000)
         await waitForShot(named: "menu-filter")
         NotificationCenter.default.post(name: .cleanphotosHarnessMenu, object: nil)
+        try? await Task.sleep(nanoseconds: 400_000_000)
+
+        await showScope("similar", library: library, settle: 4_000_000_000, shot: "similar")
+        await showScope("largeFiles", library: library, settle: 500_000_000, shot: "large", untilSizes: true)
+        await showScope("screenshots", library: library, settle: 1_200_000_000, shot: "screenshots", untilSizes: true)
+        await showScope("chat", library: library, settle: 800_000_000, shot: "chat")
+        await showScope("onThisDay", library: library, settle: 800_000_000, shot: "on-this-day")
+        await showScope("immersive", library: library, settle: 800_000_000, shot: "immersive")
+        NotificationCenter.default.post(name: .cleanphotosHarnessScope, object: "all")
         try? await Task.sleep(nanoseconds: 400_000_000)
 
         // 3) Review (progress bar + chrome)
@@ -66,9 +87,17 @@ enum ScreenshotHarness {
         tab.wrappedValue = .favorites
         try? await Task.sleep(nanoseconds: 700_000_000)
         await waitForShot(named: "favorites")
+        NotificationCenter.default.post(name: .cleanphotosHarnessFiling, object: nil)
+        try? await Task.sleep(nanoseconds: 900_000_000)
+        await waitForShot(named: "filing")
+        NotificationCenter.default.post(name: .cleanphotosHarnessFiling, object: "close")
+        try? await Task.sleep(nanoseconds: 400_000_000)
         tab.wrappedValue = .trash
         try? await Task.sleep(nanoseconds: 700_000_000)
         await waitForShot(named: "trash")
+        NotificationCenter.default.post(name: .cleanphotosHarnessTrashPreview, object: nil)
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        await waitForShot(named: "trash-preview")
 
         // 6) Multi-select via the drag-select code path (anchor tile 0 → tile 5)
         tab.wrappedValue = .photos
@@ -90,6 +119,18 @@ enum ScreenshotHarness {
         }
 
         await waitForShot(named: "done")
+    }
+
+    @MainActor
+    private static func showScope(_ raw: String, library: PhotoLibraryService, settle: UInt64, shot: String, untilSizes: Bool = false) async {
+        NotificationCenter.default.post(name: .cleanphotosHarnessScope, object: raw)
+        if untilSizes {
+            for _ in 0..<40 where !library.sizesReady {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+        try? await Task.sleep(nanoseconds: settle)
+        await waitForShot(named: shot)
     }
 
     @MainActor
@@ -128,4 +169,12 @@ extension Notification.Name {
     static let cleanphotosEnterMultiselect = Notification.Name("cleanphotosEnterMultiselect")
     static let cleanphotosDragSelect = Notification.Name("cleanphotosDragSelect")
     static let cleanphotosHarnessMenu = Notification.Name("cleanphotosHarnessMenu")
+    /// 截图钩子：object 为 LibraryScope.rawValue，或 "immersive"。
+    static let cleanphotosHarnessScope = Notification.Name("cleanphotosHarnessScope")
+    /// 截图钩子：打开收藏页第一天的整理页。object 为 "close" 时关掉。
+    static let cleanphotosHarnessFiling = Notification.Name("cleanphotosHarnessFiling")
+    /// 截图钩子：打开垃圾桶第一张的大图预览。
+    static let cleanphotosHarnessTrashPreview = Notification.Name("cleanphotosHarnessTrashPreview")
+    /// 截图钩子：清理页打开全部照片里的第一段视频。不进 CLEANPHOTOS_SHOTS 那条序列。
+    static let cleanphotosHarnessReviewVideo = Notification.Name("cleanphotosHarnessReviewVideo")
 }

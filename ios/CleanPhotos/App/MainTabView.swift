@@ -111,6 +111,14 @@ struct MainTabView: View {
             default: tab = .photos
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessReviewVideo)) { _ in
+            guard AuditHooks.enabled else { return }
+            Task { await openFirstVideo() }
+        }
+        .task {
+            guard AuditHooks.enabled, ProcessInfo.processInfo.arguments.contains("-cpReviewVideo") else { return }
+            await openFirstVideo()
+        }
         .task {
             // 性能测量：-cpAutoSwipe N 时启动后直接打开第一张进清理页（见 ReviewView.runAutoSwipe）
             guard PerfAutoSwipe.count > 0 else { return }
@@ -130,6 +138,18 @@ struct MainTabView: View {
         let fitted = ZoomClamp.fit(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, screen: screen, top: safe.top, bottom: safe.bottom)
         let cy = screen.height / 2 + fitted.centerShiftY
         return CGRect(x: (screen.width - fitted.size.width) / 2, y: cy - fitted.size.height / 2, width: fitted.size.width, height: fitted.size.height)
+    }
+
+    /// 模拟器截图：等图库补全，再打开第一段还在相册里的视频。收藏过的不在「全部」队列里，改从收藏进。
+    private func openFirstVideo() async {
+        for _ in 0..<100 {
+            if !library.isPartial, !library.allById.isEmpty { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard !library.isPartial,
+              let video = library.allById.values.first(where: { $0.isVideo && !$0.isTrashed }) else { return }
+        let scope: ReviewScope = video.isFavorite ? .favorites : .allPhotos
+        open(ReviewLaunch(scope: scope, startPhotoId: video.id, dayId: nil))
     }
 
     private func open(_ launch: ReviewLaunch) {

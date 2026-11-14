@@ -23,6 +23,15 @@ final class DragSelectHandlers {
     var listMoving: () -> Bool = { false }
     /// 最后一次 contentOffset 变化的时间（CACurrentMediaTime）；惯性停下的时刻就是最后一次变化。
     var lastScrollTime: () -> CFTimeInterval = { 0 }
+    /// 滚动偏移、是否手指按着、是否惯性、这次是不是代码设的偏移。
+    var onScroll: ((CGFloat, Bool, Bool, Bool) -> Void)?
+    /// 横滑换范围。translation、是否结束、水平速度（pt/s）。
+    var onScopeDrag: ((CGFloat, Bool, CGFloat) -> Void)?
+    var scopeDragEnabled: () -> Bool = { true }
+    var readOffset: () -> CGFloat = { 0 }
+    var writeOffset: (CGFloat) -> Void = { _ in }
+    var readContentHeight: () -> CGFloat = { 0 }
+    var readViewportHeight: () -> CGFloat = { 0 }
 }
 
 /// Invisible probe placed as background of the grid's LazyVStack. It finds the hosting
@@ -48,7 +57,16 @@ struct DragSelectProbe: UIViewRepresentable {
         context.coordinator.handlers = handlers
         context.coordinator.rewire()
         uiView.coordinator = context.coordinator
-        DispatchQueue.main.async { context.coordinator.attach(probe: uiView) }
+        let token = context.coordinator.token
+        DispatchQueue.main.async {
+            guard context.coordinator.token == token else { return }
+            context.coordinator.attach(probe: uiView)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: ProbeView, coordinator: Coordinator) {
+        coordinator.detach()
+        uiView.coordinator = nil
     }
 
     final class ProbeView: UIView {
@@ -71,6 +89,9 @@ struct DragSelectProbe: UIViewRepresentable {
         private let maxStep: CGFloat = 14
         private var offsetObservation: NSKeyValueObservation?
         private var lastScroll: CFTimeInterval = 0
+        private var scopePan: UIPanGestureRecognizer?
+        private var adjusting = false
+        fileprivate var token = UUID()
 
         init(handlers: DragSelectHandlers) { self.handlers = handlers }
 
@@ -80,6 +101,38 @@ struct DragSelectProbe: UIViewRepresentable {
                 return sv.isDragging || sv.isDecelerating
             }
             handlers.lastScrollTime = { [weak self] in self?.lastScroll ?? 0 }
+            handlers.readOffset = { [weak self] in self?.scrollView?.contentOffset.y ?? 0 }
+            handlers.readContentHeight = { [weak self] in self?.scrollView?.contentSize.height ?? 0 }
+            handlers.readViewportHeight = { [weak self] in self?.scrollView?.bounds.height ?? 0 }
+            handlers.writeOffset = { [weak self] y in self?.setOffset(y) }
+        }
+
+        private func setOffset(_ y: CGFloat) {
+            guard let sv = scrollView else { return }
+            let minY = -sv.adjustedContentInset.top
+            let maxY = max(minY, sv.contentSize.height - sv.bounds.height + sv.adjustedContentInset.bottom)
+            let next = min(maxY, max(minY, y))
+            guard next != sv.contentOffset.y else { return }
+            adjusting = true
+            sv.setContentOffset(CGPoint(x: 0, y: next), animated: false)
+        }
+
+        private func emitScroll(_ sv: UIScrollView) {
+            let programmatic = adjusting
+            adjusting = false
+            handlers.onScroll?(sv.contentOffset.y, sv.isDragging, sv.isDecelerating, programmatic)
+        }
+
+        func detach() {
+            token = UUID()
+            if let recognizer, let sv = scrollView { sv.removeGestureRecognizer(recognizer) }
+            if let scopePan, let sv = scrollView { sv.removeGestureRecognizer(scopePan) }
+            offsetObservation?.invalidate()
+            offsetObservation = nil
+            recognizer = nil
+            scopePan = nil
+            scrollView = nil
+            stopLink()
         }
 
         func rewire() { if scrollView != nil { wireScrollState() } }
@@ -92,10 +145,16 @@ struct DragSelectProbe: UIViewRepresentable {
             guard let sv = v as? UIScrollView else { return }
             scrollView = sv
             // 只记一个时间戳（滚动时每帧一次，不触发任何 SwiftUI 刷新）
-            offsetObservation = sv.observe(\.contentOffset, options: []) { [weak self] _, _ in
+            offsetObservation = sv.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
                 self?.lastScroll = CACurrentMediaTime()
+                if Thread.isMainThread {
+                    self?.emitScroll(sv)
+                } else {
+                    DispatchQueue.main.async { self?.emitScroll(sv) }
+                }
             }
             wireScrollState()
+            emitScroll(sv)
             let lp = UILongPressGestureRecognizer(target: self, action: #selector(handle(_:)))
             lp.minimumPressDuration = 0.35
             lp.allowableMovement = 10
@@ -103,6 +162,39 @@ struct DragSelectProbe: UIViewRepresentable {
             lp.delegate = self
             sv.addGestureRecognizer(lp)
             recognizer = lp
+            if scopePan == nil {
+                let pan = UIPanGestureRecognizer(target: self, action: #selector(scopePanned(_:)))
+                pan.delegate = self
+                pan.cancelsTouchesInView = false
+                sv.addGestureRecognizer(pan)
+                scopePan = pan
+            }
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard gestureRecognizer === scopePan, let sv = scrollView, let pan = scopePan else { return true }
+            guard handlers.scopeDragEnabled() else { return false }
+            let v = pan.velocity(in: sv)
+            return abs(v.x) > abs(v.y)
+        }
+
+        @objc private func scopePanned(_ g: UIPanGestureRecognizer) {
+            guard let sv = scrollView else { return }
+            let translation = g.translation(in: sv).x
+            switch g.state {
+            case .began:
+                sv.isScrollEnabled = false
+                handlers.onScopeDrag?(translation, false, 0)
+            case .changed:
+                handlers.onScopeDrag?(translation, false, 0)
+            case .ended:
+                let velocity = g.velocity(in: sv).x
+                sv.isScrollEnabled = true
+                handlers.onScopeDrag?(translation, true, velocity)
+            default:
+                sv.isScrollEnabled = true
+                handlers.onScopeDrag?(0, true, 0)
+            }
         }
 
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {

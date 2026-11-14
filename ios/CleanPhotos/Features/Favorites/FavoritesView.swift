@@ -1,4 +1,9 @@
 import SwiftUI
+import Photos
+
+private struct SheetDay: Identifiable {
+    let id: String
+}
 
 struct FavoritesView: View {
     @EnvironmentObject private var library: PhotoLibraryService
@@ -6,15 +11,34 @@ struct FavoritesView: View {
     @Binding var reviewLaunch: ReviewLaunch?
     /// 空状态「去清理」：回到照片页（Android onNavigateBack）。
     var onGoReview: () -> Void = {}
+    @StateObject private var filingLog = FilingLog()
+    @State private var sheetDay: SheetDay?
+    @State private var expandedFiled: String?
     @State private var initialIDs: Set<String> = []
     @State private var didSeed = false
     /// 网格宽量自列表（横屏左右安全区；竖屏 = 屏宽）。
     @State private var listWidth: CGFloat = UIScreen.main.bounds.width
 
+    private var filedDays: [FiledDayRules.Day] {
+        FiledDayRules.build(filingLog.rows, present: Set(library.allById.keys))
+    }
+
+    /// 收藏空了但「已冲洗」还在时，不显示收藏空状态。
+    private var showEmpty: Bool {
+        guard library.favoriteCount == 0 else { return false }
+        if filingLog.rows.isEmpty { return true }
+        if library.isLoading || library.isPartial { return false }
+        return filedDays.isEmpty
+    }
+
+    private var pendingDays: Int {
+        library.favoriteSections.reduce(0) { $0 + $1.days.count }
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             DarkroomColors.room.ignoresSafeArea()
-            if library.favoriteCount == 0 {
+            if showEmpty {
                 empty
             } else {
                 ScrollView {
@@ -28,6 +52,7 @@ struct FavoritesView: View {
                                 dayGrid(day)
                             }
                         }
+                        filedSection
                         Color.clear.frame(height: 140)
                     }
                 }
@@ -51,33 +76,44 @@ struct FavoritesView: View {
             }
         }
         .environment(\.locale, language.effectiveLocale)
-        .onAppear { seed() }
+        .onAppear { seed(); Task { await pruneIfNeeded() } }
         .onChange(of: library.favoriteSections) { _, _ in seed() }
+        .onChange(of: library.isLoading) { _, loading in
+            if !loading { Task { await pruneIfNeeded() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessFiling)) { note in
+            if (note.object as? String) == "close" {
+                sheetDay = nil
+            } else if let id = library.favoriteSections.first?.days.first?.id {
+                sheetDay = SheetDay(id: id)
+            }
+        }
+        .fullScreenCover(item: $sheetDay) { day in
+            ContactSheetScreen(dayId: day.id, filingLog: filingLog) { sheetDay = nil }
+                .environmentObject(library)
+                .environmentObject(language)
+        }
     }
 
     private var header: some View {
         HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text("tab_favorites")
-                        .font(DarkroomType.eyebrow)
-                        .tracking(1.4)
-                        .foregroundStyle(DarkroomColors.dim)
-                    // Android FavPip：只在有收藏时显示
-                    if library.favoriteCount > 0 {
-                    Circle()
-                        .fill(DarkroomColors.amber)
-                        .frame(width: 5, height: 5)
-                        .shadow(color: DarkroomColors.amberGlow, radius: 6)
-                    }
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    OdometerText(value: Int64(library.favoriteCount), text: formatted(library.favoriteCount), font: DarkroomType.countBig, color: DarkroomColors.paper)
-                    if language.isChineseUI {
-                        Text("header_count_unit")
-                            .font(DarkroomType.countUnit)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                OdometerText(value: Int64(library.favoriteCount), text: formatted(library.favoriteCount), font: DarkroomType.countBig, color: DarkroomColors.paper)
+                Text(unitText)
+                    .font(DarkroomType.countUnit)
+                    .foregroundStyle(DarkroomColors.dim)
+                if pendingDays > 0 {
+                    HStack(alignment: .center, spacing: 6) {
+                        Circle()
+                            .fill(DarkroomColors.amber)
+                            .frame(width: 5, height: 5)
+                            .shadow(color: DarkroomColors.amberGlow, radius: 6)
+                            .alignmentGuide(.firstTextBaseline) { d in d.height * 0.85 }
+                        Text(FilingCopy.daysPending(pendingDays, locale: language.effectiveLocale))
+                            .font(DarkroomType.countSub)
                             .foregroundStyle(DarkroomColors.dim)
                     }
+                    .padding(.leading, 2)
                 }
             }
             Spacer()
@@ -86,6 +122,13 @@ struct FavoritesView: View {
         .padding(.bottom, 12)
         .frame(height: DarkroomDimens.headerHeight, alignment: .bottom)
         .background(DarkroomColors.room.opacity(0.92))
+    }
+
+    private var unitText: String {
+        if language.isChineseUI {
+            return L10n.string("header_count_unit", locale: language.effectiveLocale)
+        }
+        return FilingCopy.favoriteUnit(count: library.favoriteCount, locale: language.effectiveLocale)
     }
 
     /// 收藏空状态（mock 07 / Android FavoritesScreen）：一叠相纸（顶卡上推 + 星标弹跳）+ 文案 + 「去清理 · N 张未看」。
@@ -112,14 +155,14 @@ struct FavoritesView: View {
     }
 
     private func dayHeader(_ day: PhotoDaySection) -> some View {
-        HStack {
+        HStack(spacing: 10) {
             Text(day.id == DayKeyRule.unknown ? "—" : dayNum(day.date)).font(DarkroomType.dayNumber).foregroundStyle(DarkroomColors.paper)
             Text(day.id == DayKeyRule.unknown ? L10n.string("date_unknown", locale: language.effectiveLocale) : dayMeta(day.date)).font(DarkroomType.dayMeta).foregroundStyle(DarkroomColors.dim)
-            Spacer()
+            Spacer(minLength: 8)
             Text(L10n.plural("favorites_section_count", count: day.totalCount, locale: language.effectiveLocale))
                 .font(DarkroomType.dayRight)
                 .foregroundStyle(DarkroomColors.dim)
-            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(DarkroomColors.dim)
+            sortPill
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -127,11 +170,23 @@ struct FavoritesView: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .onTapGesture {
-            if let first = day.allItems.first {
-                reviewLaunch = ReviewLaunch(scope: .favorites, startPhotoId: first.id, dayId: day.id)
-            }
+        .accessibilityHint(FilingCopy.sortDay(language.effectiveLocale))
+        .onTapGesture { sheetDay = SheetDay(id: day.id) }
+    }
+
+    private var sortPill: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "film")
+                .font(.system(size: 11, weight: .medium))
+            Text(FilingCopy.sortDay(language.effectiveLocale))
+                .font(Font.custom("NotoSansSC-Medium", size: 12))
         }
+        .foregroundStyle(DarkroomColors.paper)
+        .padding(.leading, 10)
+        .padding(.trailing, 12)
+        .frame(height: 32)
+        .background(DarkroomColors.tray, in: Capsule())
+        .overlay(Capsule().strokeBorder(DarkroomColors.rim2, lineWidth: 1))
     }
 
     private func dayGrid(_ day: PhotoDaySection) -> some View {
@@ -152,11 +207,94 @@ struct FavoritesView: View {
         .frame(height: gridHeight(count: day.items.count))
     }
 
+    @ViewBuilder
+    private var filedSection: some View {
+        let days = filedDays
+        if !days.isEmpty {
+            let total = days.reduce(0) { $0 + $1.count }
+            HStack(spacing: 12) {
+                Text(FilingCopy.filedHeader(total, locale: language.effectiveLocale))
+                    .font(DarkroomType.countSub)
+                    .foregroundStyle(DarkroomColors.dim)
+                    .lineLimit(1)
+                Rectangle().fill(DarkroomColors.rim).frame(height: 1)
+            }
+            .frame(height: 32)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            ForEach(days, id: \.dayKey) { day in
+                filedRow(day)
+                if expandedFiled == day.dayKey {
+                    filedGrid(filedPhotos(day))
+                }
+            }
+        }
+    }
+
+    private func filedRow(_ day: FiledDayRules.Day) -> some View {
+        let open = expandedFiled == day.dayKey
+        let date = NextDayRule.date(from: day.dayKey)
+        return HStack(spacing: 10) {
+            Text(date == nil ? "—" : dayNum(date!)).font(DarkroomType.dayNumber).foregroundStyle(DarkroomColors.paper)
+            Text(date == nil ? L10n.string("date_unknown", locale: language.effectiveLocale) : dayMeta(date!))
+                .font(DarkroomType.dayMeta)
+                .foregroundStyle(DarkroomColors.dim)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            HStack(spacing: 6) {
+                ForEach(Array(day.albums.prefix(2).enumerated()), id: \.offset) { _, chip in
+                    Text(FilingCopy.chip(chip.name, count: chip.count))
+                        .font(Font.custom("NotoSansSC-Medium", size: 11))
+                        .foregroundStyle(DarkroomColors.paper)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(DarkroomColors.tray2, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                }
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DarkroomColors.dim)
+                .rotationEffect(.degrees(open ? 90 : 0))
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 48)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(DarkroomMotion.standard) {
+                expandedFiled = open ? nil : day.dayKey
+            }
+        }
+    }
+
+    private func filedPhotos(_ day: FiledDayRules.Day) -> [PhotoItem] {
+        day.assetIds.compactMap { library.allById[$0] }.sorted { a, b in
+            if a.creationDate != b.creationDate { return a.creationDate < b.creationDate }
+            return a.id < b.id
+        }
+    }
+
+    /// 展开后只读，不能点开。
+    private func filedGrid(_ items: [PhotoItem]) -> some View {
+        let cols = 4
+        let gap: CGFloat = 2
+        return GeometryReader { geo in
+            let side = (geo.size.width - gap * CGFloat(cols - 1)) / CGFloat(cols)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: gap), count: cols), spacing: gap) {
+                ForEach(items) { item in
+                    PhotoTileView(item: item, side: side, develop: false, developDelay: 0, showUnseen: false)
+                }
+            }
+        }
+        .frame(height: gridHeight(count: items.count))
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+    }
+
     private func gridHeight(count: Int) -> CGFloat {
         let cols: CGFloat = 4
-        let rows = ceil(CGFloat(count) / cols)
-        let w = listWidth
-        let side = (w - 2 * (cols - 1)) / cols
+        let rows = ceil(CGFloat(max(count, 1)) / cols)
+        let side = (listWidth - 2 * (cols - 1)) / cols
         return rows * side + max(0, rows - 1) * 2
     }
 
@@ -176,6 +314,15 @@ struct FavoritesView: View {
             if n >= 24 { break }
         }
         if !ids.isEmpty { initialIDs = ids; didSeed = true }
+    }
+
+    /// 完整访问权、而且这一轮图库已经读完，才清掉已经不在图库里的装袋记录。
+    private func pruneIfNeeded() async {
+        guard library.authorization == .authorized, !library.isLoading, !library.isPartial else { return }
+        let ids = filingLog.rows.map(\.assetId)
+        guard !ids.isEmpty else { return }
+        let found = await AlbumLibrary.foundIds(ids)
+        filingLog.pruneDisappeared(candidates: ids, found: found, libraryCount: library.allById.count)
     }
 
     private func formatted(_ n: Int) -> String {

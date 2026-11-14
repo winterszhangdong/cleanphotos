@@ -90,7 +90,7 @@ struct ReviewProgressBar: View {
     }
 }
 
-/// 40pt 玻璃圆钮（.rv-top 返回 / 更多）：#141210 56% + 14% 描边 + 模糊。
+/// 40pt 玻璃圆钮（.rv-top 返回）：#141210 56% + 14% 描边 + 模糊。
 struct GlassCircleButton: View {
     var systemName: String
     var action: () -> Void
@@ -113,44 +113,27 @@ struct GlassCircleButton: View {
     }
 }
 
-/// .rv-meta：mono 10.5 相纸白 62%「名称 · 大小」+ 两颗方向提示小点（琥珀 / 退影灰）。
+/// .rv-meta：点照片后才出现的 mono 10.5 相纸白 62%「名称 · 大小」。没有方向提示。
 struct ReviewMetaRow: View {
     let photo: PhotoItem
-    let scope: ReviewScope
-    let locale: Locale
-    var showHints: Bool = true
+    /// 进度行没出来时，视频把时长接在文件信息后面。
+    var duration: String? = nil
 
     var body: some View {
-        HStack {
-            Text(fileLine)
-                .font(DarkroomFonts.plexMono(size: 10.5))
-                .foregroundStyle(DarkroomColors.paper.opacity(0.62))
-                .lineLimit(1)
-                .transaction { if !PerfLegacy.on { $0.animation = nil } } // 翻页时直接换字，不做隐式文字插值
-            Spacer(minLength: 8)
-            if showHints {
-                HStack(spacing: 12) {
-                    hint(DarkroomColors.amber, L10n.string(scope == .favorites ? "hint_up_unfavorite" : "hint_up_favorite", locale: locale))
-                    hint(DarkroomColors.fade, L10n.string("hint_down", locale: locale))
-                }
-            }
-        }
+        Text(fileLine)
+            .font(DarkroomFonts.plexMono(size: 10.5))
+            .foregroundStyle(DarkroomColors.paper.opacity(0.62))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .transaction { if !PerfLegacy.on { $0.animation = nil } } // 翻页时直接换字，不做隐式文字插值
     }
 
     private var fileLine: String {
         // 文件名 + 大小走 AssetSizeCache（翻页前 prepare() 已在后台预取前后几张），不在主线程查 PHAssetResource
         let name = AssetSizeCache.shared.name(for: photo.asset) ?? "—"
         let size = photo.byteSize > 0 ? " · " + FileSizeFormatter.format(photo.byteSize) : ""
-        return name + size
-    }
-
-    private func hint(_ color: Color, _ label: String) -> some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(label)
-                .font(DarkroomFonts.plexMono(size: 10.5))
-                .foregroundStyle(DarkroomColors.paper.opacity(0.62))
-        }
+        let length = duration.map { " · " + $0 } ?? ""
+        return name + size + length
     }
 }
 
