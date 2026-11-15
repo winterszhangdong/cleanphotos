@@ -322,7 +322,7 @@ class ReviewViewModelTest {
         advanceUntilIdle()
         vm.onSwipeDown(3L)
         advanceUntilIdle()
-        assertEquals("p3", vm.onUndo())
+        assertEquals("p3", vm.onUndo(vm.uiState.value.undo!!.seq))
         advanceUntilIdle()
         val s = vm.uiState.value
         assertEquals(listOf(5L, 4L, 3L, 2L, 1L), photoKeys(s))
@@ -364,7 +364,7 @@ class ReviewViewModelTest {
         advanceUntilIdle()
         vm.onSwipeUp(3L)
         advanceUntilIdle()
-        assertEquals("p3", vm.onUndo())
+        assertEquals("p3", vm.onUndo(vm.uiState.value.undo!!.seq))
         advanceUntilIdle()
         assertEquals(listOf(5L, 4L, 3L, 2L, 1L), photoKeys(vm.uiState.value))
         assertEquals("p3", vm.uiState.value.currentKey)
@@ -376,7 +376,7 @@ class ReviewViewModelTest {
     fun `无操作时撤回不做任何事`() = runTest(testDispatcher) {
         val vm = start()
         advanceUntilIdle()
-        assertNull(vm.onUndo())
+        assertNull(vm.onUndo(vm.uiState.value.undo?.seq ?: 0L))
         advanceUntilIdle()
         assertEquals(listOf(5L, 4L, 3L, 2L, 1L), photoKeys(vm.uiState.value))
         assertEquals("p3", vm.uiState.value.currentKey)
@@ -553,7 +553,8 @@ class ReviewViewModelTest {
         advanceUntilIdle()
         val deadline = vm.uiState.value.undo!!.deadlineUptimeMillis
         now = deadline
-        assertNull(vm.onUndo())
+        advanceUntilIdle()
+        assertNull(vm.onUndo(vm.uiState.value.undo!!.seq))
         advanceUntilIdle()
         assertNull(vm.uiState.value.undo)
         assertEquals(listOf("trash" to 3L), reviewRepository.calls)
@@ -630,7 +631,7 @@ class ReviewViewModelTest {
         advanceUntilIdle()
         vm.onSwipeUp(3L)
         advanceUntilIdle()
-        vm.onUndo()
+        vm.onUndo(vm.uiState.value.undo!!.seq)
         vm.onSwipeDown(3L)
         gate.complete(PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed))
         advanceUntilIdle()
@@ -650,7 +651,8 @@ class ReviewViewModelTest {
         advanceUntilIdle()
         val gate = CompletableDeferred<PhotoOperationResult>()
         reviewRepository.holdNextUnfavorite = gate
-        vm.onUndo()
+        advanceUntilIdle()
+        vm.onUndo(vm.uiState.value.undo!!.seq)
         advanceUntilIdle()
         vm.onSwipeDown(3L)
         gate.complete(PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed))

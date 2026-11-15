@@ -287,11 +287,15 @@ class ReviewViewModel @Inject constructor(
         dismissTutorial()
     }
 
-    /** 撤回最近一次操作：照片插回原位并切回它。返回切到的页 key。过了截止时间的不再执行。 */
-    fun onUndo(): String? {
+    /**
+     * 撤回胶囊上的那一次：照片插回原位并切回它。返回切到的页 key。
+     * [seq] 对不上当前操作（界面还显示上一张）时不执行。过了截止时间的不再执行。
+     */
+    fun onUndo(seq: Long): String? {
         val c = core.value
         val ledger = c.ledger ?: return null
         val undo = c.undo ?: return null
+        if (undo.seq != seq) return null
         if (uptimeClock.uptimeMillis() >= undo.deadlineUptimeMillis) {
             core.update { if (it.undo?.version == undo.version) it.copy(undo = null) else it }
             return null

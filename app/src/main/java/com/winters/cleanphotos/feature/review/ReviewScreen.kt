@@ -111,7 +111,7 @@ fun ReviewScreen(
     onSwipeUp: (Long) -> String?,
     onSwipeDown: (Long) -> String?,
     onPageSettled: (String) -> Unit,
-    onUndo: () -> String?,
+    onUndo: (Long) -> String?,
     onUndoExpired: (Long) -> Unit,
     onDismissError: () -> Unit,
     onNavigateBack: () -> Unit,
@@ -527,11 +527,15 @@ fun ReviewScreen(
                 visible = undoVisible,
                 onUndo = {
                     val info = uiState.undo
-                    val type = info?.type
-                    val key = onUndo()
-                    if (key != null && type != null) {
-                        stage.sessionEndedLocally = false
-                        stage.undo(ReviewPage.Photo(info.photo), if (type == PhotoActionType.MoveToTrash) ExitKind.Down else ExitKind.Up)
+                    if (info != null) {
+                        val key = onUndo(info.seq)
+                        if (key == ReviewPage.keyOf(info.photo.id)) {
+                            stage.sessionEndedLocally = false
+                            stage.undo(
+                                ReviewPage.Photo(info.photo),
+                                if (info.type == PhotoActionType.MoveToTrash) ExitKind.Down else ExitKind.Up,
+                            )
+                        }
                     }
                 },
                 onExpired = onUndoExpired,

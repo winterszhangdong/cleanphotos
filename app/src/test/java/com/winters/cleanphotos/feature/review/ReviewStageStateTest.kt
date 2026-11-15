@@ -12,8 +12,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -307,6 +309,23 @@ class ReviewStageStateTest {
         s.handler.onDragCancel()
         assertTrue(!swiped)
         assertEquals("p2", s.currentKey)
+    }
+
+    @Test fun `连续下滑跨天_小结还不在舞台列表时补上_旧序列也不盖掉`() {
+        val day = "d1"
+        val pages = listOf(photo(1, day), photo(2, day))
+        val s = bounceStage(pages, "p1")
+        val summaryKey = ReviewPage.summaryKeyOf(day)
+        s.onSwipe = { _, _ -> summaryKey }
+        s.handler.onDown()
+        s.handler.onDragStart(DragAxis.Vertical)
+        s.handler.onDrag(DragAxis.Vertical, Offset(0f, 400f)) // 超过 300 的阈值
+        s.handler.onDragEnd(DragAxis.Vertical, Velocity.Zero)
+        assertEquals(summaryKey, s.currentKey)
+        assertNotNull(s.currentPage)
+        s.syncFromViewModel(listOf(photo(2, day)), "p2", 0L)
+        assertEquals(summaryKey, s.currentKey)
+        assertNotNull(s.currentPage)
     }
 
     @Test fun `左右或上下拖动开始就收回详情_平移不收`() {

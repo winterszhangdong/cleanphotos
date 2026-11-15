@@ -235,9 +235,12 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
      * 然后仍走下面的判断。本地 key 还在序列里就留在这一页，不因为序号变了跳回 ViewModel。
      * 末张已经滑成空白时本地 key 无效，才会采用 ViewModel 还回来的那张。
      * 计算线程还没发布空页时，界面仍是滑之前的 pages 和 key，序号没变，不能把刚滑走的末张拉回来。
+     * 本地 key 已在舞台列表里、传入 [pages] 还没有它（快滑补上的小结）时，不用传入列表盖掉。
      */
     fun syncFromViewModel(pages: List<ReviewPage>, vmKey: String?, restoreEpoch: Long) {
-        if (this.pages !== pages) this.pages = pages
+        val key = currentKey
+        val keepLocalPages = key != null && this.pages.any { it.key == key } && !pages.any { it.key == key }
+        if (!keepLocalPages && this.pages !== pages) this.pages = pages
         val epochChanged = restoreEpoch != seenRestoreEpoch
         if (epochChanged) {
             seenRestoreEpoch = restoreEpoch
@@ -246,7 +249,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         if (!epochChanged && lastVmPages === pages && lastVmKey == vmKey) return
         lastVmPages = pages
         lastVmKey = vmKey
-        val localValid = currentKey != null && pages.any { it.key == currentKey }
+        val localValid = currentKey != null && this.pages.any { it.key == currentKey }
         if (!localValid && !sessionEndedLocally && vmKey != null) {
             ReviewTrace.log("vmSync", "local" to currentKey, "vm" to vmKey, "pages" to pages.size)
             currentKey = vmKey
@@ -564,6 +567,14 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         pastThreshold = false
         scope.launch { pastAnim.snapTo(0f) }
         resetZoom()
+        // 小结 key 以 s 开头。快滑时它可能还不在舞台列表里，先插到当前页后面，避免 currentIndex 变成 -1。
+        if (newKey != null && !pages.any { it.key == newKey } && newKey.startsWith("s")) {
+            val summary = ReviewPage.Summary(newKey.removePrefix("s"))
+            val at = currentIndex
+            val inserted = pages.toMutableList()
+            if (at >= 0) inserted.add(at + 1, summary) else inserted.add(summary)
+            pages = inserted
+        }
         currentKey = newKey
         if (newKey != null) {
             startEntry(newKey)
