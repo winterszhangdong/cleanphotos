@@ -830,9 +830,9 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         }
     }
 
-    func presentUndo(_ kind: UndoKind, sample: String?) {
+    func presentUndo(_ kind: UndoKind, sample: String?, burst: Bool = false) {
         undoTask?.cancel()
-        undoBanner = UndoBanner(kind: kind, sampleId: sample)
+        undoBanner = UndoBanner(kind: kind, sampleId: sample, burst: burst)
         restartUndoTimer()
     }
 

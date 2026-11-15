@@ -138,6 +138,8 @@ struct UndoBanner: Equatable, Identifiable {
     var subtitle: String? = nil
     /// true = 清理页单张（主文案「已收藏」），false = 批量（「已收藏 N 张」）。
     var single: Bool = false
+    /// 对比页连着下滑合成的这一条。下一次下滑还在期限内就并进同一条，并重算 4 秒。
+    var burst: Bool = false
 
     var isAmber: Bool {
         switch kind {

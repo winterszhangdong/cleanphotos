@@ -20,7 +20,7 @@ struct SimilarScopePage: View {
             DarkroomColors.room
             if session.phase != .ready {
                 comparing
-            } else if session.groups.isEmpty {
+            } else if session.listedGroups.isEmpty {
                 Text(SimilarCopy.empty(zh: zh))
                     .font(DarkroomType.title)
                     .foregroundStyle(DarkroomColors.paper)
@@ -65,7 +65,7 @@ struct SimilarScopePage: View {
     private var list: some View {
         ScrollView {
             LazyVStack(spacing: 8) {
-                ForEach(session.groups) { card in
+                ForEach(session.listedGroups) { card in
                     cardView(card)
                 }
             }

@@ -40,6 +40,11 @@ final class SimilarSession: ObservableObject {
     @Published private(set) var keptUndo: SimilarKeptUndo?
     @Published private(set) var moving = false
 
+    /// 列表不显示不足两张的组。对比页仍用 `groups`，只剩一张时还停在这一张。
+    var listedGroups: [SimilarCard] {
+        groups.filter { SimilarCompareSession.showsOnList(photoCount: $0.photos.count) }
+    }
+
     private var library: PhotoLibraryService?
     private var scanTask: Task<Void, Never>?
     private var libraryTick: AnyCancellable?
@@ -70,6 +75,18 @@ final class SimilarSession: ObservableObject {
     private var watch: TrashWatch?
     private var watchTimeout: Task<Void, Never>?
 
+    /// 对比页下滑已经从组里拿掉、还可能撤回的照片。
+    private struct SwipeSlot {
+        var photo: PhotoItem
+        var mark: SimilarMark
+        var groupKey: String
+        var recommendedId: String
+        var sharpness: [String: Double]
+        var earliest: Date
+    }
+
+    private var swiped: [String: SwipeSlot] = [:]
+
     init(store: SimilarHandledStore = .shared) {
         self.store = store
     }
@@ -92,6 +109,63 @@ final class SimilarSession: ObservableObject {
         marks[groupKey] = map
     }
 
+    /// 对比页下滑过阈值：眼前这一张立刻进垃圾桶，并从这一组拿掉。已经标成移走也删。
+    /// 连着的下滑并进同一条撤回，4 秒从这一滑重算。底部胶囊提交是另一条，不走这里。
+    @discardableResult
+    func swipeTrash(groupKey: String, photoId: String, now: Date = Date()) -> Bool {
+        guard !moving, let library else { return false }
+        guard let cardIndex = groups.firstIndex(where: { $0.key == groupKey }) else { return false }
+        let card = groups[cardIndex]
+        var deck = SimilarCompareSession(
+            photos: card.photos.map(\.id),
+            marks: marks[groupKey] ?? [:],
+            trashed: [],
+            undo: currentBurst(at: now)
+        )
+        guard deck.trash(photoId, now: now, lifetime: UndoBanner.lifetime) else { return false }
+        guard let photoIndex = card.photos.firstIndex(where: { $0.id == photoId }) else { return false }
+        let photo = card.photos[photoIndex]
+        let slot = SwipeSlot(
+            photo: photo,
+            mark: (marks[groupKey] ?? [:])[photoId] ?? .remove,
+            groupKey: card.key,
+            recommendedId: card.recommendedId,
+            sharpness: card.sharpness,
+            earliest: card.earliest
+        )
+        var nextGroups = groups
+        var nextMarks = marks
+        var photos = card.photos
+        photos.remove(at: photoIndex)
+        if photos.isEmpty {
+            nextGroups.remove(at: cardIndex)
+            nextMarks[groupKey] = nil
+        } else {
+            var updated = card
+            updated.photos = photos
+            nextGroups[cardIndex] = updated
+            nextMarks[groupKey] = deck.marks
+        }
+        groups = nextGroups
+        marks = nextMarks
+        swiped[photoId] = slot
+        let moved = library.moveToTrash(ids: [photoId], showUndo: false)
+        if moved != 1 {
+            swiped.removeValue(forKey: photoId)
+            reinsert(slot)
+            return false
+        }
+        library.presentUndo(.movedToTrash(deck.undo?.ids ?? [photoId]), sample: photoId, burst: true)
+        return true
+    }
+
+    private func currentBurst(at now: Date) -> SimilarSwipeUndo? {
+        guard let banner = library?.undoBanner, banner.burst,
+              case .movedToTrash(let ids) = banner.kind,
+              now.timeIntervalSince(banner.shownAt) < UndoBanner.lifetime else { return nil }
+        return SimilarSwipeUndo(ids: ids, shownAt: banner.shownAt)
+    }
+
     /// 移走的进垃圾桶。留下的还有至少两张时写已处理记录，组从列表消失。
     @discardableResult
     func commit(groupKey: String) -> Bool {
@@ -107,6 +181,9 @@ final class SimilarSession: ObservableObject {
                 if moved > 0 { library.undoLast() }
                 return false
             }
+        } else if library.undoBanner?.burst == true {
+            // 提交盖住还没过期的下滑撤回。没有新的移走时，这条不再留着。
+            library.clearUndo()
         }
         let record = SimilarRules.handledKey(remainingIds: keepIds)
         if let record { store.add(record) }
@@ -289,6 +366,7 @@ final class SimilarSession: ObservableObject {
     }
 
     private func syncTrashUndo() {
+        syncSwipeUndo()
         guard var watch, let library else { return }
         let trash = Set(library.trashItems.map(\.id))
         if watch.ids.allSatisfy({ trash.contains($0) }) { watch.seenInTrash = true }
@@ -319,6 +397,57 @@ final class SimilarSession: ObservableObject {
                 self.watch = nil
             }
         }
+    }
+
+    /// 撤回把下滑的照片移出垃圾桶时放回这一组。横幅过期或被提交盖住，则不再放回。
+    private func syncSwipeUndo() {
+        guard let library, !swiped.isEmpty else { return }
+        let returned = swiped.keys.filter { !library.trash.contains($0) }.sorted { a, b in
+            photoOrder(swiped[a]!.photo, swiped[b]!.photo)
+        }
+        for id in returned {
+            guard let slot = swiped.removeValue(forKey: id) else { continue }
+            reinsert(slot)
+        }
+        guard !swiped.isEmpty else { return }
+        let banner = library.undoBanner
+        let covered = banner == nil || banner?.burst != true
+        if covered && swiped.keys.allSatisfy({ library.trash.contains($0) }) {
+            swiped.removeAll()
+        }
+    }
+
+    private func reinsert(_ slot: SwipeSlot) {
+        var next = groups
+        if let idx = next.firstIndex(where: { $0.key == slot.groupKey }) {
+            var card = next[idx]
+            if !card.photos.contains(where: { $0.id == slot.photo.id }) {
+                card.photos.append(slot.photo)
+                card.photos.sort(by: photoOrder)
+            }
+            next[idx] = card
+        } else {
+            next.append(SimilarCard(
+                key: slot.groupKey,
+                photos: [slot.photo],
+                recommendedId: slot.recommendedId,
+                sharpness: slot.sharpness,
+                earliest: slot.earliest
+            ))
+            next.sort { a, b in
+                if a.earliest != b.earliest { return a.earliest > b.earliest }
+                return a.key < b.key
+            }
+        }
+        groups = next
+        var map = marks[slot.groupKey] ?? [:]
+        map[slot.photo.id] = slot.mark
+        marks[slot.groupKey] = map
+    }
+
+    private func photoOrder(_ a: PhotoItem, _ b: PhotoItem) -> Bool {
+        if a.creationDate != b.creationDate { return a.creationDate < b.creationDate }
+        return a.id < b.id
     }
 
     private func undoTrashWatch() {

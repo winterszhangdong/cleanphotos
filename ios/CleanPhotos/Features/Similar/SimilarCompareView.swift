@@ -35,14 +35,20 @@ struct SimilarCompareView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 filmstrip
                     .padding(.bottom, 8)
-                SimilarCommitButton(
-                    title: SimilarCopy.commit(removeCount: removeCount, zh: zh),
-                    enabled: !session.moving && !photos.isEmpty
-                ) {
-                    if session.commit(groupKey: groupKey) { onClose() }
+                if let banner = trashUndo {
+                    UndoCapsule(banner: banner, locale: language.effectiveLocale) { library.undoLast() }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, insets.bottom + 12)
+                } else {
+                    SimilarCommitButton(
+                        title: SimilarCopy.commit(removeCount: removeCount, zh: zh),
+                        enabled: !session.moving && !photos.isEmpty
+                    ) {
+                        if session.commit(groupKey: groupKey) { onClose() }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, insets.bottom + 12)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, insets.bottom + 12)
             }
             .background(DarkroomColors.room)
         }
@@ -51,6 +57,16 @@ struct SimilarCompareView: View {
         .onChange(of: photos.isEmpty) { _, empty in
             if empty { onClose() }
         }
+        .onChange(of: photos.count) { _, count in
+            motion.clampIndex(count)
+        }
+    }
+
+    /// 只有移进垃圾桶的撤回才占掉底部胶囊。收藏撤回不属于这一页。
+    private var trashUndo: UndoBanner? {
+        guard let banner = library.undoBanner, !banner.single else { return nil }
+        if case .movedToTrash = banner.kind { return banner }
+        return nil
     }
 
     private var removeCount: Int {
@@ -121,8 +137,10 @@ struct SimilarCompareView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(currentLabel))
             .accessibilityAddTraits(.isImage)
-            .accessibilityAction(named: Text(SimilarCopy.actionKeep(zh: zh))) { markCurrent(up: true) }
-            .accessibilityAction(named: Text(SimilarCopy.actionRemove(zh: zh))) { markCurrent(up: false) }
+            .accessibilityAction(named: Text(SimilarCopy.actionKeep(zh: zh))) { _ = applyVertical(up: true) }
+            .accessibilityAction(named: Text(L10n.string("action_move_to_trash", locale: language.effectiveLocale))) {
+                _ = applyVertical(up: false)
+            }
             .task(id: currentPhotoId) { await loadMotionMark() }
         }
     }
@@ -208,7 +226,7 @@ struct SimilarCompareView: View {
             }
             .onEnded { value in
                 motion.ended(value.translation, velocity: value.velocity, stage: size, count: photos.count, reduce: reduceMotion) { up in
-                    markCurrent(up: up)
+                    applyVertical(up: up)
                 }
             }
     }
@@ -225,9 +243,17 @@ struct SimilarCompareView: View {
         }
     }
 
-    private func markCurrent(up: Bool) {
-        guard photos.indices.contains(displayIndex) else { return }
-        session.mark(groupKey: groupKey, photoId: photos[displayIndex].id, mark: up ? .keep : .remove)
+    /// 上滑只改成留下。下滑过阈值把眼前这一张送进垃圾桶。
+    /// 清理页离场层绑着清理页的页模型，这里复用不了；过阈值后这一张立刻从对比页和胶片条消失。
+    /// 左右滑先被认成翻页、或放大后单指平移时，不会进到这里。
+    private func applyVertical(up: Bool) -> Bool {
+        guard photos.indices.contains(displayIndex) else { return false }
+        let photoId = photos[displayIndex].id
+        if up {
+            session.mark(groupKey: groupKey, photoId: photoId, mark: .keep)
+            return false
+        }
+        return session.swipeTrash(groupKey: groupKey, photoId: photoId)
     }
 
     private func pageBrightness(index: Int, width: CGFloat) -> CGFloat {
@@ -382,7 +408,7 @@ private struct SimilarCue: View {
                         .trim(from: 0, to: progress)
                         .stroke(DarkroomColors.paper.opacity(0.9), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Image(systemName: up ? "checkmark" : "arrow.down")
+                    Image(systemName: up ? "checkmark" : "trash.fill")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(DarkroomColors.paper.opacity(0.8))
                 }
@@ -395,7 +421,7 @@ private struct SimilarCue: View {
             VStack(spacing: 12) {
                 ZStack {
                     Circle().fill(DarkroomColors.paper).frame(width: 56, height: 56)
-                    Image(systemName: up ? "checkmark" : "arrow.down")
+                    Image(systemName: up ? "checkmark" : "trash.fill")
                         .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(DarkroomColors.room)
                 }
@@ -480,6 +506,12 @@ final class CompareDrag: ObservableObject {
         index = next
     }
 
+    func clampIndex(_ count: Int) {
+        guard count > 0 else { index = 0; return }
+        if index > count - 1 { index = count - 1 }
+        if index < 0 { index = 0 }
+    }
+
     func changed(_ translation: CGSize, stage: CGSize, count: Int) {
         if pinching { return }
         if axis == nil { begin(translation) }
@@ -508,7 +540,7 @@ final class CompareDrag: ObservableObject {
         stage: CGSize,
         count: Int,
         reduce: Bool,
-        onVertical: (Bool) -> Void
+        onVertical: (Bool) -> Bool
     ) {
         if pinching {
             pinching = false
@@ -569,12 +601,25 @@ final class CompareDrag: ObservableObject {
         spring(toX: 0, toY: 0, vx: vx, vy: 0, reduce: reduce, snappy: true)
     }
 
-    private func endVertical(vy: CGFloat, reduce: Bool, onVertical: (Bool) -> Void) {
+    private func endVertical(vy: CGFloat, reduce: Bool, onVertical: (Bool) -> Bool) {
         holdCue(reduce: reduce)
+        let deleted: Bool
         switch ReviewMath.verticalRelease(dy: dy, vy: vy) {
-        case .up: onVertical(true)
-        case .down: onVertical(false)
-        case .none: break
+        case .up:
+            _ = onVertical(true)
+            deleted = false
+        case .down:
+            deleted = onVertical(false)
+        case .none:
+            deleted = false
+        }
+        if deleted {
+            // 删成的这一张已经离开。位移立刻归零，不跟回弹弹簧走。
+            springTask?.cancel()
+            dx = 0
+            dy = 0
+            axis = nil
+            return
         }
         spring(toX: 0, toY: 0, vx: 0, vy: vy, reduce: reduce, snappy: false)
     }

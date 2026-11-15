@@ -214,14 +214,14 @@ struct PhotosView: View {
 
     private var headerCount: Int {
         if selecting { return selected.count }
-        if scope == .similar, similarSession.phase == .ready { return similarSession.groups.count }
+        if scope == .similar, similarSession.phase == .ready { return similarSession.listedGroups.count }
         if scope == .similar { return 0 }
         return library.visibleCount
     }
 
     private var unitText: String {
         if scope == .similar, !selecting, similarSession.phase == .ready {
-            return SimilarCopy.groupUnit(count: similarSession.groups.count, zh: chinese)
+            return SimilarCopy.groupUnit(count: similarSession.listedGroups.count, zh: chinese)
         }
         if chinese { return L10n.string("header_count_unit", locale: locale) }
         return PhotoPageCopy.unit(count: headerCount, chinese: false)
@@ -238,8 +238,9 @@ struct PhotosView: View {
     }
 
     private var similarRemovable: Int {
-        similarSession.marks.values.reduce(0) { sum, group in
-            sum + group.values.filter { $0 == .remove }.count
+        similarSession.listedGroups.reduce(0) { sum, card in
+            let map = similarSession.marks[card.key] ?? [:]
+            return sum + card.photos.filter { map[$0.id] == .remove }.count
         }
     }
 

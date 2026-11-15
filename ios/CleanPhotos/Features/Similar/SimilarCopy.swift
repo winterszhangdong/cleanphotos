@@ -46,10 +46,6 @@ enum SimilarCopy {
         zh ? "留下" : "Keep"
     }
 
-    static func actionRemove(zh: Bool) -> String {
-        zh ? "移走" : "Remove"
-    }
-
     static func mark(_ mark: SimilarMark, zh: Bool) -> String {
         switch mark {
         case .keep: return zh ? "留下" : "keep"
@@ -64,9 +60,9 @@ enum SimilarCopy {
     static func cue(up: Bool, past: Bool, zh: Bool) -> String {
         if zh {
             if up { return past ? "松手留下" : "继续上滑留下" }
-            return past ? "松手移走" : "继续下滑移走"
+            return past ? "松手移到垃圾桶" : "继续下滑移到垃圾桶"
         }
         if up { return past ? "Release to keep" : "Keep swiping up to keep" }
-        return past ? "Release to remove" : "Keep swiping down to remove"
+        return past ? "Release to move to trash" : "Keep swiping down to trash"
     }
 }

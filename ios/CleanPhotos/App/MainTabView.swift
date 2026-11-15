@@ -120,10 +120,12 @@ struct MainTabView: View {
             await openFirstVideo()
         }
         .task {
-            // 性能测量：-cpAutoSwipe N 时启动后直接打开第一张进清理页（见 ReviewView.runAutoSwipe）
+            // 性能测量：-cpAutoSwipe N 时启动后直接打开第一张进清理页（见 ReviewView.runAutoSwipe）。
+            // 等到首批补全；仍是半截图库，或没有可见照片，就不打开。普通点按仍走 open 的闸门。
             guard PerfAutoSwipe.count > 0 else { return }
             for _ in 0..<100 where library.visiblePhotos.isEmpty || library.isPartial { try? await Task.sleep(for: .milliseconds(100)) }
-            if let first = library.visiblePhotos.first { present(ReviewLaunch(scope: .allPhotos, startPhotoId: first.id, dayId: nil)) }
+            guard !library.isPartial, let first = library.visiblePhotos.first else { return }
+            present(ReviewLaunch(scope: .allPhotos, startPhotoId: first.id, dayId: nil))
         }
     }
 
