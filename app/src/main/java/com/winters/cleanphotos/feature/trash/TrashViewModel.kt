@@ -241,10 +241,12 @@ class TrashViewModel @Inject constructor(
                 is PhotoOperationResult.Success -> {
                     handleBatchRestoreSuccess()
                 }
-                // App 内垃圾桶操作不会返回 NeedSystemApproval
+                // 恢复仓库只返回 Success。走到这里不能当成已经移出。
                 is PhotoOperationResult.NeedSystemApproval -> {
-                    Log.wtf(TAG, "App 内垃圾桶恢复不应触发系统授权")
-                    handleBatchRestoreSuccess()
+                    _uiState.value = _uiState.value.copy(
+                        isProcessingAction = false,
+                        errorMessage = UiText.Res(R.string.fail_generic),
+                    )
                 }
                 is PhotoOperationResult.Failure -> {
                     _uiState.value = _uiState.value.copy(
@@ -347,9 +349,12 @@ class TrashViewModel @Inject constructor(
                 is PhotoOperationResult.Success -> {
                     handlePreviewRestoreSuccess(preRestorePhotos, preRestoreIndex)
                 }
+                // 恢复仓库只返回 Success。走到这里不能当成已经移出。
                 is PhotoOperationResult.NeedSystemApproval -> {
-                    Log.wtf(TAG, "App 内垃圾桶恢复不应触发系统授权")
-                    handlePreviewRestoreSuccess(preRestorePhotos, preRestoreIndex)
+                    _uiState.value = _uiState.value.copy(
+                        isProcessingAction = false,
+                        errorMessage = UiText.Res(R.string.fail_generic),
+                    )
                 }
                 is PhotoOperationResult.Failure -> {
                     _uiState.value = _uiState.value.copy(

@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -103,7 +102,7 @@ fun ScreenHeader(
             .padding(start = Dimens.ScreenSide, end = Dimens.ScreenSide, bottom = Dimens.HeaderBottomPadding),
         verticalAlignment = Alignment.Bottom,
     ) {
-        // 固定高度（与 ScreenHeaderSpacer 对齐）：大字号时缩放封顶，计数行不被顶出状态栏（1.0 时不变）
+        // 页头高度固定为 56dp：大字号时缩放封顶，计数行不被顶出状态栏（1.0 时不变）
         CappedFontScale(FontScaleCaps.HEADER) {
             Row(
                 Modifier.weight(1f).alpha(leftAlpha).heightIn(min = Dimens.CountHeight),
@@ -114,12 +113,6 @@ fun ScreenHeader(
             Row(horizontalArrangement = Arrangement.spacedBy(Dimens.HeaderActionGap), content = actions)
         }
     }
-}
-
-/** 页头占位：与 [ScreenHeader] 同高（状态栏 + 56dp），用于把头部画在遮罩之上。 */
-@Composable
-fun ScreenHeaderSpacer() {
-    Spacer(Modifier.fillMaxWidth().statusBarsPadding().height(Dimens.HeaderHeight))
 }
 
 /** .eyebrow 文案。 */

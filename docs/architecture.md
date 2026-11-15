@@ -297,9 +297,9 @@ MediaStoreAlbumDataSource
 * `PhotoSharpnessDataSource`：只给已经成组的照片取约 512px 长边，算拉普拉斯方差，同样只缓存在进程内存。同一 id 的体积或宽高变了就重算。
 * `AppSimilarResolvedDataSource`：DataStore 字符串集合，一条记录是一组已处理照片的 id。格式非法直接抛错。
 * 永久删除照片（移入 / 移出垃圾桶是 App 内语义，只写 DataStore）。
-* `AppTrashStateDataSource`：使用 DataStore 管理 App 内垃圾桶的软删除记录（upsertEntry / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
-* `AppFavoriteStateDataSource`：使用 DataStore 管理 App 内收藏记录（upsertEntry / upsertEntries / removeEntry / removeEntries / removeMissingEntries / observeEntries）。
-* `AppSeenStateDataSource`：使用 DataStore 管理已看过状态（markSeen / removeEntries / removeMissingEntries / observeSeenIds）。
+* `AppTrashStateDataSource`：使用 DataStore 管理 App 内垃圾桶的软删除记录（upsertEntry / observeEntries；删除走 removeIn，失效清理走 removeMissingIn）。
+* `AppFavoriteStateDataSource`：使用 DataStore 管理 App 内收藏记录（upsertEntry / upsertEntries / removeEntries / observeEntries；失效清理走 removeMissingIn）。
+* `AppSeenStateDataSource`：使用 DataStore 管理已看过状态（markSeen / observeSeenIds；删除走 removeIn，失效清理走 removeMissingIn）。
 * `AppFilingLogDataSource`：DataStore 字符串集合 `app_filing_log`，印样表装袋记录，供收藏页「已冲洗」和托盘排序。
 * `MediaStoreAlbumDataSource`：印样表装袋的文件移动和系统授权请求（见下面「印样表装袋设计」）。
 * `MotionPhotoDataSource`：只在当前页（可预取下一张图）按需识别动态照片。`ContentResolver.openFileDescriptor(uri, "r")` 整段在 `Dispatchers.IO`，用 `FileChannel` 随机读头部和尾部。解析是 `MotionPhotoLocator` 对随机读接口的纯函数。识别不到返回 null。IO 异常抛出，不在这里吞。整库查询不调用它。
@@ -664,7 +664,7 @@ Compose
 ```text
 SystemMediaActionRequest(
     photos: List<PhotoItem>,          // 这一批，最多 2000
-    actionType: DeletePermanently / MoveToAlbum / SystemFavorite / MoveToTrash / RestoreFromTrash,
+    actionType: DeletePermanently / MoveToAlbum / SystemFavorite / MoveToTrash,
     requestToken: String,
     intentSender: IntentSender,
     remaining: List<PhotoItem> = emptyList()  // 这一批之后还没交给系统的
@@ -674,7 +674,7 @@ SystemMediaActionRequest(
 说明：
 
 * `photos` 是这一次系统确认的照片。`remaining` 是还没交出去的，不能丢掉，也不能在用户拒绝本批时记成已经完成。
-* 系统媒体授权用于永久删除（DeletePermanently）和印样表：装袋前的写授权（MoveToAlbum，createWriteRequest）、装袋后顺带的系统收藏（SystemFavorite，createFavoriteRequest），都只在 Android 11+。收藏和取消收藏使用 App DataStore，不触发系统授权。`MoveToTrash` 和 `RestoreFromTrash` 不触发 `NeedSystemApproval`。
+* 系统媒体授权用于永久删除（DeletePermanently）和印样表：装袋前的写授权（MoveToAlbum，createWriteRequest）、装袋后顺带的系统收藏（SystemFavorite，createFavoriteRequest），都只在 Android 11+。收藏和取消收藏使用 App DataStore，不触发系统授权。`MoveToTrash` 不触发 `NeedSystemApproval`。从垃圾桶恢复只写 DataStore，没有对应的系统授权类型。
 * 永久删除：每批系统确认后就已经删掉。拒绝则停止后续，前批保留，只把刷新后不在的 id 计入释放空间。
 * 写授权只是拿权限。需要多批时依次确认，全部同意后才执行本次整批移动；任一批拒绝则整次取消，不移动文件，圈选保留。
 * 系统收藏在装袋完成之后按批确认。拒绝只停止后续系统收藏，不撤销已经完成的移动或前批系统收藏。

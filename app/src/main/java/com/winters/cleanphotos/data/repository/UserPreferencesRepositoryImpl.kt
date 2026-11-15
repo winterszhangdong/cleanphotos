@@ -19,12 +19,6 @@ class UserPreferencesRepositoryImpl @Inject constructor(
         userPreferencesDataSource.setHasSeenReviewTutorial(seen)
     }
 
-    override fun observeSwipeActionCount(): Flow<Int> = userPreferencesDataSource.observeSwipeActionCount()
-
-    override suspend fun incrementSwipeActionCount() {
-        userPreferencesDataSource.incrementSwipeActionCount()
-    }
-
     override fun observeTotalFreedBytes(): Flow<Long> = userPreferencesDataSource.observeTotalFreedBytes()
 
     override suspend fun addFreedBytes(bytes: Long) {

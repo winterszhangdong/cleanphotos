@@ -396,7 +396,6 @@ Failure：操作失败，不能切换照片
 ```kotlin
 enum class SystemMediaActionType {
     MoveToTrash,
-    RestoreFromTrash,
     DeletePermanently,
     MoveToAlbum,
     SystemFavorite,
@@ -409,8 +408,7 @@ enum class SystemMediaActionType {
 DeletePermanently：永久删除。Android 11+ 每批最多 2000 张，确认后系统已经删掉；拒绝则停止后续，前批保留
 MoveToAlbum：装袋前的写授权。每批最多 2000 张。写授权只是拿权限，全部批次同意后才移动原来那一整批；任一批拒绝则整次取消，不移动文件
 SystemFavorite：装袋后的系统收藏。每批最多 2000 张。拒绝只停止后续，不撤销已经完成的移动或前批系统收藏
-MoveToTrash：App 内垃圾桶只写 DataStore，不触发 NeedSystemApproval
-RestoreFromTrash：从 App 内垃圾桶恢复只写 DataStore，不触发 NeedSystemApproval
+MoveToTrash：App 内垃圾桶只写 DataStore，不触发 NeedSystemApproval。从垃圾桶恢复同样只写 DataStore，没有单独的系统授权类型
 ```
 
 ```kotlin
@@ -765,8 +763,6 @@ deletePhotosPermanently 通过 MediaStore 操作，可能返回 NeedSystemApprov
 interface UserPreferencesRepository {
     fun observeHasSeenReviewTutorial(): Flow<Boolean>
     suspend fun setHasSeenReviewTutorial(seen: Boolean)
-    fun observeSwipeActionCount(): Flow<Int>
-    suspend fun incrementSwipeActionCount()
     fun observeTotalFreedBytes(): Flow<Long>
     suspend fun addFreedBytes(bytes: Long) // bytes 必须 > 0，只增不减
 }
@@ -1056,9 +1052,8 @@ class AppTrashStateDataSource @Inject constructor(
 ) {
     fun observeEntries(): Flow<List<AppTrashEntry>>
     suspend fun upsertEntry(photoId: Long, movedToTrashAt: Long)
-    suspend fun removeEntry(photoId: Long)
-    suspend fun removeEntries(photoIds: Set<Long>)
-    suspend fun removeMissingEntries(existingPhotoIds: Set<Long>)
+    internal fun removeIn(preferences: MutablePreferences, photoIds: Set<Long>)
+    internal fun removeMissingIn(preferences: MutablePreferences, existingPhotoIds: Set<Long>)
 }
 ```
 
@@ -1067,9 +1062,8 @@ class AppTrashStateDataSource @Inject constructor(
 ```text
 observeEntries：观察所有垃圾桶条目，按 movedToTrashAt 倒序排列
 upsertEntry：新增或更新一条垃圾桶条目，同一 photoId 重复写入时覆盖旧值
-removeEntry：删除单条垃圾桶条目
-removeEntries：批量删除垃圾桶条目
-removeMissingEntries：清理失效条目，移除所有不在 existingPhotoIds 中的条目。传入的 id 来自存在性查询，不是展示列表。Android 12+ 用包含最近卸载卷的查询（普通和系统垃圾桶都查）；Android 11 在最近卷都仍挂载时用在线 id 加系统垃圾桶；更老的系统、查询失败或部分照片权限不调用。离线照片留在 DataStore，重新出现在展示查询后才回到列表
+removeIn：在调用方的 DataStore edit 里批量删除垃圾桶条目
+removeMissingIn：在同一次 edit 里清理失效条目，移除所有不在 existingPhotoIds 中的条目。传入的 id 来自存在性查询，不是展示列表。Android 12+ 用包含最近卸载卷的查询（普通和系统垃圾桶都查）；Android 11 在最近卷都仍挂载时用在线 id 加系统垃圾桶；更老的系统、查询失败或部分照片权限不调用。离线照片留在 DataStore，重新出现在展示查询后才回到列表
 ```
 
 存储格式：
@@ -1093,9 +1087,8 @@ class AppFavoriteStateDataSource @Inject constructor(
     fun observeEntries(): Flow<List<AppFavoriteEntry>>
     suspend fun upsertEntry(photoId: Long, favoritedAt: Long)
     suspend fun upsertEntries(entries: Map<Long, Long>)
-    suspend fun removeEntry(photoId: Long)
     suspend fun removeEntries(photoIds: Set<Long>)
-    suspend fun removeMissingEntries(existingPhotoIds: Set<Long>)
+    internal fun removeMissingIn(preferences: MutablePreferences, existingPhotoIds: Set<Long>)
 }
 ```
 
@@ -1105,9 +1098,8 @@ class AppFavoriteStateDataSource @Inject constructor(
 observeEntries：观察所有收藏条目，按 favoritedAt 倒序排列
 upsertEntry：新增或更新一条收藏条目，同一 photoId 重复写入时覆盖旧值
 upsertEntries：批量新增或更新（photoId → favoritedAt），一次写入；用于首次迁移和批量移出垃圾桶
-removeEntry：删除单条收藏条目
 removeEntries：批量删除收藏条目
-removeMissingEntries：清理失效条目，移除所有不在 existingPhotoIds 中的条目
+removeMissingIn：在调用方的 DataStore edit 里清理失效条目，移除所有不在 existingPhotoIds 中的条目
 ```
 
 存储格式：
@@ -1131,8 +1123,8 @@ class AppSeenStateDataSource @Inject constructor(
     fun observeSeenIds(): Flow<Set<Long>>
     suspend fun markSeen(photoId: Long)
     suspend fun markSeen(photoIds: Set<Long>)
-    suspend fun removeEntries(photoIds: Set<Long>)
-    suspend fun removeMissingEntries(existingPhotoIds: Set<Long>)
+    internal fun removeIn(preferences: MutablePreferences, photoIds: Set<Long>)
+    internal fun removeMissingIn(preferences: MutablePreferences, existingPhotoIds: Set<Long>)
 }
 ```
 
@@ -1141,8 +1133,8 @@ class AppSeenStateDataSource @Inject constructor(
 ```text
 observeSeenIds：观察已看过的照片 ID 集合
 markSeen：标记单张或批量照片为已看过
-removeEntries：批量移除已看过记录
-removeMissingEntries：清理失效条目，移除所有不在 existingPhotoIds 中的条目
+removeIn：在调用方的 DataStore edit 里批量移除已看过记录
+removeMissingIn：在同一次 edit 里清理失效条目，移除所有不在 existingPhotoIds 中的条目
 ```
 
 存储格式：
@@ -1196,7 +1188,7 @@ sortOrder：会话排序，默认 NewestFirst。LargestFirst 时不插「这一�
 ### Repository 变更
 
 - 新增 `SeenStateRepository.observeSeenIds()`（实现包 `AppSeenStateDataSource`）。
-- `UserPreferencesRepository` 新增 `observeSwipeActionCount()`、`incrementSwipeActionCount()`。
+- 滑动计数仍在 DataStore（`review_swipe_action_count`）。`ReviewRepositoryImpl` 在同一次 edit 里调用 `incrementSwipeActionCountIn`。`UserPreferencesRepository` 不提供 `observeSwipeActionCount` / `incrementSwipeActionCount`。
 
 ## 相似照片
 

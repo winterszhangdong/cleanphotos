@@ -100,44 +100,6 @@ class AppTrashStateDataSource @Inject constructor(
     }
 
     /**
-     * 删除单条垃圾桶条目。
-     */
-    suspend fun removeEntry(photoId: Long) {
-        dataStore.edit { preferences ->
-            val currentSet = preferences[ENTRIES_KEY] ?: return@edit
-            val filtered = currentSet.filterNot { it.startsWith("$photoId$ENTRY_SEPARATOR") }.toSet()
-            preferences[ENTRIES_KEY] = filtered
-        }
-    }
-
-    /**
-     * 批量删除垃圾桶条目。
-     */
-    suspend fun removeEntries(photoIds: Set<Long>) {
-        if (photoIds.isEmpty()) return
-        dataStore.edit { preferences ->
-            val currentSet = preferences[ENTRIES_KEY] ?: return@edit
-            val filtered = currentSet.filterNot { parseEntry(it).photoId in photoIds }.toSet()
-            preferences[ENTRIES_KEY] = filtered
-        }
-    }
-
-    /**
-     * 清理失效条目：移除所有不在 existingPhotoIds 中的条目。
-     * 用于 MediaStore 刷新后，检测外部删除导致的不一致。
-     */
-    suspend fun removeMissingEntries(existingPhotoIds: Set<Long>) {
-        dataStore.edit { preferences ->
-            val currentSet = preferences[ENTRIES_KEY] ?: return@edit
-            val validEntries = currentSet.filter { entry ->
-                val photoId = parseEntry(entry).photoId
-                photoId in existingPhotoIds
-            }.toSet()
-            preferences[ENTRIES_KEY] = validEntries
-        }
-    }
-
-    /**
      * 编码单条记录为字符串：`photoId,movedToTrashAt,wasFavorited,favoritedAt`
      * favoritedAt 为 null 时写字面量 `-`。
      */

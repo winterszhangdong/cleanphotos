@@ -76,30 +76,6 @@ class AppSeenStateDataSource @Inject constructor(
         }
     }
 
-    /**
-     * 批量移除已看过记录。
-     */
-    suspend fun removeEntries(photoIds: Set<Long>) {
-        if (photoIds.isEmpty()) return
-        dataStore.edit { preferences ->
-            val currentSet = preferences[ENTRIES_KEY] ?: return@edit
-            val idsToRemove = photoIds.map { it.toString() }.toSet()
-            preferences[ENTRIES_KEY] = currentSet - idsToRemove
-        }
-    }
-
-    /**
-     * 清理失效条目：移除所有不在 existingPhotoIds 中的条目。
-     * 用于 MediaStore 刷新后，检测外部删除导致的不一致。
-     */
-    suspend fun removeMissingEntries(existingPhotoIds: Set<Long>) {
-        dataStore.edit { preferences ->
-            val currentSet = preferences[ENTRIES_KEY] ?: return@edit
-            val existingStrings = existingPhotoIds.map { it.toString() }.toSet()
-            preferences[ENTRIES_KEY] = currentSet.intersect(existingStrings)
-        }
-    }
-
     /** 在调用方的 edit 里清理失效条目。 */
     internal fun removeMissingIn(preferences: MutablePreferences, existingPhotoIds: Set<Long>) {
         val currentSet = preferences[ENTRIES_KEY] ?: return

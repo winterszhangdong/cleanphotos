@@ -37,7 +37,7 @@ import javax.inject.Singleton
  * - observeAllPhotos()：返回 MediaStore 照片中不在 App 垃圾桶且不在 App 收藏的子集
  * - observeFavoritedPhotos()：返回在 App 收藏中且不在 App 垃圾桶中的照片
  * - observeTrashedPhotos()：返回 App 内垃圾桶中的照片（按 movedToTrashAt 倒序）
- * - refreshPhotos()：刷新 MediaStore 后串行调用三项 removeMissingEntries + 一次性迁移
+ * - refreshPhotos()：刷新 MediaStore 后在一次 edit 里调用 removeMissingIn 清理失效条目，并做一次性迁移
  * - refreshTrashedPhotos()：复用 refreshPhotos()，不再单独查询系统垃圾桶
  * - PhotoItem.isFavorite 来源改为 AppFavoriteStore
  */
@@ -122,7 +122,7 @@ class PhotoRepositoryImpl @Inject constructor(
      * 流程：
      * 1. 查询 MediaStore
      * 2. 执行一次性迁移（首次启动时）
-     * 3. 串行调用三项 removeMissingEntries（Favorite → Seen → Trash）
+     * 3. 一次 edit 里调用 removeMissingIn（Favorite → Seen → Trash → 装袋记录）
      * 4. 主查询失败时短重试；仍失败则向上抛出，并跳过全部清理（不把失败当成空图库）
      * 5. 只有部分照片访问权时跳过迁移和清理：查询结果只是用户选中的那几张，
      *    拿它当整个图库会把其余照片的垃圾桶 / 收藏 / 看过状态全部删掉

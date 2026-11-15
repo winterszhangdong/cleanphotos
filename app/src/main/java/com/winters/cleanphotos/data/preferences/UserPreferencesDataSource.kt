@@ -35,10 +35,6 @@ class UserPreferencesDataSource @Inject constructor(
 
     fun observeSwipeActionCount(): Flow<Int> = dataStore.data.map { it[swipeActionCountKey] ?: 0 }
 
-    suspend fun incrementSwipeActionCount() {
-        dataStore.edit { incrementSwipeActionCountIn(it) }
-    }
-
     /** 在调用方的 edit 里 +1（同一个 DataStore），让一次滑动的所有写入合成一次。 */
     internal fun incrementSwipeActionCountIn(prefs: MutablePreferences) {
         prefs[swipeActionCountKey] = (prefs[swipeActionCountKey] ?: 0) + 1

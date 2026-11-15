@@ -28,7 +28,6 @@ sealed interface PhotoOperationResult {
  */
 enum class SystemMediaActionType {
     MoveToTrash,
-    RestoreFromTrash,
     /** 永久删除（仅用于清空垃圾桶） */
     DeletePermanently,
     /** 装进相册前拿写权限（Android 11+ createWriteRequest，每批最多 2000） */

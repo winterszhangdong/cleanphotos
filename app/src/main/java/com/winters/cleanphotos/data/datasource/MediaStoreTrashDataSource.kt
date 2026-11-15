@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import androidx.annotation.RequiresApi
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.domain.model.PhotoItem
 import com.winters.cleanphotos.domain.model.PhotoOperationFailureReason
@@ -80,28 +81,25 @@ class MediaStoreTrashDataSource @Inject constructor(
 
     /**
      * 通过 MediaStore.createDeleteRequest 获取永久删除的系统授权 IntentSender。
-     * Android 11+ 使用系统级删除确认。
+     * 只由 Android 11+ 的 [deletePermanently] 调用。
      */
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun createDeleteRequest(photos: List<PhotoItem>): PhotoOperationResult {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val batch = firstMediaStoreBatch(photos)
-                val pendingIntent = MediaStore.createDeleteRequest(
-                    contentResolver,
-                    batch.current.map { it.uri },
+            val batch = firstMediaStoreBatch(photos)
+            val pendingIntent = MediaStore.createDeleteRequest(
+                contentResolver,
+                batch.current.map { it.uri },
+            )
+            PhotoOperationResult.NeedSystemApproval(
+                SystemMediaActionRequest(
+                    photos = batch.current,
+                    actionType = SystemMediaActionType.DeletePermanently,
+                    requestToken = UUID.randomUUID().toString(),
+                    intentSender = pendingIntent.intentSender,
+                    remaining = batch.remaining,
                 )
-                PhotoOperationResult.NeedSystemApproval(
-                    SystemMediaActionRequest(
-                        photos = batch.current,
-                        actionType = SystemMediaActionType.DeletePermanently,
-                        requestToken = UUID.randomUUID().toString(),
-                        intentSender = pendingIntent.intentSender,
-                        remaining = batch.remaining,
-                    )
-                )
-            } else {
-                PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
-            }
+            )
         } catch (e: Exception) {
             PhotoOperationResult.Failure(PhotoOperationFailureReason.MediaStoreFailed)
         }
