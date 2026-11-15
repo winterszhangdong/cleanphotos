@@ -515,6 +515,28 @@ class SimilarViewModelTest {
     }
 
     @Test
+    fun `扫描拆掉这组后上滑把最后一张改成留下`() = runTest(dispatcher) {
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000)))
+        val vm = viewModel()
+        vm.start()
+        advanceUntilIdle()
+        val key = vm.uiState.value.groups.single().key
+        vm.onMark(key, 1L, SimilarMark.Remove)
+        vm.onSwipeTrash(key, 2L)
+        advanceUntilIdle()
+        photos.setPhotos(listOf(shot(1, 1_000, width = 100)))
+        advanceUntilIdle()
+        val stayed = vm.uiState.value
+        assertTrue(stayed.groups.isEmpty())
+        assertEquals(SimilarMark.Remove, stayed.remainder.getValue(key).mark)
+        vm.onMark(key, 1L, SimilarMark.Keep)
+        val marked = vm.uiState.value
+        assertEquals(SimilarMark.Keep, marked.remainder.getValue(key).mark)
+        assertTrue(marked.groups.isEmpty())
+        assertFalse(key in marked.marks)
+    }
+
+    @Test
     fun `组 key 变短之后，原来的路由还能删掉最后一张`() = runTest(dispatcher) {
         photos.setPhotos(listOf(shot(1, 1_000, width = 100), shot(2, 2_000), shot(3, 3_000), shot(4, 4_000)))
         val vm = viewModel()

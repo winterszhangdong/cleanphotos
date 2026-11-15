@@ -1230,7 +1230,7 @@ data class SimilarGroup(
 
 推荐 `chooseSimilarRecommended`：清晰度高的优先，没有清晰度的最后。其后与旧规则相同：像素数（宽 × 高，缺失算 0）最大，其次 `size` 更大，再其次 `dateTaken` 更早，最后 id 更小。
 
-页面上的标记是 `Map<groupKey, Map<photoId, SimilarMark>>`，只活在 `SimilarViewModel`。默认推荐为留下，其余为移走。上滑写成留下。对比页下滑不改标记，而是把这一张立刻送进垃圾桶，并从标记里拿掉；写失败再放回原来的标记。已经是留下时上滑不变。组 key 因为少了这张而改变时，还在的标记跟着新组走。连着的下滑撤回是一条 `SimilarUndo`（`burst = true`），照片并进同一个 `BatchAction`。组被扫描拿掉、只剩一张时，这张和当时的标记留在 `remainder`。它可能记在变短之后的组 key 上，对比页路由仍是原来的 key，两边对上之后还能再下滑删掉它。
+页面上的标记是 `Map<groupKey, Map<photoId, SimilarMark>>`，只活在 `SimilarViewModel`。默认推荐为留下，其余为移走。上滑写成留下。对比页下滑不改标记，而是把这一张立刻送进垃圾桶，并从标记里拿掉；写失败再放回原来的标记。已经是留下时上滑不变。组 key 因为少了这张而改变时，还在的标记跟着新组走。连着的下滑撤回是一条 `SimilarUndo`（`burst = true`），照片并进同一个 `BatchAction`。组被扫描拿掉、只剩一张时，这张和当时的标记留在 `remainder`。它可能记在变短之后的组 key 上，对比页路由仍是原来的 key，两边对上之后还能再下滑删掉它。这时上滑不新建一组，只把对上的那条 `CompareRemainder.mark` 改成留下；已经是留下则不变。
 
 ### 已处理记录
 

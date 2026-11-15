@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
  * 相似照片。分组由 UseCase 给出；这里记住每张的留下 / 移走，以及提交或下滑删除后的撤回。
  * 标记不持久化。组还在（key 相同）时不被新一轮扫描盖掉；组没了就丢掉。
  * key 因为少了已删的照片而变掉时，把还在的标记带到新组上。
+ * 组被拿掉后最后一张的标记留在 remainder 上，上滑改的是这一份，不把组加回去。
  */
 @HiltViewModel
 class SimilarViewModel @Inject constructor(
@@ -124,10 +125,18 @@ class SimilarViewModel @Inject constructor(
 
     fun onMark(groupKey: String, photoId: Long, mark: SimilarMark) {
         if (_uiState.value.moving) return
-        val map = marksByGroup[groupKey] ?: return
-        if (photoId !in map || map[photoId] == mark) return
-        map[photoId] = mark
-        _uiState.update { it.copy(marks = snapshotMarks()) }
+        val map = marksByGroup[groupKey]
+        if (map != null) {
+            if (photoId !in map || map[photoId] == mark) return
+            map[photoId] = mark
+            _uiState.update { it.copy(marks = snapshotMarks()) }
+            return
+        }
+        val remainder = _uiState.value.remainder
+        val held = remainderForRoute(groupKey, remainder) ?: return
+        if (held.photo.id != photoId || held.mark == mark) return
+        val storedKey = remainderStorageKey(groupKey, remainder) ?: return
+        _uiState.update { it.copy(remainder = it.remainder + (storedKey to held.copy(mark = mark))) }
     }
 
     /**

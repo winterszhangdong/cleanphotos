@@ -51,13 +51,25 @@ internal fun compareSession(
 internal fun remainderForRoute(
     routeKey: String,
     remainder: Map<String, CompareRemainder>,
-): CompareRemainder? {
-    remainder[routeKey]?.let { return it }
+): CompareRemainder? = remainderStored(routeKey, remainder)?.second
+
+/** [remainderForRoute] 对上的那一条实际记在哪个 key 上。路由对得上就用路由 key。 */
+internal fun remainderStorageKey(
+    routeKey: String,
+    remainder: Map<String, CompareRemainder>,
+): String? = remainderStored(routeKey, remainder)?.first
+
+private fun remainderStored(
+    routeKey: String,
+    remainder: Map<String, CompareRemainder>,
+): Pair<String, CompareRemainder>? {
+    remainder[routeKey]?.let { return routeKey to it }
     val ids = routeKey.split(',').mapNotNull { it.toLongOrNull() }.toSet()
-    return remainder.entries
+    val entry = remainder.entries
         .filter { it.value.photo.id in ids }
         .maxByOrNull { (key, _) -> key.split(',').count { it.toLongOrNull() in ids } }
-        ?.value
+        ?: return null
+    return entry.key to entry.value
 }
 
 /** 下滑删掉当前张之后要停住的下一张。已经是最后一张时没有下一张。 */
