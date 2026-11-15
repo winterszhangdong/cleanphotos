@@ -66,7 +66,9 @@ fun Modifier.gridScrollTapGuard(): Modifier {
 
 /**
  * 网格是否已「停稳可点」。
- * 滚动进行中每 ~32ms 刷新时钟；刚停住时再 mark 一次，之后满 [settleMs] 才允许点按。
+ * 滚动进行中每 ~32ms 刷新时钟；这一轮真的滚过、停住后再 mark 一次，满 [settleMs] 才允许点按。
+ * 进入组合时 [snapshotFlow] 会先发出当前的 false。那不是甩动后的惯性抬手，不能改时钟
+ * （[GridScrollClock] 初值 0，静止网格开局已经算停稳）。
  */
 @Composable
 fun rememberScrollSettled(
@@ -74,15 +76,17 @@ fun rememberScrollSettled(
     settleMs: Long = SCROLL_SETTLE_TAP_GUARD_MS,
 ): () -> Boolean {
     LaunchedEffect(state, settleMs) {
+        var sawScroll = false
         snapshotFlow { state.isScrollInProgress }.collectLatest { scrolling ->
             if (scrolling) {
+                sawScroll = true
                 while (isActive && state.isScrollInProgress) {
                     GridScrollClock.mark()
                     delay(32)
                 }
             }
-            // 停住（或本轮结束）：从这一刻起算 settle
-            GridScrollClock.mark()
+            // 只有这一轮见过滚动，停住后才从这一刻起算 settle。首帧 false 不动时钟。
+            if (sawScroll) GridScrollClock.mark()
         }
     }
     return remember(state, settleMs) {
