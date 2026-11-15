@@ -72,6 +72,38 @@ class DayExpandTest {
     }
 
     @Test
+    fun leaving_immersive_lands_on_the_date_grouped_photo() {
+        val sections = listOf(day("a", 1..4, year = 2024), day("b", 5..8, year = 2023))
+        val immersive = 4
+        val grouped = DayExpand.gridKeys(sections, null).indexOf(5L)
+        assertTrue(grouped != immersive)
+        assertEquals(grouped, DayExpand.indexAfterLeave(sections, immersive = true, expandedDayKey = null, firstIndex = immersive))
+        assertEquals(5L, DayExpand.photoIdOnImmersiveGrid(sections, immersive))
+        assertNull(DayExpand.indexAfterLeave(sections, immersive = true, expandedDayKey = null, firstIndex = 99))
+    }
+
+    @Test
+    fun leaving_an_expanded_overflow_photo_lands_on_the_day_header() {
+        val sections = listOf(day("a", 1..8, 9..12, year = 2024), day("b", 13..14))
+        val collapsed = DayExpand.gridKeys(sections, null)
+        val header = collapsed.indexOf("a")
+        assertTrue(header > 0)
+        val overflow = DayExpand.gridKeys(sections, "a").indexOf(9L)
+        assertEquals(header, DayExpand.indexAfterLeave(sections, immersive = false, expandedDayKey = "a", firstIndex = overflow))
+        assertEquals(header, DayExpand.indexInCollapsedGrid(sections, 9L))
+        assertNull(DayExpand.indexInCollapsedGrid(sections, 99L))
+    }
+
+    @Test
+    fun leaving_date_grouped_without_an_expanded_day_does_not_move() {
+        val sections = listOf(day("a", 1..4, year = 2024), day("b", 5..8, year = 2023))
+        assertNull(DayExpand.indexAfterLeave(sections, immersive = false, expandedDayKey = null, firstIndex = 4))
+        assertNull(DayExpand.indexAfterLeave(sections, immersive = false, expandedDayKey = null, firstIndex = 0))
+        val header = DayExpand.gridKeys(sections, null).indexOf("a")
+        assertNull(DayExpand.indexAfterLeave(sections, immersive = false, expandedDayKey = "a", firstIndex = header))
+    }
+
+    @Test
     fun pin_follows_the_collapsing_chrome_and_stops_at_the_status_bar() {
         assertEquals(100f, dayHeaderPinY(40f, 60f, 0f))
         assertEquals(70f, dayHeaderPinY(40f, 60f, -30f))

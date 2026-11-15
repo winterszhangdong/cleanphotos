@@ -18,8 +18,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavHostController
+import com.winters.cleanphotos.core.navigation.NavRoutes
 import com.winters.cleanphotos.core.permission.PermissionChecker
 import com.winters.cleanphotos.feature.language.LanguageViewModel
 import com.winters.cleanphotos.feature.similar.SimilarViewModel
@@ -27,11 +32,16 @@ import com.winters.cleanphotos.feature.similar.SimilarViewModel
 /** 相似比对只在停稳到相似时开始。左右滑露出相似页不算。 */
 internal fun similarScanStartsOn(scope: LibraryScope): Boolean = scope == LibraryScope.Similar
 
+private class PhotosLeaveCapture {
+    var fn: () -> Unit = {}
+}
+
 @Composable
 fun AllPhotosRoute(
     onNavigateToReview: (photoId: Long, sortOrder: String, filterMode: String, unseenOnly: Boolean) -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSimilar: (groupKey: String, photoId: Long) -> Unit,
+    navController: NavHostController,
     viewModel: AllPhotosViewModel = hiltViewModel(),
     similarViewModel: SimilarViewModel = hiltViewModel(),
     languageViewModel: LanguageViewModel = hiltViewModel(),
@@ -84,6 +94,21 @@ fun AllPhotosRoute(
         }
     }
 
+    // ON_STOP 在导航改目的地时同步发生，组合还在，网格下标也还没存。旋转和退到后台时目的地仍是照片页，不记。
+    val leaveCapture = remember { PhotosLeaveCapture() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, navController) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_STOP) return@LifecycleEventObserver
+            val activity = context as? Activity
+            if (activity?.isChangingConfigurations == true) return@LifecycleEventObserver
+            if (navController.currentDestination?.route == NavRoutes.ALL_PHOTOS) return@LifecycleEventObserver
+            leaveCapture.fn()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     AllPhotosScreen(
         uiState = uiState,
         permanentlyDenied = permanentlyDenied,
@@ -127,6 +152,7 @@ fun AllPhotosRoute(
             languageViewModel.select(language)
         },
         onDismissLanguageSheet = { showLanguageSheet = false },
+        registerLeaveCapture = { leaveCapture.fn = it },
         selectionActions = remember(viewModel) {
             PhotoSelectionActions(
                 onLongPress = viewModel::onLongPressPhoto,

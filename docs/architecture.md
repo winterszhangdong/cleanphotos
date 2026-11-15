@@ -430,7 +430,7 @@ AllPhotosScreen（顶栏 + 范围刻度 quick return；内容区 HorizontalPager
 SimilarCompareRoute（全屏对比；手势在 feature/similar，复用清理页的判定函数，不改清理页。当前张用 LocateMotionPhotoVideoUseCase 认动态照片，只为左下角那一行字，不播放）
 AllPhotosViewModel（范围 LibraryScope + unseenOnly，都不持久化。`_scope` 是停稳的范围。除当前页外只预算左右相邻页（相似邻页不算，它画分组卡片）。大文件内部用 LargestFirst，菜单排序另存。全部的 viewMode 只在内存里，离开照片页回到日期分组）
 AllPhotosUiState
-PhotoDateSection（日期分组的吸顶、沉浸不画标题。切换这两种视图前先 requestScrollToItem 到当前照片，清掉按行号记的预取窗）
+PhotoDateSection（日期分组的吸顶、沉浸不画标题。切换这两种视图前先 requestScrollToItem 到当前照片，清掉按行号记的预取窗。离开照片页时在组合卸掉之前记下锚点，回来再滚到日期分组或收起后的下标）
 DateScrubber（全部范围的日期滑块。拖动时 requestScrollToItem，同一帧只量最后一天；按住期间预取窗为 0，格子不挂共享元素，松手再挂上）
 PhotoChromeCollapse
 ```

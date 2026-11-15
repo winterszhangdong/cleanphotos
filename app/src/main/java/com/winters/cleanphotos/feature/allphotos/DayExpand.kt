@@ -66,6 +66,54 @@ internal object DayExpand {
         }
         return null
     }
+
+    /**
+     * 离开照片页之后网格该停的下标。
+     * 沉浸按照片对回日期分组。展开的那天收起后，视口已经滑进这一天就回到日期行。
+     * 本来就是日期分组、也没有展开时返回 null。锚点不在时返回 null，不回落到 0。
+     */
+    fun indexAfterLeave(
+        sections: List<PhotoDaySection>,
+        immersive: Boolean,
+        expandedDayKey: String?,
+        firstIndex: Int,
+    ): Int? {
+        if (immersive) {
+            val id = photoIdOnImmersiveGrid(sections, firstIndex) ?: return null
+            return indexInCollapsedGrid(sections, id)
+        }
+        if (expandedDayKey == null) return null
+        return scrollAfterToggle(sections, expandedDayKey, null, firstIndex, 0)?.first
+    }
+
+    /** 沉浸网格只有照片。下标按 [PhotoDaySection.photos] 往下数，不含被 8 张挡住的溢出。 */
+    fun photoIdOnImmersiveGrid(sections: List<PhotoDaySection>, index: Int): Long? {
+        var cursor = 0
+        for (section in sections) {
+            for (photo in section.photos) {
+                if (cursor == index) return photo.id
+                cursor++
+            }
+        }
+        return null
+    }
+
+    /**
+     * 收起后的网格（日期分组、没有展开）里这个锚点的下标。
+     * 只在溢出里的照片不在格子上，落到这一天的日期行。找不到返回 null。
+     */
+    fun indexInCollapsedGrid(sections: List<PhotoDaySection>, anchor: Any): Int? {
+        val keys = gridKeys(sections, null)
+        val direct = keys.indexOf(anchor)
+        if (direct >= 0) return direct
+        if (anchor is Long) {
+            val section = sections.firstOrNull { day -> day.overflow.any { it.id == anchor } } ?: return null
+            if (section.header == SectionHeader.None) return null
+            val header = keys.indexOf(section.dayKey)
+            if (header >= 0) return header
+        }
+        return null
+    }
 }
 
 /** 顶栏还露在外面的高度。collapseOffset 是 0 到 -chromeHeight。 */

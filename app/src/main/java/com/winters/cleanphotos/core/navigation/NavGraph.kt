@@ -131,6 +131,7 @@ fun NavGraph(
                                         navController.navigate(NavRoutes.similarCompareRoute(groupKey, photoId))
                                     }
                                 },
+                                navController = navController,
                             )
                         }
                     }

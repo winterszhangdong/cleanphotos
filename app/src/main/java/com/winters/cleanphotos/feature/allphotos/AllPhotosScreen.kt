@@ -25,6 +25,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import com.winters.cleanphotos.core.design.MotionEasings
@@ -134,6 +137,18 @@ import com.winters.cleanphotos.feature.similar.SimilarUiState
 import com.winters.cleanphotos.feature.similar.SimilarUndoBar
 import kotlinx.coroutines.delay
 
+private const val NoLeaveId = Long.MIN_VALUE
+private const val NoLeaveIndex = -1
+
+private class LeaveCapture {
+    var fn: () -> Unit = {}
+}
+
+private class LeaveClear {
+    var all: Boolean = false
+    var today: Boolean = false
+}
+
 /**
  * 照片页。
  * 顶栏和范围按钮叠在列表上，往下翻时一起收起；状态栏留一条暗房底色。
@@ -164,6 +179,7 @@ fun AllPhotosScreen(
     showLanguageSheet: Boolean = false,
     onLanguageSelected: (AppLanguage) -> Unit = {},
     onDismissLanguageSheet: () -> Unit = {},
+    registerLeaveCapture: ((() -> Unit) -> Unit)? = null,
 ) {
     SystemBarIcons(lightBackground = false)
 
@@ -199,6 +215,79 @@ fun AllPhotosScreen(
     val gridChat = rememberPhotoGridState()
     val gridToday = rememberPhotoGridState()
     val similarListState = rememberLazyListState()
+    // 导航离开时 SaveableStateProvider 会先于子组合的 onDispose 存下 firstVisibleItemIndex。
+    // 沉浸 / 展开的下标要在那之前记成锚点，回来、网格第一次测量前再滚到收起后的位置。
+    var pendingAllId by rememberSaveable { mutableLongStateOf(NoLeaveId) }
+    var pendingAllIndex by rememberSaveable { mutableIntStateOf(NoLeaveIndex) }
+    var pendingTodayDay by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingTodayIndex by rememberSaveable { mutableIntStateOf(NoLeaveIndex) }
+    var capturedThisEntry by remember { mutableStateOf(false) }
+    fun sectionsFor(scope: LibraryScope): List<PhotoDaySection>? =
+        uiState.pages[scope]?.sections ?: uiState.sections.takeIf { uiState.scope == scope }
+    val captureLeave = remember { LeaveCapture() }
+    captureLeave.fn = {
+        if (uiState.viewMode == AllPhotosViewMode.Immersive) {
+            val sections = sectionsFor(LibraryScope.All)
+            val index = gridAll.firstVisibleItemIndex
+            val id = sections?.let { DayExpand.photoIdOnImmersiveGrid(it, index) }
+            if (id != null) {
+                pendingAllId = id
+                pendingAllIndex = NoLeaveIndex
+            } else {
+                pendingAllId = NoLeaveId
+                pendingAllIndex = index
+            }
+        }
+        val today = uiState.expandedDays[LibraryScope.OnThisDay]
+        if (today != null) {
+            pendingTodayDay = today
+            pendingTodayIndex = gridToday.firstVisibleItemIndex
+        }
+        capturedThisEntry = true
+    }
+    SideEffect { registerLeaveCapture?.invoke(captureLeave.fn) }
+    // 在网格组合之前改下标，第一次测量就用收起后的位置。不在组合里读 firstVisibleItemIndex。
+    val clearLeave = remember { LeaveClear() }
+    clearLeave.all = false
+    clearLeave.today = false
+    if (!capturedThisEntry && (pendingAllId != NoLeaveId || pendingAllIndex != NoLeaveIndex)) {
+        val sections = sectionsFor(LibraryScope.All)
+        if (sections != null && uiState.viewMode == AllPhotosViewMode.DateGrouped &&
+            !(sections.isEmpty() && uiState.isLoading)
+        ) {
+            val index = if (pendingAllId != NoLeaveId) {
+                DayExpand.indexInCollapsedGrid(sections, pendingAllId)
+            } else {
+                DayExpand.indexAfterLeave(sections, immersive = true, expandedDayKey = null, firstIndex = pendingAllIndex)
+            }
+            if (index != null) gridAll.requestScrollToItem(index)
+            clearLeave.all = true
+        }
+    }
+    val todayDay = pendingTodayDay
+    if (!capturedThisEntry && todayDay != null && uiState.expandedDays[LibraryScope.OnThisDay] == null) {
+        val sections = sectionsFor(LibraryScope.OnThisDay)
+        if (sections != null && !(sections.isEmpty() && uiState.isLoading)) {
+            val index = DayExpand.indexAfterLeave(
+                sections,
+                immersive = false,
+                expandedDayKey = todayDay,
+                firstIndex = pendingTodayIndex,
+            )
+            if (index != null) gridToday.requestScrollToItem(index)
+            clearLeave.today = true
+        }
+    }
+    SideEffect {
+        if (clearLeave.all) {
+            pendingAllId = NoLeaveId
+            pendingAllIndex = NoLeaveIndex
+        }
+        if (clearLeave.today) {
+            pendingTodayDay = null
+            pendingTodayIndex = NoLeaveIndex
+        }
+    }
     fun gridFor(scope: LibraryScope): LazyGridState = when (scope) {
         LibraryScope.All -> gridAll
         LibraryScope.LargeFiles -> gridLarge
