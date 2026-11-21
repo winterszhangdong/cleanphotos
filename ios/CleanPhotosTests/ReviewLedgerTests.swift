@@ -104,6 +104,20 @@ final class ReviewLedgerTests: XCTestCase {
         XCTAssertEqual(c.ledger.dayCells(day: "2026-09-21", current: "a3"), [.favorited, .kept, .trashed, .current])
     }
 
+    func testReplaceKeepsTheSameSlot() {
+        var c = ReviewSessionCore(photos: photos(3, 1), startId: "a0")
+        c.settle(on: "p-a1")
+        c.settle(on: "p-a0")
+        c.replace("a1", with: LedgerPhoto(id: "compressed", day: "2026-09-21", size: 0))
+        XCTAssertEqual(c.currentKey, "p-a0")
+        XCTAssertEqual(c.pages.map(\.key), ["p-a0", "p-compressed", "p-a2", "p-b0"])
+        XCTAssertTrue(c.ledger.viewed.contains("compressed"))
+        XCTAssertFalse(c.ledger.viewed.contains("a1"))
+        c.replace("a0", with: LedgerPhoto(id: "now", day: "2026-09-21", size: 0))
+        XCTAssertEqual(c.currentKey, "p-now")
+        XCTAssertEqual(c.ledger.dayCells(day: "2026-09-21", current: "now")[0], .current)
+    }
+
     func testMonthProgress() {
         let byDay = ["2026-09-01": ["x"], "2026-09-02": ["y", "z"], "2026-09-21": ["a"], "2026-09-30": ["f"]]
         let r = MonthProgressBuilder.build(monthOf: "2026-09-21", photosByDay: byDay, processed: ["y"], seen: ["x", "z"], today: "2026-09-25")

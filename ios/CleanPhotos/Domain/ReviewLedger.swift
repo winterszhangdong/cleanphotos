@@ -71,6 +71,22 @@ struct ReviewLedger {
     mutating func markSummarized(_ day: String) { summarized.insert(day) }
     func isTouched(_ id: String) -> Bool { viewed.contains(id) || outcomes[id] != nil }
 
+    /// 压缩成功后用成品换掉当前这张：位置不变，看过和处理结果跟着新 id。
+    func replacing(_ id: String, with photo: LedgerPhoto) -> ReviewLedger {
+        guard let index = indexOf(id) else { return self }
+        var next = ordered
+        next[index] = photo
+        var copy = ReviewLedger(ordered: next)
+        copy.viewed = viewed
+        if copy.viewed.remove(id) != nil { copy.viewed.insert(photo.id) }
+        copy.outcomes = outcomes
+        if let outcome = copy.outcomes.removeValue(forKey: id) {
+            copy.outcomes[photo.id] = outcome
+        }
+        copy.summarized = summarized
+        return copy
+    }
+
     /// 当天进度条每格（BuildSessionDayProgressUseCase）。current 为 nil 时没有「当前」格（小结页）。
     func dayCells(day: String, current: String?) -> [DayCellState] {
         photosOfDay(day).map { p in
@@ -206,6 +222,15 @@ struct ReviewSessionCore {
         activeSummaryDay = summaryDay
         rebuild()
         return currentKey
+    }
+
+    /// 当前张换成压缩成品。页序位置不变。
+    mutating func replace(_ id: String, with photo: LedgerPhoto) {
+        guard ledger.photo(id) != nil, !removed.contains(id) else { return }
+        let wasCurrent = Self.photoId(of: currentKey) == id
+        ledger = ledger.replacing(id, with: photo)
+        if wasCurrent { currentKey = LedgerPage.photo(photo.id).key }
+        rebuild()
     }
 
     /// 撤回：照片插回原位（序列按初始顺序生成）并切回它；若当前正停在它那天的小结上，小结一起撤掉。
