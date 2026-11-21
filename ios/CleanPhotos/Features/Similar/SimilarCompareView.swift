@@ -10,20 +10,38 @@ struct SimilarCompareView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var session = SimilarSession.shared
     @StateObject private var motion: CompareDrag
-    /// 当前大图左下角。换张先清掉，读失败或不是实况就不写。
+    /// 当前大图左下角。换张先清掉，读失败或不是动态照片就不写。
     @State private var motionMark: ComparePhotoMark?
+    /// 下滑删成之后单独飞走的那一张。当前页已经换成下一张。
+    @State private var exits: [CompareExit] = []
+    /// 最后一张飞完才离开。飞的时候顶栏和胶片条还按飞之前留着。
+    @State private var flyingLast = false
+    @State private var lastPin: LastPin?
+    @State private var stageSize: CGSize = .zero
 
     init(groupKey: String, photoId: String, onClose: @escaping () -> Void) {
         self.groupKey = groupKey
         self.onClose = onClose
-        let photos = SimilarSession.shared.groups.first { $0.key == groupKey }?.photos ?? []
+        let photos = SimilarSession.shared.deck(routeKey: groupKey)?.photos
+            ?? SimilarSession.shared.groups.first { $0.key == groupKey }?.photos
+            ?? []
         let index = photos.firstIndex { $0.id == photoId } ?? 0
         _motion = StateObject(wrappedValue: CompareDrag(index: index))
     }
 
     private var zh: Bool { language.isChineseUI }
-    private var card: SimilarCard? { session.groups.first { $0.key == groupKey } }
-    private var photos: [PhotoItem] { card?.photos ?? [] }
+    private var liveDeck: SimilarCompareDeck? { session.deck(routeKey: groupKey) }
+    private var livePhotos: [PhotoItem] { liveDeck?.photos ?? [] }
+    /// 飞最后一张时，会话已经空了，顶栏和胶片条仍用飞之前的那一页。
+    private var presentedPhotos: [PhotoItem] {
+        if let lastPin { return lastPin.photos }
+        return livePhotos
+    }
+    private var heroPhotos: [PhotoItem] { flyingLast ? [] : livePhotos }
+    private var shownMarks: [String: SimilarMark] {
+        if let lastPin { return lastPin.marks }
+        return liveDeck?.marks ?? [:]
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -39,27 +57,45 @@ struct SimilarCompareView: View {
                     UndoCapsule(banner: banner, locale: language.effectiveLocale) { library.undoLast() }
                         .padding(.horizontal, 16)
                         .padding(.bottom, insets.bottom + 12)
-                } else {
+                } else if let deck = liveDeck, deck.onList {
                     SimilarCommitButton(
                         title: SimilarCopy.commit(removeCount: removeCount, zh: zh),
-                        enabled: !session.moving && !photos.isEmpty
+                        enabled: !session.moving && !deck.photos.isEmpty
                     ) {
-                        if session.commit(groupKey: groupKey) { onClose() }
+                        if session.commit(groupKey: deck.sourceKey) { onClose() }
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, insets.bottom + 12)
+                } else {
+                    Color.clear.frame(height: insets.bottom)
                 }
             }
             .background(DarkroomColors.room)
         }
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
-        .onChange(of: photos.isEmpty) { _, empty in
-            if empty { onClose() }
+        .onChange(of: livePhotos.map(\.id)) { old, new in
+            if new.isEmpty {
+                leaveIfGone()
+                return
+            }
+            guard !flyingLast else { return }
+            let current = old.indices.contains(motion.index) ? old[motion.index] : nil
+            if let current, let idx = new.firstIndex(of: current) {
+                if idx != motion.index { motion.jump(to: idx) }
+            } else {
+                motion.clampIndex(new.count)
+            }
         }
-        .onChange(of: photos.count) { _, count in
-            motion.clampIndex(count)
+        .onChange(of: session.phase) { _, phase in
+            if phase == .ready { leaveIfGone() }
         }
+    }
+
+    /// 扫描结束且这一张确实不在了才离开。最后一张还在飞时不离开。比对中不因为暂时没有组而返回。
+    private func leaveIfGone() {
+        guard !flyingLast, session.phase == .ready, liveDeck == nil else { return }
+        onClose()
     }
 
     /// 只有移进垃圾桶的撤回才占掉底部胶囊。收藏撤回不属于这一页。
@@ -70,8 +106,8 @@ struct SimilarCompareView: View {
     }
 
     private var removeCount: Int {
-        let map = session.marks[groupKey] ?? [:]
-        return photos.filter { map[$0.id] == .remove }.count
+        guard let deck = liveDeck else { return 0 }
+        return deck.photos.filter { deck.marks[$0.id] == .remove }.count
     }
 
     private var header: some View {
@@ -82,7 +118,7 @@ struct SimilarCompareView: View {
                 Spacer()
             }
             VStack(spacing: 0) {
-                Text(SimilarCopy.position(index: displayIndex + 1, count: max(photos.count, 1)))
+                Text(SimilarCopy.position(index: displayIndex + 1, count: max(presentedPhotos.count, 1)))
                     .font(Font.custom("NotoSansSC-Medium", size: 14))
                     .foregroundStyle(DarkroomColors.paper)
                 Text(caption.text)
@@ -97,16 +133,21 @@ struct SimilarCompareView: View {
     }
 
     private var displayIndex: Int {
-        guard !photos.isEmpty else { return 0 }
-        return min(max(0, motion.index), photos.count - 1)
+        let count = presentedPhotos.count
+        guard count > 0 else { return 0 }
+        let raw = flyingLast ? (lastPin?.index ?? 0) : motion.index
+        return min(max(0, raw), count - 1)
     }
 
     private var caption: (text: String, remove: Bool) {
-        guard photos.indices.contains(displayIndex), let card else { return ("", false) }
+        let photos = presentedPhotos
+        guard photos.indices.contains(displayIndex) else { return ("", false) }
         let photo = photos[displayIndex]
-        let mark = session.marks[groupKey]?[photo.id] ?? .keep
+        let mark = shownMarks[photo.id] ?? .keep
         if mark == .remove { return (SimilarCopy.captionRemove(zh: zh), true) }
-        let recommended = photo.id == card.recommendedId && card.sharpness[photo.id] != nil && mark == .keep
+        let recommendedId = lastPin?.recommendedId ?? liveDeck?.recommendedId ?? ""
+        let sharpness = lastPin?.sharpness ?? liveDeck?.sharpness ?? [:]
+        let recommended = photo.id == recommendedId && sharpness[photo.id] != nil && mark == .keep
         if recommended { return (SimilarCopy.recommended(zh: zh), false) }
         return ("", false)
     }
@@ -114,17 +155,10 @@ struct SimilarCompareView: View {
     private var stage: some View {
         GeometryReader { geo in
             let width = geo.size.width
+            let height = geo.size.height
             ZStack {
-                ForEach(neighborIndexes, id: \.self) { index in
-                    if photos.indices.contains(index) {
-                        SimilarFitPhoto(item: photos[index])
-                            .frame(width: width, height: geo.size.height)
-                            .scaleEffect(index == displayIndex ? motion.zoom : 1)
-                            .offset(index == displayIndex ? motion.zoomOffset : .zero)
-                            .offset(x: CGFloat(index - displayIndex) * width + motion.dx, y: index == displayIndex ? motion.dy : 0)
-                            .colorMultiply(Color(white: pageBrightness(index: index, width: width)))
-                    }
-                }
+                heroPages(width: width, height: height)
+                exitPages(width: width, height: height)
             }
             .frame(width: width, height: geo.size.height)
             .clipped()
@@ -137,19 +171,66 @@ struct SimilarCompareView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(currentLabel))
             .accessibilityAddTraits(.isImage)
-            .accessibilityAction(named: Text(SimilarCopy.actionKeep(zh: zh))) { _ = applyVertical(up: true) }
+            .accessibilityAction(named: Text(SimilarCopy.actionKeep(zh: zh))) {
+                _ = applyVertical(up: true, stage: stageSize)
+            }
             .accessibilityAction(named: Text(L10n.string("action_move_to_trash", locale: language.effectiveLocale))) {
-                _ = applyVertical(up: false)
+                _ = applyVertical(up: false, stage: stageSize)
             }
             .task(id: currentPhotoId) { await loadMotionMark() }
+            .onAppear { stageSize = geo.size }
+            .onChange(of: geo.size) { _, newSize in
+                if stageSize != newSize { stageSize = newSize }
+            }
+        }
+    }
+
+    private func heroPages(width: CGFloat, height: CGFloat) -> some View {
+        let current = displayIndex
+        let photos = heroPhotos
+        return ZStack {
+            ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                let slot = index - current
+                if abs(slot) <= 1 {
+                    SimilarFitPhoto(item: photo)
+                        .frame(width: width, height: height)
+                        .scaleEffect(index == current ? motion.zoom : 1)
+                        .offset(index == current ? motion.zoomOffset : .zero)
+                        .offset(
+                            x: CGFloat(slot) * width + (index == current ? motion.dx : 0),
+                            y: index == current ? motion.dy : 0
+                        )
+                        .colorMultiply(Color(white: pageBrightness(index: index, width: width)))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func exitPages(width: CGFloat, height: CGFloat) -> some View {
+        if !exits.isEmpty {
+            TimelineView(.animation) { timeline in
+                ZStack {
+                    ForEach(exits) { exit in
+                        CompareExitPhoto(
+                            item: exit.photo,
+                            flight: exit.flight,
+                            zoomOffset: exit.zoomOffset,
+                            now: timeline.date
+                        )
+                        .frame(width: width, height: height)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
         }
     }
 
     /// 不跟缩放、不去色：标在未缩放的 fit 矩形上，不放进照片那一层。
     @ViewBuilder
     private func compareMark(in box: CGSize) -> some View {
-        if let mark = motionMark, mark.id == currentPhotoId, photos.indices.contains(displayIndex) {
-            let photo = photos[displayIndex]
+        if let mark = motionMark, mark.id == currentPhotoId, heroPhotos.indices.contains(displayIndex) {
+            let photo = heroPhotos[displayIndex]
             let fitted = Self.fitSize(pixelWidth: photo.asset.pixelWidth, pixelHeight: photo.asset.pixelHeight, box: box)
             CompareMotionMark(raw: mark.raw, title: mark.title)
                 .padding(DarkroomDimens.screenSide)
@@ -165,39 +246,55 @@ struct SimilarCompareView: View {
     }
 
     private var currentPhotoId: String {
-        guard photos.indices.contains(displayIndex) else { return "" }
-        return photos[displayIndex].id
+        guard heroPhotos.indices.contains(displayIndex) else { return "" }
+        return heroPhotos[displayIndex].id
     }
 
     private func loadMotionMark() async {
         motionMark = nil
-        guard photos.indices.contains(displayIndex) else { return }
-        let photo = photos[displayIndex]
+        guard heroPhotos.indices.contains(displayIndex) else { return }
+        let photo = heroPhotos[displayIndex]
         let id = photo.id
-        guard photo.asset.mediaSubtypes.contains(.photoLive) else { return }
         let asset = photo.asset
-        let raw = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+        async let raw = Self.rawFile(asset)
+        let motion: Bool
+        if asset.mediaSubtypes.contains(.photoLive) {
+            motion = true
+        } else if asset.mediaType == .image {
+            do {
+                motion = try await EmbeddedMotionCache.locate(asset) != nil
+            } catch is CancellationError {
+                return
+            } catch {
+                motion = false
+            }
+        } else {
+            motion = false
+        }
+        let isRaw = await raw
+        guard !Task.isCancelled, currentPhotoId == id else { return }
+        guard motion else { return }
+        motionMark = ComparePhotoMark(id: id, raw: isRaw, title: PlaybackCopy.motion(zh: zh))
+    }
+
+    private static func rawFile(_ asset: PHAsset) async -> Bool {
+        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             DispatchQueue.global(qos: .utility).async {
                 let name = AssetSizeCache.shared.info(for: asset).originalFilename
                 cont.resume(returning: ScopeRules.isRawFileName(name))
             }
         }
-        guard !Task.isCancelled, currentPhotoId == id else { return }
-        motionMark = ComparePhotoMark(id: id, raw: raw, title: PlaybackCopy.motion(zh: zh))
-    }
-
-    private var neighborIndexes: [Int] {
-        [displayIndex - 1, displayIndex, displayIndex + 1]
     }
 
     private var filmstrip: some View {
         SimilarFilmstrip(
-            photos: photos,
-            marks: session.marks[groupKey] ?? [:],
+            photos: presentedPhotos,
+            marks: shownMarks,
             index: displayIndex,
             zh: zh,
             locale: language.effectiveLocale
         ) { index in
+            guard !flyingLast else { return }
             motion.jump(to: index)
         }
     }
@@ -215,23 +312,32 @@ struct SimilarCompareView: View {
 
     private var pinch: some Gesture {
         MagnificationGesture()
-            .onChanged { motion.pinchChanged($0) }
-            .onEnded { _ in motion.pinchEnded(reduce: reduceMotion) }
+            .onChanged { value in
+                guard !flyingLast else { return }
+                motion.pinchChanged(value)
+            }
+            .onEnded { _ in
+                guard !flyingLast else { return }
+                motion.pinchEnded(reduce: reduceMotion)
+            }
     }
 
     private func drag(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: ReviewTokens.touchSlop, coordinateSpace: .local)
             .onChanged { value in
-                motion.changed(value.translation, stage: size, count: photos.count)
+                guard !flyingLast else { return }
+                motion.changed(value.translation, stage: size, count: livePhotos.count)
             }
             .onEnded { value in
-                motion.ended(value.translation, velocity: value.velocity, stage: size, count: photos.count, reduce: reduceMotion) { up in
-                    applyVertical(up: up)
+                guard !flyingLast else { return }
+                motion.ended(value.translation, velocity: value.velocity, stage: size, count: livePhotos.count, reduce: reduceMotion) { up in
+                    applyVertical(up: up, stage: size)
                 }
             }
     }
 
     private func toggleZoom() {
+        guard !flyingLast else { return }
         withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) {
             if motion.zoom > 1.01 {
                 motion.zoom = 1
@@ -243,17 +349,66 @@ struct SimilarCompareView: View {
         }
     }
 
-    /// 上滑只改成留下。下滑过阈值把眼前这一张送进垃圾桶。
-    /// 清理页离场层绑着清理页的页模型，这里复用不了；过阈值后这一张立刻从对比页和胶片条消失。
+    /// 上滑只改成留下。下滑过阈值立刻送进垃圾桶：当前页位移归零，下一张已经在，
+    /// 这一张沿清理页的下沉路径单独飞出视口。系统减少动态效果时不飞，直接拿掉；
+    /// 最后一张飞完才回列表，减少动态效果时直接回去。
     /// 左右滑先被认成翻页、或放大后单指平移时，不会进到这里。
-    private func applyVertical(up: Bool) -> Bool {
-        guard photos.indices.contains(displayIndex) else { return false }
-        let photoId = photos[displayIndex].id
+    private func applyVertical(up: Bool, stage: CGSize) -> Bool {
+        guard !flyingLast, let deck = liveDeck, livePhotos.indices.contains(displayIndex) else { return false }
+        let photo = livePhotos[displayIndex]
+        let sourceKey = deck.sourceKey
         if up {
-            session.mark(groupKey: groupKey, photoId: photoId, mark: .keep)
+            session.mark(groupKey: sourceKey, photoId: photo.id, mark: .keep)
             return false
         }
-        return session.swipeTrash(groupKey: groupKey, photoId: photoId)
+        let last = livePhotos.count <= 1
+        let canFly = !reduceMotion && stage.height > 0
+        if last && canFly {
+            flyingLast = true
+            lastPin = LastPin(
+                photos: livePhotos,
+                marks: deck.marks,
+                index: displayIndex,
+                recommendedId: deck.recommendedId,
+                sharpness: deck.sharpness
+            )
+        }
+        let startY = motion.dy
+        let startScale = motion.zoom
+        let startBrightness = motion.exitStartBrightness
+        let zoomOffset = motion.zoomOffset
+        let trashed = session.swipeTrash(groupKey: sourceKey, photoId: photo.id)
+        guard trashed else {
+            flyingLast = false
+            lastPin = nil
+            return false
+        }
+        guard canFly else {
+            if last { onClose() }
+            return true
+        }
+        let flight = ExitFlight(
+            page: .photo(photo),
+            kind: .down,
+            startY: startY,
+            startScale: startScale,
+            startSaturation: 1,
+            startBrightness: startBrightness,
+            rise: 0,
+            target: CGPoint(x: 0, y: stage.height),
+            start: Date()
+        )
+        exits.append(CompareExit(photo: photo, flight: flight, zoomOffset: zoomOffset))
+        let token = flight.id
+        let closeAfter = last
+        DispatchQueue.main.asyncAfter(deadline: .now() + ReviewTokens.exitDuration + 0.02) {
+            exits.removeAll { $0.flight.id == token }
+            guard closeAfter else { return }
+            flyingLast = false
+            lastPin = nil
+            leaveIfGone()
+        }
+        return true
     }
 
     private func pageBrightness(index: Int, width: CGFloat) -> CGFloat {
@@ -262,13 +417,64 @@ struct SimilarCompareView: View {
     }
 
     private var currentLabel: String {
+        let photos = presentedPhotos
         guard photos.indices.contains(displayIndex) else { return "" }
         let photo = photos[displayIndex]
-        let mark = session.marks[groupKey]?[photo.id] ?? .keep
+        let mark = shownMarks[photo.id] ?? .keep
         let pattern = zh ? "M月d日 HH:mm" : "MMM d HH:mm"
         let date = DateFormatCache.string(photo.creationDate, format: pattern, locale: language.effectiveLocale)
         return SimilarCopy.film(date: date, mark: SimilarCopy.mark(mark, zh: zh), zh: zh)
     }
+}
+
+private struct LastPin {
+    var photos: [PhotoItem]
+    var marks: [String: SimilarMark]
+    var index: Int
+    var recommendedId: String
+    var sharpness: [String: Double]
+}
+
+private struct CompareExit: Identifiable {
+    let photo: PhotoItem
+    let flight: ExitFlight
+    let zoomOffset: CGSize
+    var id: UUID { flight.id }
+}
+
+/// 离场只画在大图区域里，胶片条不被盖住。路径用清理页同一条下沉：250ms 加速，缩到 0.05，亮度收到 0.14，饱和收到 0。
+private struct CompareExitPhoto: View {
+    let item: PhotoItem
+    let flight: ExitFlight
+    let zoomOffset: CGSize
+    let now: Date
+
+    var body: some View {
+        let progress = flight.progress(now)
+        let pose = flight.pose(progress)
+        let remain = CGFloat(1 - progress)
+        Group {
+            if let image = CompareImageHold.image(item.id) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                SimilarFitPhoto(item: item)
+            }
+        }
+        .scaleEffect(pose.scale)
+        .offset(x: pose.x + zoomOffset.width * remain, y: pose.y + zoomOffset.height * remain)
+        .saturation(Double(pose.saturation))
+        .colorMultiply(Color(white: Double(pose.brightness)))
+        .opacity(Double(pose.alpha))
+    }
+}
+
+/// 对比页大图刚解码的那张。飞出层和原来的那一页不是同一个视图，先拿这里的图，避免飞出去的是一块空白。
+private enum CompareImageHold {
+    static var images: [String: UIImage] = [:]
+    static func image(_ id: String) -> UIImage? { images[id] }
+    static func store(_ id: String, _ image: UIImage) { images[id] = image }
 }
 
 private struct ComparePhotoMark: Equatable {
@@ -322,9 +528,13 @@ private struct SimilarFitPhoto: View {
     private func load(maxSide: CGFloat) {
         cancel()
         let side = max(maxSide, 1)
+        let id = item.id
         requestID = library.requestFullImage(for: item.asset, maxSide: side) { img in
             Task { @MainActor in
-                if let img { self.image = img }
+                if let img {
+                    CompareImageHold.store(id, img)
+                    self.image = img
+                }
             }
         }
     }
@@ -468,6 +678,14 @@ final class CompareDrag: ObservableObject {
     var showCue: Bool { (fingerVertical && dy != 0) || (cueHolding && cueAlpha > 0.01) }
     var photoBrightness: CGFloat {
         guard fingerVertical, dy > 0 else { return 1 }
+        return Self.downBrightness(dy)
+    }
+
+    /// 松手时手指标记已经放下，亮度仍从这一下的位移起算。
+    var exitStartBrightness: CGFloat { Self.downBrightness(dy) }
+
+    private static func downBrightness(_ dy: CGFloat) -> CGFloat {
+        guard dy > 0 else { return 1 }
         let fraction = min(1, dy / ReviewTokens.effectCap)
         return 1 - 0.18 * fraction
     }

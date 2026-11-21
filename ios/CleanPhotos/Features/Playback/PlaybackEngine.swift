@@ -8,7 +8,7 @@ struct PlaybackLoaded: Equatable {
 }
 
 enum PlaybackAsset {
-    /// 只看当前这张 PHAsset 上已经有的类型。不扫整库，也不读厂商嵌在 JPEG 里的视频。
+    /// 视频和实况照片看 PHAsset 上已经有的类型。厂商嵌在 JPEG / HEIC 里的视频要读文件，不在这里判断。
     static func kind(of asset: PHAsset) -> PlaybackKind? {
         if asset.mediaType == .video { return .video }
         if asset.mediaSubtypes.contains(.photoLive) { return .motion }
@@ -119,6 +119,9 @@ final class PlaybackEngine: ObservableObject {
     private var sessionActive = false
     /// 中心键在条目还没到、或上次加载失败时按下。条目一到就播，不等那 250ms。
     private var playWhenReady = false
+    /// 正在读文件定位厂商动态照片的那一张。换张时取消。
+    private var probingID: String?
+    private var probeTask: Task<Void, Never>?
 
     init() {
         player.isMuted = true
@@ -142,34 +145,23 @@ final class PlaybackEngine: ObservableObject {
     }
 
     func ensureLoaded(id: String?, asset: PHAsset?) {
-        guard let id, let asset, let kind = PlaybackAsset.kind(of: asset) else {
+        guard let id, let asset else {
             clear()
             return
         }
-        if loaded?.id == id, loaded?.kind == kind, !loadFailed { return }
-        if let current = loaded?.id, current != id { playWhenReady = false }
-        self.asset = asset
-        cancelRequest()
-        tearDownItem()
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        token += 1
-        ended = false
-        userPaused = false
-        started = false
-        loadFailed = false
-        loaded = PlaybackLoaded(id: id, kind: kind)
-        applyMute(remembered: rememberedMute)
-        let token = self.token
-        switch kind {
-        case .video:
-            loadVideo(asset, token: token)
-        case .motion:
-            loadMotion(asset, token: token)
+        if let kind = PlaybackAsset.kind(of: asset) {
+            loadKnown(id: id, asset: asset, kind: kind)
+            return
         }
+        if asset.mediaType == .image {
+            loadEmbedded(id: id, asset: asset)
+            return
+        }
+        clear()
     }
 
     func clear() {
+        cancelProbe()
         token += 1
         cancelRequest()
         tearDownItem()
@@ -285,6 +277,7 @@ final class PlaybackEngine: ObservableObject {
     }
 
     func release() {
+        cancelProbe()
         token += 1
         cancelRequest()
         tearDownItem()
@@ -296,6 +289,81 @@ final class PlaybackEngine: ObservableObject {
         }
         appliedMuted = nil
         playWhenReady = false
+    }
+
+    private func loadKnown(id: String, asset: PHAsset, kind: PlaybackKind) {
+        cancelProbe()
+        if loaded?.id == id, loaded?.kind == kind, !loadFailed { return }
+        if let current = loaded?.id, current != id { playWhenReady = false }
+        self.asset = asset
+        cancelRequest()
+        tearDownItem()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        token += 1
+        ended = false
+        userPaused = false
+        started = false
+        loadFailed = false
+        loaded = PlaybackLoaded(id: id, kind: kind)
+        applyMute(remembered: rememberedMute)
+        let token = self.token
+        switch kind {
+        case .video:
+            loadVideo(asset, token: token)
+        case .motion:
+            loadMotion(asset, token: token)
+        }
+    }
+
+    /// 图片但不是实况照片：读这一张的文件。认到视频段就当动态照片播，认不到或读失败当静图。
+    private func loadEmbedded(id: String, asset: PHAsset) {
+        if probingID == id { return }
+        if loaded?.id == id, loaded?.kind == .motion, !loadFailed { return }
+        cancelProbe()
+        if loaded?.id != id { playWhenReady = false }
+        self.asset = asset
+        cancelRequest()
+        tearDownItem()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        token += 1
+        ended = false
+        userPaused = false
+        started = false
+        loadFailed = false
+        loaded = nil
+        probingID = id
+        applyMute(remembered: rememberedMute)
+        let token = self.token
+        probeTask = Task { [weak self] in
+            let outcome: URL?
+            do {
+                outcome = try await EmbeddedMotionCache.file(for: asset)
+            } catch is CancellationError {
+                return
+            } catch {
+                await MainActor.run {
+                    guard let self, self.token == token, self.probingID == id else { return }
+                    self.probingID = nil
+                }
+                return
+            }
+            await MainActor.run {
+                guard let self, self.token == token, self.probingID == id else { return }
+                self.probingID = nil
+                guard let outcome else { return }
+                self.loaded = PlaybackLoaded(id: id, kind: .motion)
+                self.applyMute(remembered: self.rememberedMute)
+                self.attach(AVPlayerItem(url: outcome))
+            }
+        }
+    }
+
+    private func cancelProbe() {
+        probingID = nil
+        probeTask?.cancel()
+        probeTask = nil
     }
 
     private func retry() {

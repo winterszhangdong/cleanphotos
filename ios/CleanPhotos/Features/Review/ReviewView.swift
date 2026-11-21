@@ -1372,6 +1372,7 @@ struct ReviewView: View {
             playback.ensureLoaded(id: photo.id, asset: photo.asset)
             if let next = page(at: session.index + 1), case .photo(let item) = next {
                 LiveVideoCache.prefetch(item.asset)
+                EmbeddedMotionCache.prefetch(item.asset)
             }
         } else {
             playback.clear()

@@ -3,28 +3,8 @@ import UIKit
 
 private enum PhotosViewMode: Equatable { case dateGrouped, immersive }
 
-private struct ItemSpan: Equatable { var y: CGFloat; var height: CGFloat }
-
-private struct GridMark: Equatable {
-    var scope: String
-    var section: String
-    /// 0 日期行，1 这一天最后一张。
-    var kind: Int
-    var y: CGFloat
-    var height: CGFloat
-}
-
-private struct GridMarksKey: PreferenceKey {
-    static var defaultValue: [GridMark] = []
-    static func reduce(value: inout [GridMark], nextValue: () -> [GridMark]) {
-        value.append(contentsOf: nextValue())
-    }
-}
-
-/// 滚动偏移记在引用类型里，避免每一帧都把照片页标成需要刷新。
+/// 每个范围记住的滚动偏移。不放进 SwiftUI 状态。
 private final class ScrollMemory {
-    var lastOffset: CGFloat = 0
-    var skip = false
     var saved: [LibraryScope: CGFloat] = [:]
 }
 
@@ -35,6 +15,8 @@ struct PhotosView: View {
     @Binding var reviewLaunch: ReviewLaunch?
     @Binding var hideTabBar: Bool
     @Binding var dimTabBar: Bool
+    /// 底部切走收藏或垃圾桶时为 false。视图还在，只是不画出来。
+    var photosVisible: Bool = true
     var onOpenTrash: () -> Void = {}
 
     @State private var scope: LibraryScope = .all
@@ -52,18 +34,20 @@ struct PhotosView: View {
     @State private var scopeDragging = false
     @State private var jumpDim = false
     @State private var dialWidths: [CGFloat] = []
-    @State private var collapse: CGFloat = 0
-    @State private var scrollY: CGFloat = 0
     @State private var canScroll = false
     @State private var viewportH: CGFloat = UIScreen.main.bounds.height
     @State private var memory = ScrollMemory()
-    @State private var headerY: [String: CGFloat] = [:]
-    @State private var headerH: [String: CGFloat] = [:]
-    @State private var lastItem: [String: ItemSpan] = [:]
-    @State private var scrubberShown = false
+    /// 滚动位移和顶栏收起。改它不会让照片页重算。
+    @State private var overlay = ScrollChromeDriver()
+    /// 吸住的那一天。只在换天时写入，用来藏流里那一行、换叠层内容。
+    @State private var stuckDayId: String?
     @State private var scrubIndex: Int?
+    @State private var similarCompare: SimilarCompareRoute?
     @State private var scrubTask: Task<Void, Never>?
     @State private var settleTask: Task<Void, Never>?
+    /// 离开时算好的滚动偏移。写进去之前列表可能还没换成收起后的高度。
+    @State private var pendingOffsets: [LibraryScope: CGFloat] = [:]
+    @State private var restoreToken = 0
 
     @State private var initialIDs: Set<String> = []
     @State private var didSeedDevelop = false
@@ -88,7 +72,7 @@ struct PhotosView: View {
     private var locale: Locale { language.effectiveLocale }
     private var chinese: Bool { language.isChineseUI }
     private var chromeHeight: CGFloat { DarkroomDimens.photosHeaderHeight + DarkroomDimens.scopeRowHeight }
-    private var pinY: CGFloat { chromeHeight - collapse }
+    private var pinY: CGFloat { overlay.pinY }
     private var scopes: [LibraryScope] { ScopeRules.visibleScopes(onThisDayCount: library.onThisDayCount, current: scope) }
     private var currentIndex: Int { scopes.firstIndex(of: scope) ?? 0 }
 
@@ -99,20 +83,18 @@ struct PhotosView: View {
             if kind(scope) == .grid {
                 listFade
             }
-            if let stuck = stuckHeader() {
-                dateRow(stuck.0, measure: false)
+            if sticks, let id = stuckDayId, let day = daySection(id) {
+                dateRow(day, measure: false)
                     .background(DarkroomColors.room)
-                    .offset(y: stuck.1)
+                    .background { OverlayAnchor(driver: overlay, slot: .sticky) }
                     .zIndex(1)
             }
             if scope == .all && canScroll && kind(scope) == .grid {
                 scrubber
-                    .opacity(scrubberShown ? 1 : 0)
-                    .allowsHitTesting(scrubberShown || scrubIndex != nil)
                     .zIndex(2)
             }
             chrome
-                .offset(y: -collapse)
+                .background { OverlayAnchor(driver: overlay, slot: .chrome) }
                 .zIndex(3)
             overlays
         }
@@ -120,14 +102,29 @@ struct PhotosView: View {
         .animation(DarkroomMotion.menuIn, value: menuOpen)
         .animation(DarkroomMotion.menuIn, value: selecting)
         .task {
+            bindOverlay()
             library.setPage(scope: scope, unseenOnly: unseenOnly)
             refreshMounted(around: .all)
             if library.sections.isEmpty { await library.reload() }
             seedDevelopIfNeeded()
+            syncOverlayDays()
+        }
+        .onChange(of: scrubIndex) { _, index in
+            overlay.scrubLockIndex = index
+        }
+        .onChange(of: expandedDayId) { _, _ in syncOverlayDays() }
+        .fullScreenCover(item: $similarCompare) { route in
+            SimilarCompareView(groupKey: route.groupKey, photoId: route.photoId) {
+                similarCompare = nil
+            }
+            .environmentObject(library)
+            .environmentObject(language)
         }
         .onChange(of: library.sections) { _, _ in
             seedDevelopIfNeeded()
             pruneSelection()
+            syncOverlayDays()
+            if !pendingOffsets.isEmpty { flushPendingOffset() }
         }
         .onChange(of: library.onThisDayCount) { _, _ in
             refreshMounted(around: scope)
@@ -135,26 +132,24 @@ struct PhotosView: View {
         }
         .onChange(of: selecting) { _, on in
             hideTabBar = on || showLanguageSheet
-            if on { menuOpen = false; collapse = 0 }
+            if on { menuOpen = false; overlay.setCollapse(0, animated: false) }
         }
         .onChange(of: showLanguageSheet) { _, on in
             hideTabBar = on || selecting
-            if on { collapse = 0 }
+            if on { overlay.setCollapse(0, animated: false) }
         }
         .onChange(of: menuOpen) { _, open in
             dimTabBar = open
-            if open { collapse = 0 }
+            if open { overlay.setCollapse(0, animated: false) }
         }
         .onChange(of: library.sortOrder) { _, order in
             showToast(L10n.string(order == .oldestFirst ? "sort_oldest" : "sort_newest", locale: locale))
         }
         .onChange(of: reviewLaunch) { _, launch in
-            guard launch != nil else { return }
-            var t = Transaction(); t.disablesAnimations = true
-            withTransaction(t) {
-                viewMode = .dateGrouped
-                expandedDayId = nil
-            }
+            if launch != nil { leavePhotosPage() }
+        }
+        .onChange(of: photosVisible) { _, shown in
+            if shown { flushPendingOffset() } else { leavePhotosPage() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .cleanphotosDragSelect)) { note in
             simulateDragSelect(steps: (note.object as? Int) ?? 6)
@@ -162,7 +157,8 @@ struct PhotosView: View {
         .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessMenu)) { note in
             switch note.object as? String {
             case "sort", "filter", "more":
-                withAnimation(DarkroomMotion.menuIn) { menuOpen = true; collapse = 0 }
+                withAnimation(DarkroomMotion.menuIn) { menuOpen = true }
+                overlay.setCollapse(0, animated: false)
             default:
                 exitSelection()
                 withAnimation(DarkroomMotion.menuIn) { menuOpen = false }
@@ -181,7 +177,6 @@ struct PhotosView: View {
             if next == .onThisDay, !scopes.contains(.onThisDay) { scope = .onThisDay }
             if let i = scopes.firstIndex(of: next) { jump(to: i) }
         }
-        .onPreferenceChange(GridMarksKey.self) { mergeMarks($0) }
     }
 
     // MARK: Chrome
@@ -260,7 +255,7 @@ struct PhotosView: View {
         withAnimation(DarkroomMotion.menuIn) {
             menuOpen.toggle()
             showLanguageSheet = false
-            if menuOpen { collapse = 0 }
+            if menuOpen { overlay.setCollapse(0, animated: !reduceMotion) }
         }
     }
 
@@ -290,31 +285,140 @@ struct PhotosView: View {
     }
 
     private func adopt(_ size: CGSize) {
-        if size.width > 0 { listWidth = size.width; pageWidth = size.width }
-        if size.height > 0 { viewportH = size.height }
+        if size.width > 0 {
+            let changed = abs(size.width - listWidth) > 0.5
+            listWidth = size.width
+            pageWidth = size.width
+            if changed { syncOverlayDays() }
+        }
+        if size.height > 0 {
+            overlay.viewportH = size.height
+            if abs(size.height - viewportH) > 0.5 { viewportH = size.height }
+        }
     }
 
     private func scopePage(_ s: LibraryScope) -> some View {
         let active = s == scope
         let space = "grid-\(s.rawValue)"
+        let pageRows = rows(for: s)
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 Color.clear.frame(height: chromeHeight)
-                pageBody(s, active: active, space: space)
+                // ForEach 必须是 LazyVStack 的直接子视图。套一层自定义 View 会把整页一次性排完。
+                ForEach(pageRows) { row in
+                    rowView(row, scope: s, active: active, space: space)
+                }
                 Color.clear.frame(height: DarkroomDimens.listFade + 48)
             }
             .coordinateSpace(name: space)
             .background { if active { DragSelectProbe(handlers: configuredHandlers()) } }
         }
         .scrollIndicators(.hidden)
+        .onAppear {
+            if s == .similar { similarSession.start(library) }
+        }
+    }
+
+    private enum PageRow: Identifiable {
+        case line(GridLine)
+        case flat(start: Int, items: [PhotoItem], dayId: String, showSize: Bool)
+        case message(PhotosBody)
+        case similarCard(SimilarCard)
+        case similarSkeleton(Int)
+        case similarBanner
+        case similarEmpty
+
+        var id: String {
+            switch self {
+            case .line(let line): return line.id
+            case .flat(let start, _, let dayId, let showSize): return "f-\(dayId)-\(start)-\(showSize)"
+            case .message(let body): return "m-\(body)"
+            case .similarCard(let card): return "sim-\(card.id)"
+            case .similarSkeleton(let i): return "sim-sk-\(i)"
+            case .similarBanner: return "sim-banner"
+            case .similarEmpty: return "sim-empty"
+            }
+        }
+    }
+
+    private func rows(for s: LibraryScope) -> [PageRow] {
+        let body = kind(s)
+        switch body {
+        case .similar:
+            if similarSession.phase != .ready {
+                return [.similarBanner] + (0..<3).map { PageRow.similarSkeleton($0) }
+            }
+            let cards = similarSession.listedGroups
+            if cards.isEmpty { return [.similarEmpty] }
+            return cards.map { .similarCard($0) }
+        case .grid:
+            let page = pageData(s)
+            if s == .largeFiles || (s == .all && viewMode == .immersive) {
+                return flatRows(page.flat, dayId: s == .largeFiles ? "flat" : "immersive", showSize: s == .largeFiles)
+            }
+            return gridLines(page, scope: s).map { .line($0) }
+        default:
+            return [.message(body)]
+        }
+    }
+
+    private func flatRows(_ items: [PhotoItem], dayId: String, showSize: Bool) -> [PageRow] {
+        let cols = DarkroomDimens.gridColumns
+        var out: [PageRow] = []
+        var start = 0
+        while start < items.count {
+            let end = min(start + cols, items.count)
+            out.append(.flat(start: start, items: Array(items[start..<end]), dayId: dayId, showSize: showSize))
+            start = end
+        }
+        return out
     }
 
     @ViewBuilder
-    private func pageBody(_ s: LibraryScope, active: Bool, space: String) -> some View {
-        switch kind(s) {
-        case .similar:
-            SimilarScopePage()
-                .frame(maxWidth: .infinity, minHeight: max(0, viewportH - chromeHeight - 48))
+    private func rowView(_ row: PageRow, scope s: LibraryScope, active: Bool, space: String) -> some View {
+        switch row {
+        case .line(let line):
+            lineView(line, scope: s, active: active, space: space)
+        case .flat(let start, let items, let dayId, let showSize):
+            tileRow(items, start: start, dayCount: start + items.count, side: tileSide(listWidth), dayId: dayId,
+                    active: active, space: space, section: nil, showSize: showSize)
+        case .message(let body):
+            messageView(body, scope: s)
+        case .similarCard(let card):
+            SimilarCardRow(
+                card: card,
+                marks: similarSession.marks[card.key] ?? [:],
+                moving: similarSession.moving,
+                zh: chinese,
+                locale: locale,
+                onOpen: { similarCompare = SimilarCompareRoute(groupKey: card.key, photoId: $0) },
+                onCommit: { _ = similarSession.commit(groupKey: card.key) }
+            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+        case .similarSkeleton(let i):
+            SimilarSkeletonCard(delay: Double(i) * 0.2)
+                .padding(.horizontal, 16)
+        case .similarBanner:
+            Text(SimilarCopy.comparing(done: similarSession.done, total: similarSession.total, zh: chinese))
+                .font(DarkroomType.countSub)
+                .foregroundStyle(DarkroomColors.dim)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+        case .similarEmpty:
+            Text(SimilarCopy.empty(zh: chinese))
+                .font(DarkroomType.title)
+                .foregroundStyle(DarkroomColors.paper)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24)
+                .padding(.top, 48)
+        }
+    }
+
+    @ViewBuilder
+    private func messageView(_ body: PhotosBody, scope s: LibraryScope) -> some View {
+        switch body {
         case .loading:
             LoadingSkeletonGrid()
         case .allSeen:
@@ -329,8 +433,8 @@ struct PhotosView: View {
             }
         case .libraryEmpty:
             scopeMessage(L10n.string("photos_empty_title", locale: locale), body: L10n.string("photos_empty_body", locale: locale), button: nil, action: {})
-        case .grid:
-            grid(s, active: active, space: space)
+        case .grid, .similar:
+            EmptyView()
         }
     }
 
@@ -394,7 +498,7 @@ struct PhotosView: View {
             if !scopeDragging {
                 scopeDragging = true
                 pageToken += 1
-                withAnimation(DarkroomMotion.settle) { collapse = 0 }
+                overlay.setCollapse(0, animated: !reduceMotion)
             }
             pagerX = dx
             animatedProgress = CGFloat(index) + ScopeDialMath.dragPages(dx: dx, stride: dialStride)
@@ -449,8 +553,8 @@ struct PhotosView: View {
             jumpDim = !reduceMotion
             scope = dest
             pagerX = 0
-            collapse = 0
         }
+        overlay.setCollapse(0, animated: false)
         finishScope(dest)
         if reduceMotion {
             animatedProgress = CGFloat(index)
@@ -466,7 +570,6 @@ struct PhotosView: View {
         withTransaction(t) {
             scope = dest
             pagerX = 0
-            collapse = 0
             jumpDim = false
             if let i = scopes.firstIndex(of: dest) { animatedProgress = CGFloat(i) }
         }
@@ -475,16 +578,17 @@ struct PhotosView: View {
 
     private func finishScope(_ dest: LibraryScope) {
         let y = memory.saved[dest] ?? 0
-        memory.skip = true
-        memory.lastOffset = y
-        scrollY = y
-        headerY = [:]
-        headerH = [:]
-        lastItem = [:]
+        overlay.reset(scrollY: y)
         library.setPage(scope: dest, unseenOnly: unseenOnly)
         refreshMounted(around: dest)
-        if dest == .similar { exitSelection() }
-        collapse = 0
+        if dest == .similar { exitSelection(); similarSession.start(library) }
+        syncOverlayDays()
+        guard pendingOffsets[dest] != nil else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard scope == dest else { return }
+            flushPendingOffset()
+        }
     }
 
     private func clampedDX(_ dx: CGFloat) -> CGFloat {
@@ -511,7 +615,8 @@ struct PhotosView: View {
     private func setUnseen(_ on: Bool) {
         unseenOnly = on
         library.setPage(scope: scope, unseenOnly: on)
-        collapse = 0
+        overlay.setCollapse(0, animated: false)
+        syncOverlayDays()
         closeMenu()
     }
 
@@ -538,31 +643,23 @@ struct PhotosView: View {
     private func noteScroll(_ y: CGFloat, dragging: Bool, decelerating: Bool, programmatic: Bool) {
         let moving = dragging || decelerating
         if isScrolling != moving { isScrolling = moving }
-        if !moving && isScrolling == false { GridDevelopSession.markPlayed(.photos) }
+        if !moving && !isScrolling { GridDevelopSession.markPlayed(.photos) }
         let contentH = handlers.readContentHeight()
         let viewH = handlers.readViewportHeight()
-        if viewH > 0 { viewportH = viewH }
+        if viewH > 0 {
+            overlay.viewportH = viewH
+            if abs(viewH - viewportH) > 0.5 { viewportH = viewH }
+        }
         let fits = contentH > viewH + 1 && viewH > 0
         if fits != canScroll { canScroll = fits }
+        prepareOverlay(scrubFits: fits)
         memory.saved[scope] = y
-        if memory.skip {
-            memory.skip = false
-            memory.lastOffset = y
-            scrollY = y
-            return
-        }
-        let delta = y - memory.lastOffset
-        memory.lastOffset = y
-        if abs(y - scrollY) >= 0.5 { scrollY = y }
+        let forceOpen = selecting || menuOpen || showLanguageSheet
+        overlay.ingest(y: y, moving: moving, programmatic: programmatic, forceOpen: forceOpen)
+        handlers.topInset = overlay.pinY
         guard !programmatic else {
             settleTask?.cancel()
             return
-        }
-        if selecting || menuOpen || showLanguageSheet || y <= 1 {
-            if collapse != 0 { collapse = 0 }
-        } else if moving {
-            let next = min(chromeHeight, max(0, collapse + delta))
-            if abs(next - collapse) >= 0.5 { collapse = next }
         }
         // 松手后 contentOffset 不再变，KVO 不会再来。停一下再看列表是不是已经不动了。
         settleTask?.cancel()
@@ -575,37 +672,78 @@ struct PhotosView: View {
             guard !Task.isCancelled else { return }
             isScrolling = false
             GridDevelopSession.markPlayed(.photos)
-            if !selecting && !menuOpen && !showLanguageSheet && memory.lastOffset > 1 {
-                let target: CGFloat = collapse > chromeHeight / 2 ? chromeHeight : 0
-                if abs(collapse - target) > 0.5 {
-                    withAnimation(DarkroomMotion.settle) { collapse = target }
-                }
-            }
+            overlay.snap(forceOpen: selecting || menuOpen || showLanguageSheet)
             noteScrubber(moving: false)
         }
         if moving { noteScrubber(moving: true) }
     }
 
+    private func prepareOverlay(scrubFits: Bool) {
+        overlay.chromeHeight = chromeHeight
+        overlay.scrubBottomReserve = DarkroomDimens.navBottom + DarkroomDimens.navHeight
+        overlay.thumbHeight = DarkroomDimens.scrubberThumbHeight
+        overlay.sticks = sticks
+        overlay.reduceMotion = reduceMotion
+        overlay.scrubEnabled = scope == .all && scrubFits && kind(scope) == .grid
+    }
+
     private func noteScrubber(moving: Bool) {
         guard scope == .all, canScroll, kind(scope) == .grid else {
             scrubTask?.cancel(); scrubTask = nil
-            if scrubberShown { scrubberShown = false }
+            overlay.setScrubVisible(false)
             return
         }
         if moving || scrubIndex != nil {
             scrubTask?.cancel(); scrubTask = nil
-            if !scrubberShown {
-                withAnimation(.linear(duration: DarkroomMotion.short)) { scrubberShown = true }
-            }
-        } else if scrubberShown && scrubTask == nil {
+            overlay.setScrubVisible(true)
+        } else if overlay.showsScrubber && scrubTask == nil {
             scrubTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: UInt64(DarkroomMotion.scrubberHold * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                withAnimation(.linear(duration: DarkroomMotion.short)) { scrubberShown = false }
+                overlay.setScrubVisible(false)
                 scrubTask = nil
             }
         }
         if !moving { GridDevelopSession.markPlayed(.photos) }
+    }
+
+    private func bindOverlay() {
+        overlay.chromeHeight = chromeHeight
+        overlay.viewportH = viewportH
+        overlay.onStuckDay = { id in
+            if stuckDayId != id { stuckDayId = id }
+        }
+    }
+
+    /// 吸顶和滑块用的日期顺序。测量结果留在 driver 里，这里只更新顺序和还没量到时的估计落点。
+    private func syncOverlayDays() {
+        bindOverlay()
+        let days = pageData(scope).groups.flatMap(\.days).filter { $0.header == .day }
+        var anchors: [CGFloat] = []
+        var before = 0
+        let grouped = viewMode == .dateGrouped
+        for day in days {
+            if grouped, let y = overlay.headerTop(day.id) {
+                anchors.append(y)
+            } else if grouped {
+                anchors.append(estimatedDateAnchor(day))
+            } else {
+                anchors.append(immersiveAnchor(itemsBefore: before))
+            }
+            before += day.allItems.count
+        }
+        overlay.sticks = sticks
+        overlay.replaceDays(order: days.map(\.id), anchors: anchors, defaultHeight: DarkroomDimens.dayHeight)
+    }
+
+    private func immersiveAnchor(itemsBefore: Int) -> CGFloat {
+        let row = itemsBefore / DarkroomDimens.gridColumns
+        let side = tileSide(listWidth)
+        return chromeHeight + CGFloat(row) * (side + DarkroomDimens.gridGap)
+    }
+
+    private func daySection(_ id: String) -> PhotoDaySection? {
+        pageData(scope).groups.flatMap(\.days).first { $0.id == id }
     }
 
     // MARK: Grid
@@ -659,36 +797,19 @@ struct PhotosView: View {
     }
 
     @ViewBuilder
-    private func grid(_ s: LibraryScope, active: Bool, space: String) -> some View {
-        let page = pageData(s)
+    private func lineView(_ line: GridLine, scope s: LibraryScope, active: Bool, space: String) -> some View {
         let side = tileSide(listWidth)
-        if s == .largeFiles || (s == .all && viewMode == .immersive) {
-            rows(page.flat, side: side, dayId: s == .largeFiles ? "flat" : "immersive", active: active, space: space, section: nil, showSize: s == .largeFiles)
-        } else {
-            let lines = gridLines(page, scope: s)
-            ForEach(lines) { line in
-                switch line.kind {
-                case .year(let year):
-                    yearRow(year)
-                case .day(let day):
-                    dateRow(day, measure: active && s == scope)
-                case .month(let day):
-                    monthRow(day)
-                case .tiles(let items, let dayId, let start, let dayCount, let section):
-                    tileRow(items, start: start, dayCount: dayCount, side: side, dayId: dayId, active: active && s == scope, space: space, section: section, showSize: false)
-                case .more(let day):
-                    moreRow(day)
-                }
-            }
-        }
-    }
-
-    private func rows(_ items: [PhotoItem], side: CGFloat, dayId: String, active: Bool, space: String, section: String?, showSize: Bool) -> some View {
-        let starts = Array(stride(from: 0, to: items.count, by: DarkroomDimens.gridColumns))
-        return ForEach(starts, id: \.self) { start in
-            let end = min(start + DarkroomDimens.gridColumns, items.count)
-            tileRow(Array(items[start..<end]), start: start, dayCount: items.count, side: side, dayId: dayId, active: active, space: space,
-                    section: section, showSize: showSize)
+        switch line.kind {
+        case .year(let year):
+            yearRow(year)
+        case .day(let day):
+            dateRow(day, measure: active)
+        case .month(let day):
+            monthRow(day)
+        case .tiles(let items, let dayId, let start, let dayCount, let section):
+            tileRow(items, start: start, dayCount: dayCount, side: side, dayId: dayId, active: active, space: space, section: section, showSize: false)
+        case .more(let day):
+            moreRow(day)
         }
     }
 
@@ -696,17 +817,34 @@ struct PhotosView: View {
         HStack(spacing: DarkroomDimens.gridGap) {
             ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
                 let index = start + offset
-                cell(item, side: side, index: index, dayId: dayId, active: active, space: space,
-                     measureSection: (section != nil && index == dayCount - 1) ? section : nil, showSize: showSize)
+                cell(item, side: side, index: index, dayId: dayId, showSize: showSize)
             }
             if items.count < DarkroomDimens.gridColumns {
                 Spacer(minLength: 0)
             }
         }
         .padding(.bottom, DarkroomDimens.gridGap)
+        .background {
+            if active {
+                ContentFrameReader(space: space) { frame in
+                    let gap = DarkroomDimens.gridGap
+                    for (offset, item) in items.enumerated() {
+                        let x = frame.minX + CGFloat(offset) * (side + gap)
+                        registry.frames[item.id] = CGRect(x: x, y: frame.minY, width: side, height: side)
+                    }
+                    if let section {
+                        overlay.noteLastItem(id: section, y: frame.minY, height: side)
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            guard active else { return }
+            for item in items { registry.frames[item.id] = nil }
+        }
     }
 
-    private func cell(_ item: PhotoItem, side: CGFloat, index: Int, dayId: String, active: Bool, space: String, measureSection: String?, showSize: Bool) -> some View {
+    private func cell(_ item: PhotoItem, side: CGFloat, index: Int, dayId: String, showSize: Bool) -> some View {
         let develop = initialIDs.contains(item.id) && GridDevelopSession.shouldDevelop(grid: .photos, id: item.id, isInitialPass: false)
         return PhotoTileView(
             item: item,
@@ -715,22 +853,12 @@ struct PhotosView: View {
             developDelay: GridDevelopSession.staggerDelay(row: index / DarkroomDimens.gridColumns, col: index % DarkroomDimens.gridColumns),
             selecting: selecting,
             selected: selecting && selected.contains(item.id),
-            sizeText: showSize ? FileSizeFormatter.format(AssetSizeCache.shared.cachedBytes(item.id) ?? 0) : nil
+            sizeText: showSize ? FileSizeFormatter.format(AssetSizeCache.shared.cachedBytes(item.id) ?? 0) : nil,
+            pauseRaw: isScrolling
         )
         .frame(width: side, height: side)
-        .background { if active { frameReader(item.id, space: space) } }
-        .background { if let measureSection { mark(section: measureSection, kind: 1, space: space) } }
         .onTapGesture { tap(item) }
         .accessibilityIdentifier("tile-\(index)-\(dayId)")
-    }
-
-    private func frameReader(_ id: String, space: String) -> some View {
-        GeometryReader { g in
-            Color.clear
-                .onAppear { registry.frames[id] = g.frame(in: .named(space)) }
-                .onChange(of: g.frame(in: .named(space))) { _, f in registry.frames[id] = f }
-                .onDisappear { registry.frames[id] = nil }
-        }
     }
 
     private func drawnItems(_ day: PhotoDaySection, scope s: LibraryScope) -> [PhotoItem] {
@@ -754,7 +882,7 @@ struct PhotosView: View {
     }
 
     private func dateRow(_ day: PhotoDaySection, measure: Bool) -> some View {
-        let hidden = measure && inFlowHidden(day)
+        let hidden = measure && day.id == stuckDayId
         return HStack(alignment: .center, spacing: 8) {
             Text(day.id == DayKeyRule.unknown ? "—" : dayNumber(day.date))
                 .font(DarkroomType.dayNumber).tracking(-0.24).monospacedDigit()
@@ -769,7 +897,18 @@ struct PhotosView: View {
         .frame(minHeight: DarkroomDimens.dayHeight)
         .opacity(hidden ? 0 : 1)
         .allowsHitTesting(!hidden)
-        .background { if measure { mark(section: day.id, kind: 0, space: "grid-\(scope.rawValue)") } }
+        .background {
+            if measure {
+                ContentFrameReader(space: "grid-\(scope.rawValue)") { frame in
+                    overlay.noteHeader(
+                        id: day.id,
+                        y: frame.minY,
+                        height: frame.height,
+                        scrubAnchor: scope == .all && viewMode == .dateGrouped
+                    )
+                }
+            }
+        }
     }
 
     private func monthRow(_ day: PhotoDaySection) -> some View {
@@ -867,50 +1006,13 @@ struct PhotosView: View {
         let pin = pinY
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 50_000_000)
-            guard let y = headerY[id] else { return }
+            guard let y = overlay.headerTop(id) else { return }
             let top = y - handlers.readOffset()
-            let height = headerH[id] ?? DarkroomDimens.dayHeight
+            let height = overlay.headerHeight(id)
             if top < pin || top > viewportH - height {
                 handlers.writeOffset(y - pin)
             }
         }
-    }
-
-    private func mark(section: String, kind: Int, space: String) -> some View {
-        GeometryReader { g in
-            Color.clear.preference(
-                key: GridMarksKey.self,
-                value: [GridMark(scope: scope.rawValue, section: section, kind: kind, y: g.frame(in: .named(space)).minY, height: g.size.height)]
-            )
-        }
-    }
-
-    private func mergeMarks(_ marks: [GridMark]) {
-        var headers = headerY
-        var heights = headerH
-        var lasts = lastItem
-        for m in marks where m.scope == scope.rawValue {
-            if m.kind == 0 {
-                headers[m.section] = m.y
-                heights[m.section] = m.height
-            } else {
-                lasts[m.section] = ItemSpan(y: m.y, height: m.height)
-            }
-        }
-        let alive = Set(pageData(scope).groups.flatMap(\.days).map(\.id))
-        if !alive.isEmpty {
-            headers = headers.filter { alive.contains($0.key) }
-            heights = heights.filter { alive.contains($0.key) }
-            lasts = lasts.filter { alive.contains($0.key) }
-        }
-        if headers != headerY { headerY = headers }
-        if heights != headerH { headerH = heights }
-        if lasts != lastItem { lastItem = lasts }
-    }
-
-    private func inFlowHidden(_ day: PhotoDaySection) -> Bool {
-        guard sticks, let y = headerY[day.id] else { return false }
-        return DateStick.inFlowDateHidden(headerTop: y - scrollY, pinY: pinY)
     }
 
     private var sticks: Bool {
@@ -918,75 +1020,47 @@ struct PhotosView: View {
         return scope == .all && viewMode == .dateGrouped
     }
 
-    private func stuckHeader() -> (PhotoDaySection, CGFloat)? {
-        guard sticks, kind(scope) == .grid else { return nil }
-        let days = pageData(scope).groups.flatMap(\.days).filter { $0.header == .day }
-        guard let lastId = days.last?.id else { return nil }
-        let pin = pinY
-        for i in days.indices {
-            let day = days[i]
-            guard let contentY = headerY[day.id] else { continue }
-            let nextTop: CGFloat? = {
-                for j in (i + 1)..<days.count {
-                    if let y = headerY[days[j].id] { return y - scrollY }
-                }
-                return nil
-            }()
-            let last = day.id == lastId ? lastItem[day.id] : nil
-            if let y = DateStick.stickY(
-                pinY: pin,
-                headerHeight: headerH[day.id] ?? DarkroomDimens.dayHeight,
-                headerTop: contentY - scrollY,
-                nextHeaderTop: nextTop,
-                lastItemTop: last.map { $0.y - scrollY },
-                lastItemHeight: last?.height,
-                sectionVisible: true
-            ) {
-                return (day, y)
-            }
-        }
-        return nil
-    }
-
     // MARK: Scrubber
 
+    /// 拇指的 y 由 driver 按滚动偏移改 transform。这里不读 scrollY，避免滑块把整页标脏。
     private var scrubber: some View {
         let days = scrubDays
-        let index = scrubIndex ?? currentScrubIndex(days)
-        let top = pinY
-        let bottom = max(top + DarkroomDimens.scrubberThumbHeight, viewportH - DarkroomDimens.navBottom - DarkroomDimens.navHeight)
-        let travel = max(1, bottom - top - DarkroomDimens.scrubberThumbHeight)
-        let t = days.count <= 1 ? 0 : CGFloat(index) / CGFloat(days.count - 1)
-        let thumbY = top + t * travel
         return HStack {
             Spacer()
-            ZStack(alignment: .topTrailing) {
-                Capsule()
-                    .fill(DarkroomColors.paper)
-                    .frame(width: DarkroomDimens.scrubberThumbWidth, height: DarkroomDimens.scrubberThumbHeight)
-                    .padding(.trailing, DarkroomDimens.scrubberInset)
-                    .offset(y: thumbY)
-                if scrubIndex != nil, days.indices.contains(index) {
-                    Text(scrubLabel(days[index]))
-                        .font(DarkroomType.dayRight)
-                        .foregroundStyle(DarkroomColors.paper)
-                        .padding(.horizontal, 8)
-                        .frame(height: 28)
-                        .background(Capsule().fill(DarkroomColors.tray))
-                        .offset(x: -(DarkroomDimens.minTouch + DarkroomDimens.scrubberBubbleGap - DarkroomDimens.screenSide), y: thumbY)
-                }
-            }
-            .frame(width: DarkroomDimens.minTouch)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in scrub(to: value.location.y, days: days, top: top, bottom: bottom) }
-                    .onEnded { value in
-                        scrub(to: value.location.y, days: days, top: top, bottom: bottom)
-                        scrubIndex = nil
-                        noteScrubber(moving: false)
+            Color.clear
+                .frame(width: DarkroomDimens.minTouch)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .background { OverlayAnchor(driver: overlay, slot: .scrubHit) }
+                .overlay(alignment: .topTrailing) {
+                    ZStack(alignment: .topTrailing) {
+                        Capsule()
+                            .fill(DarkroomColors.paper)
+                            .frame(width: DarkroomDimens.scrubberThumbWidth, height: DarkroomDimens.scrubberThumbHeight)
+                            .padding(.trailing, DarkroomDimens.scrubberInset)
+                        if let scrubIndex, days.indices.contains(scrubIndex) {
+                            scrubBubble(days[scrubIndex])
+                                .fixedSize()
+                                .offset(x: -(DarkroomDimens.minTouch + DarkroomDimens.scrubberBubbleGap - DarkroomDimens.screenSide))
+                        }
                     }
-            )
+                    .background { OverlayAnchor(driver: overlay, slot: .scrubThumb) }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let top = overlay.pinY
+                            let bottom = max(top + DarkroomDimens.scrubberThumbHeight, overlay.viewportH - DarkroomDimens.navBottom - DarkroomDimens.navHeight)
+                            scrub(to: value.location.y, days: days, top: top, bottom: bottom)
+                        }
+                        .onEnded { value in
+                            let top = overlay.pinY
+                            let bottom = max(top + DarkroomDimens.scrubberThumbHeight, overlay.viewportH - DarkroomDimens.navBottom - DarkroomDimens.navHeight)
+                            scrub(to: value.location.y, days: days, top: top, bottom: bottom)
+                            scrubIndex = nil
+                            noteScrubber(moving: false)
+                        }
+                )
         }
     }
 
@@ -994,24 +1068,12 @@ struct PhotosView: View {
         pageData(.all).groups.flatMap(\.days).filter { $0.header == .day }
     }
 
-    private func currentScrubIndex(_ days: [PhotoDaySection]) -> Int {
-        var index = 0
-        var before = 0
-        for (i, day) in days.enumerated() {
-            if scrubAnchor(day, itemsBefore: before) - scrollY <= pinY + 1 { index = i }
-            before += day.allItems.count
-        }
-        return index
-    }
-
     private func scrubAnchor(_ day: PhotoDaySection, itemsBefore: Int) -> CGFloat {
         if viewMode == .dateGrouped {
-            if let y = headerY[day.id] { return y }
+            if let y = overlay.headerTop(day.id) { return y }
             return estimatedDateAnchor(day)
         }
-        let row = itemsBefore / DarkroomDimens.gridColumns
-        let side = tileSide(listWidth)
-        return chromeHeight + CGFloat(row) * (side + DarkroomDimens.gridGap)
+        return immersiveAnchor(itemsBefore: itemsBefore)
     }
 
     /// 还没量到日期行时，按年份行 + 日期行 + 行高估一个落点。量到之后用真实位置。
@@ -1034,20 +1096,193 @@ struct PhotosView: View {
     private func scrub(to y: CGFloat, days: [PhotoDaySection], top: CGFloat, bottom: CGFloat) {
         guard !days.isEmpty else { return }
         scrubTask?.cancel(); scrubTask = nil
-        scrubberShown = true
+        overlay.setScrubVisible(true)
         let span = max(1, bottom - top)
         let t = min(1, max(0, (y - top) / span))
-        let index = min(days.count - 1, Int(floor(t * CGFloat(days.count))))
-        scrubIndex = days.count == 1 ? 0 : index
+        let index = days.count == 1 ? 0 : min(days.count - 1, Int(floor(t * CGFloat(days.count))))
+        overlay.scrubLockIndex = index
+        scrubIndex = index
         var before = 0
         for day in days.prefix(index) { before += day.allItems.count }
         let anchor = scrubAnchor(days[index], itemsBefore: before)
-        handlers.writeOffset(anchor - pinY)
+        handlers.writeOffset(anchor - top)
     }
 
-    private func scrubLabel(_ day: PhotoDaySection) -> String {
-        if day.id == DayKeyRule.unknown { return L10n.string("date_unknown", locale: locale) }
-        return dayNumber(day.date) + " " + dayMonthWeekday(day.date)
+    @ViewBuilder
+    private func scrubBubble(_ day: PhotoDaySection) -> some View {
+        if day.id == DayKeyRule.unknown {
+            scrubChrome(Text(L10n.string("date_unknown", locale: locale)))
+        } else {
+            let parts = Calendar.current.dateComponents([.year, .month, .day], from: day.date)
+            let label = ScrubDateFormat.label(
+                year: parts.year ?? 0,
+                month: parts.month ?? 1,
+                day: parts.day ?? 1,
+                locale: locale
+            )
+            scrubChrome(ScrubDateLine(label: label, locale: locale))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(ScrubDateFormat.phrase(label))
+        }
+    }
+
+    private func scrubChrome<Content: View>(_ content: Content) -> some View {
+        content
+            .font(DarkroomType.menuItem.monospacedDigit())
+            .foregroundStyle(DarkroomColors.paper)
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, DarkroomDimens.photosHeaderBottom)
+            .background {
+                RoundedRectangle(cornerRadius: DarkroomDimens.menuItemCorner, style: .continuous)
+                    .fill(DarkroomColors.tray)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DarkroomDimens.menuItemCorner, style: .continuous)
+                            .strokeBorder(DarkroomColors.rim, lineWidth: 1)
+                    }
+            }
+    }
+
+    /// 进清理、或切到收藏 / 垃圾桶。旋转不走这里。范围和「只看没看过」留在这个视图上。
+    private func leavePhotosPage() {
+        let metrics = gridMetrics()
+        let allOffset = allRestoreOffset(metrics: metrics)
+        let todayOffset = todayRestoreOffset(metrics: metrics)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            viewMode = .dateGrouped
+            expandedDayId = nil
+            menuOpen = false
+            showLanguageSheet = false
+        }
+        overlay.setCollapse(0, animated: false)
+        overlay.forgetMeasurements()
+        dimTabBar = false
+        if !selecting { hideTabBar = false }
+        if let allOffset {
+            memory.saved[.all] = allOffset
+            pendingOffsets[.all] = allOffset
+        }
+        if let todayOffset {
+            memory.saved[.onThisDay] = todayOffset
+            pendingOffsets[.onThisDay] = todayOffset
+        }
+        syncOverlayDays()
+        flushPendingOffset()
+    }
+
+    private func gridMetrics() -> PhotosLeave.Metrics {
+        PhotosLeave.Metrics(
+            chrome: chromeHeight,
+            year: DarkroomDimens.yearHeight,
+            header: DarkroomDimens.dayHeight,
+            more: DarkroomDimens.minTouch,
+            tilePitch: tileSide(listWidth) + DarkroomDimens.gridGap,
+            columns: DarkroomDimens.gridColumns
+        )
+    }
+
+    private func leaveSections(_ scope: LibraryScope) -> [PhotosGridSection] {
+        pageData(scope).groups.flatMap { year in
+            year.days.enumerated().map { index, day in
+                let header: PhotosGridHeader
+                switch day.header {
+                case .day: header = .day
+                case .month: header = .month
+                case .none: header = .none
+                }
+                return PhotosGridSection(
+                    dayKey: day.id,
+                    yearHeader: (index == 0 && year.year > 0) ? year.year : nil,
+                    photoIds: day.items.map(\.id),
+                    overflowIds: day.overflow.map(\.id),
+                    header: header
+                )
+            }
+        }
+    }
+
+    private func contentLine(for scope: LibraryScope) -> CGFloat {
+        let pin = scope == self.scope ? pinY : chromeHeight
+        return currentScroll(scope) + pin
+    }
+
+    private func currentScroll(_ scope: LibraryScope) -> CGFloat {
+        if scope == self.scope { return handlers.readOffset() }
+        return memory.saved[scope] ?? 0
+    }
+
+    private func allRestoreOffset(metrics: PhotosLeave.Metrics) -> CGFloat? {
+        guard viewMode == .immersive else { return nil }
+        let sections = leaveSections(.all)
+        let count = sections.reduce(0) { $0 + $1.photoIds.count }
+        guard count > 0 else { return nil }
+        let first = PhotosLeave.firstVisibleImmersiveIndex(
+            contentLine: contentLine(for: .all),
+            photoCount: count,
+            metrics: metrics
+        )
+        guard let target = PhotosLeave.indexAfterLeave(
+            sections: sections,
+            immersive: true,
+            expandedDayKey: nil,
+            firstIndex: first
+        ), let top = PhotosLeave.contentTop(index: target, sections: sections, expandedDayKey: nil, metrics: metrics) else {
+            return nil
+        }
+        return max(0, top - metrics.chrome)
+    }
+
+    private func todayRestoreOffset(metrics: PhotosLeave.Metrics) -> CGFloat? {
+        guard let day = expandedDayId else { return nil }
+        let sections = leaveSections(.onThisDay)
+        let first = PhotosLeave.firstVisibleIndex(
+            contentLine: contentLine(for: .onThisDay),
+            sections: sections,
+            expandedDayKey: day,
+            metrics: metrics
+        )
+        guard let target = PhotosLeave.indexAfterLeave(
+            sections: sections,
+            immersive: false,
+            expandedDayKey: day,
+            firstIndex: first
+        ), let top = PhotosLeave.contentTop(index: target, sections: sections, expandedDayKey: nil, metrics: metrics) else {
+            return nil
+        }
+        return max(0, top - metrics.chrome)
+    }
+
+    private func flushPendingOffset() {
+        guard let y = pendingOffsets[scope] else { return }
+        handlers.writeOffset(y)
+        if abs(handlers.readOffset() - y) < 1.5 {
+            pendingOffsets[scope] = nil
+            return
+        }
+        scheduleRestore(scope)
+    }
+
+    private func scheduleRestore(_ target: LibraryScope) {
+        restoreToken += 1
+        let token = restoreToken
+        Task { @MainActor in
+            for _ in 0..<15 {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard token == restoreToken, scope == target, let y = pendingOffsets[target] else { return }
+                handlers.writeOffset(y)
+                if abs(handlers.readOffset() - y) < 1.5 {
+                    pendingOffsets[target] = nil
+                    return
+                }
+            }
+            guard token == restoreToken else { return }
+            // 切走时列表可能还没布局。露出来之后再试；已经在照片页上就停，免得过后把用户拽回去。
+            if photosVisible && handlers.readContentHeight() >= 80 {
+                pendingOffsets[target] = nil
+            }
+        }
     }
 
     // MARK: Menus and chrome overlays
@@ -1060,6 +1295,18 @@ struct PhotosView: View {
                 selectionBar
                     .padding(.bottom, DarkroomDimens.navBottom)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        if scope == .similar, let undo = similarSession.keptUndo {
+            VStack {
+                Spacer()
+                KeptUndoCapsule(undo: undo, zh: chinese) { similarSession.undoKept() }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, DarkroomDimens.navBottom + DarkroomDimens.navHeight + 8)
+                    .task(id: undo.id) {
+                        try? await Task.sleep(nanoseconds: UInt64(UndoBanner.lifetime * 1_000_000_000))
+                        similarSession.expireKept(undo.id)
+                    }
             }
         }
         if let banner = library.undoBanner, !selecting, !banner.single, !library.reviewActive {
@@ -1086,7 +1333,7 @@ struct PhotosView: View {
                     }
                 }
             if !showLanguageSheet {
-                chrome.offset(y: -collapse)
+                chrome
             }
         }
         if menuOpen { menus }
@@ -1160,8 +1407,8 @@ struct PhotosView: View {
                 withAnimation(DarkroomMotion.menuIn) {
                     menuOpen = false
                     showLanguageSheet = true
-                    collapse = 0
                 }
+                overlay.setCollapse(0, animated: false)
             },
         ]
         if library.authorization == .limited {
@@ -1181,10 +1428,9 @@ struct PhotosView: View {
             var t = Transaction(); t.disablesAnimations = true
             withTransaction(t) {
                 viewMode = mode
-                headerY = [:]
-                headerH = [:]
-                lastItem = [:]
             }
+            overlay.forgetMeasurements()
+            syncOverlayDays()
             if let anchor {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 80_000_000)
@@ -1393,6 +1639,49 @@ struct PhotosView: View {
     }
     private func dayMonthWeekday(_ date: Date) -> String {
         DateFormatCache.string(date, format: chinese ? "M月 · EEE" : "MMM · EEE", locale: locale)
+    }
+}
+
+/// 滑块气泡的一行。月、日各占两位，个位数靠右；英文月份占十二个短名里最宽的宽度。
+private struct ScrubDateLine: View {
+    let label: ScrubDateFormat.Label
+    let locale: Locale
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if label.chinese {
+                Text(label.year)
+                Text("年")
+                digitSlot(label.month)
+                Text("月")
+                digitSlot(label.day)
+                Text("日")
+            } else {
+                monthSlot(label.month)
+                Text(" ")
+                digitSlot(label.day)
+                Text(", ")
+                Text(label.year)
+            }
+        }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private func digitSlot(_ value: String) -> some View {
+        ZStack(alignment: .trailing) {
+            Text("00").hidden().accessibilityHidden(true)
+            Text(value)
+        }
+    }
+
+    private func monthSlot(_ name: String) -> some View {
+        ZStack(alignment: .leading) {
+            ForEach(Array(ScrubDateFormat.shortMonths(locale: locale).enumerated()), id: \.offset) { _, month in
+                Text(month).hidden().accessibilityHidden(true)
+            }
+            Text(name)
+        }
     }
 }
 

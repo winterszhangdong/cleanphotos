@@ -1,6 +1,6 @@
 import Foundation
 
-/// 视频和动态照片（iOS 上是实况照片）的播放判定。和安卓 `PlaybackPolicy` / `PlaybackChrome` 同一套。
+/// 视频和动态照片（实况照片，以及嵌在 JPEG / HEIC 里的厂商视频）的播放判定。和安卓 `PlaybackPolicy` / `PlaybackChrome` 同一套。
 /// 不读文件、不碰播放器。
 enum PlaybackKind: Equatable {
     case video

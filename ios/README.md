@@ -1,8 +1,8 @@
 # CleanPhotos iOS（理照）
 
-SwiftUI 版「理照」。照片页范围、相似、收藏整理、清理页、垃圾桶，以及视频和实况照片的播放已与安卓版对齐（规格见仓库根目录 `docs/`）。安卓上嵌在 JPEG 里的厂商动态照片没有搬过来。收藏整理写进系统相册，不是安卓那种搬文件。最低 iOS 17，仅暗色。
+SwiftUI 版「理照」。照片页范围、相似、收藏整理、清理页、垃圾桶，以及视频、实况照片和嵌在 JPEG / HEIC 里的厂商动态照片，播放已与安卓版对齐（规格见仓库根目录 `docs/`）。厂商视频的解析在 `CleanPhotos/Domain/MotionPhotoLocator.swift`，只在清理页、垃圾桶预览和相似对比的当前张读文件。收藏整理写进系统相册，不是安卓那种搬文件。最低 iOS 17，仅暗色。
 
-SwiftUI port of CleanPhotos. Photo scopes, similar photos, filing, review, trash, and playback of videos and Live Photos match the Android app (specs in `docs/`). Vendor motion clips embedded in JPEG files are not ported. Filing adds photos to PhotoKit albums instead of moving files. iOS 17+, dark only.
+SwiftUI port of CleanPhotos. Photo scopes, similar photos, filing, review, trash, and playback of videos, Live Photos, and vendor motion clips embedded in JPEG / HEIC match the Android app (specs in `docs/`). The embedded-clip parser is `CleanPhotos/Domain/MotionPhotoLocator.swift`; it reads a file only for the current review, trash-preview, or similar-compare photo. Filing adds photos to PhotoKit albums instead of moving files. iOS 17+, dark only.
 
 ## 构建 / Build
 

@@ -33,20 +33,32 @@ struct MainTabView: View {
         ZStack(alignment: .bottom) {
             DarkroomColors.room.ignoresSafeArea()
 
-            Group {
-                switch tab {
-                case .photos:
-                    PhotosView(reviewLaunch: launchBinding, hideTabBar: $hideTabBar, dimTabBar: $dimTabBar, onOpenTrash: { tab = .trash })
-                case .favorites:
-                    FavoritesView(reviewLaunch: launchBinding, onGoReview: { tab = .photos })
-                case .trash:
-                    TrashView(dimTabBar: $dimTabBar)
-                }
-            }
+            // 照片页留在层级里。switch 会把视图拆掉，范围、只看没看过和滚动就跟着没了。
+            PhotosView(
+                reviewLaunch: launchBinding,
+                hideTabBar: $hideTabBar,
+                dimTabBar: $dimTabBar,
+                photosVisible: tab == .photos,
+                onOpenTrash: { tab = .trash }
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .modifier(SharedRecede(role: .grid, clock: clock, open: reviewLaunch != nil))
-            // 清理页盖在上面时网格不再接收触摸（网格里有 UIKit 滚动视图与长按识别器，会抢走上层按钮的点按）
-            .allowsHitTesting(reviewLaunch == nil)
+            .opacity(tab == .photos ? 1 : 0)
+            .animation(nil, value: tab)
+            .allowsHitTesting(tab == .photos && reviewLaunch == nil)
+            .accessibilityHidden(tab != .photos)
+            .modifier(SharedRecede(role: .grid, clock: clock, open: reviewLaunch != nil && tab == .photos))
+
+            if tab == .favorites {
+                FavoritesView(reviewLaunch: launchBinding, onGoReview: { tab = .photos })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .modifier(SharedRecede(role: .grid, clock: clock, open: reviewLaunch != nil))
+                    .allowsHitTesting(reviewLaunch == nil)
+            }
+            if tab == .trash {
+                TrashView(dimTabBar: $dimTabBar)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(reviewLaunch == nil)
+            }
 
             if !hideTabBar {
                 DarkroomTabBar(selection: $tab, trashCount: library.trashCount)
@@ -169,7 +181,7 @@ struct MainTabView: View {
         }
         if let id, let thumb, let from = shared.tileFrames[id], let to = fitRect(for: id) {
             flight = SharedFlight(id: id, kind: .expand, image: thumb, from: from, to: to, start: Date())
-            shared.flyingId = id
+            shared.setFlying(id)
         } else {
             flight = nil
         }
@@ -179,7 +191,7 @@ struct MainTabView: View {
             guard token == transitionToken else { return }
             flight = nil
             clock = nil
-            shared.flyingId = nil
+            shared.setFlying(nil)
         }
     }
 
@@ -190,7 +202,7 @@ struct MainTabView: View {
         let now = Date()
         if let id = photoId, let img = image ?? shared.tileImages[id], let from = fitRect(for: id), let to = shared.tileFrames[id] {
             flight = SharedFlight(id: id, kind: .collapse, image: img, from: from, to: to, start: now)
-            shared.flyingId = id
+            shared.setFlying(id)
         } else {
             flight = nil
         }
@@ -200,7 +212,7 @@ struct MainTabView: View {
             present(nil)
             flight = nil
             clock = nil
-            shared.flyingId = nil
+            shared.setFlying(nil)
         }
     }
 
@@ -216,7 +228,7 @@ struct MainTabView: View {
         present(nil)
         clock = nil
         flight = nil
-        shared.flyingId = nil
+        shared.setFlying(nil)
     }
 }
 

@@ -57,7 +57,7 @@ struct TrashView: View {
                 TimelineView(.animation) { tl in
                     let t = run.start.map { max(0, tl.date.timeIntervalSince($0)) } ?? 0
                     ScrollView {
-                        VStack(spacing: 0) {
+                        LazyVStack(spacing: 0) {
                             Color.clear.frame(height: DarkroomDimens.headerHeight)
                             // 「可释放」900ms 三次减速滚到 0
                             let p = min(1, t / 0.9)
@@ -65,8 +65,11 @@ struct TrashView: View {
                             // Android TrashDissolveGrid：第 0 项是 header，所以第 i 张从 (i+1)·60ms 起；
                             // 单一时钟走到最后一张可见格子的起点 + 380ms，每格都溶解完才收起（与 Android 修复后一致）
                             let clock = min(t, run.clockEnd)
-                            grid(items: run.items) { i in
-                                CubicBezier.accelerate(DissolveTiming.linearProgress(index: i, clock: clock))
+                            let starts = Array(stride(from: 0, to: run.items.count, by: 3))
+                            ForEach(starts, id: \.self) { start in
+                                trashRow(items: run.items, start: start) { i in
+                                    CubicBezier.accelerate(DissolveTiming.linearProgress(index: i, clock: clock))
+                                }
                             }
                         }
                     }
@@ -77,11 +80,15 @@ struct TrashView: View {
                 emptyState
             } else {
                 ScrollView {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         Color.clear.frame(height: DarkroomDimens.headerHeight)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
                         if selecting { selectionSummary } else { freeCard(bytes: pendingDelete?.bytes ?? library.trashBytes, enabled: true, oldestDays: oldestDaysNow()) }
-                        grid(items: pendingDelete?.items ?? library.trashItems, dissolve: nil)
+                        let items = pendingDelete?.items ?? library.trashItems
+                        let starts = Array(stride(from: 0, to: items.count, by: 3))
+                        ForEach(starts, id: \.self) { start in
+                            trashRow(items: items, start: start, dissolve: nil)
+                        }
                         Color.clear.frame(height: DarkroomDimens.navBottom + DarkroomDimens.navHeight + 48)
                     }
                 }
@@ -282,13 +289,14 @@ struct TrashView: View {
 
     // MARK: - Grid
 
-    private func grid(items: [PhotoItem], dissolve: ((Int) -> Double)?) -> some View {
+    private func trashRow(items: [PhotoItem], start: Int, dissolve: ((Int) -> Double)?) -> some View {
         let cols = 3
         let gap = DarkroomDimens.gridGap
-        let w = listWidth
-        let side = (w - gap * CGFloat(cols - 1)) / CGFloat(cols)
-        return LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: gap), count: cols), spacing: gap) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+        let side = (max(listWidth, 1) - gap * CGFloat(cols - 1)) / CGFloat(cols)
+        let end = min(start + cols, items.count)
+        return HStack(spacing: gap) {
+            ForEach(Array(items[start..<end].enumerated()), id: \.element.id) { offset, item in
+                let i = start + offset
                 let isSel = selecting && selected.contains(item.id)
                 let p = dissolve?(i) ?? 0
                 ZStack(alignment: .bottomTrailing) {
@@ -323,11 +331,9 @@ struct TrashView: View {
                 }
                 .accessibilityIdentifier("trash-tile-\(i)")
             }
+            if end - start < cols { Spacer(minLength: 0) }
         }
-    }
-
-    private func grid(items: [PhotoItem], _ dissolve: @escaping (Int) -> Double) -> some View {
-        grid(items: items, dissolve: dissolve)
+        .padding(.bottom, gap)
     }
 
     // MARK: - Empty
@@ -836,6 +842,7 @@ struct TrashPreview: View {
             playback.ensureLoaded(id: photo.id, asset: photo.asset)
             if let i = TrashPreviewWindow.clampedIndex(index, count: items.count), i + 1 < items.count {
                 LiveVideoCache.prefetch(items[i + 1].asset)
+                EmbeddedMotionCache.prefetch(items[i + 1].asset)
             }
         } else {
             playback.clear()

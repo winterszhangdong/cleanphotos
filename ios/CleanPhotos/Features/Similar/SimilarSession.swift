@@ -25,6 +25,21 @@ struct SimilarKeptUndo: Identifiable, Equatable {
     let shownAt = Date()
 }
 
+/// 对比页这一刻在看的内容。`onList` 为假时是扫描拿掉之后留下的最后一张，底部胶囊不提交。
+struct SimilarCompareDeck: Equatable {
+    var sourceKey: String
+    var photos: [PhotoItem]
+    var marks: [String: SimilarMark]
+    var recommendedId: String
+    var sharpness: [String: Double]
+    var onList: Bool
+}
+
+private struct RemainderHold {
+    var photo: PhotoItem
+    var mark: SimilarMark
+}
+
 /// 这一进程里只比对一次。切走再回来直接用上次的分组和哈希。
 @MainActor
 final class SimilarSession: ObservableObject {
@@ -40,10 +55,14 @@ final class SimilarSession: ObservableObject {
     @Published private(set) var keptUndo: SimilarKeptUndo?
     @Published private(set) var moving = false
 
-    /// 列表不显示不足两张的组。对比页仍用 `groups`，只剩一张时还停在这一张。
+    /// 列表不显示不足两张的组。自己滑到只剩一张时组还在 `groups` 里，对比页继续停着。
+    /// 扫描把组拿掉之后，最后一张只留在 `remainder`，不写回 `groups`。
     var listedGroups: [SimilarCard] {
         groups.filter { SimilarCompareSession.showsOnList(photoCount: $0.photos.count) }
     }
+
+    /// 扫描拿掉、或 key 收短之后，对比页还留着的最后一张。不出现在列表上。
+    @Published private var remainder: [String: RemainderHold] = [:]
 
     private var library: PhotoLibraryService?
     private var scanTask: Task<Void, Never>?
@@ -83,6 +102,7 @@ final class SimilarSession: ObservableObject {
         var recommendedId: String
         var sharpness: [String: Double]
         var earliest: Date
+        var fromRemainder: Bool = false
     }
 
     private var swiped: [String: SwipeSlot] = [:]
@@ -104,9 +124,61 @@ final class SimilarSession: ObservableObject {
     }
 
     func mark(groupKey: String, photoId: String, mark: SimilarMark) {
-        guard var map = marks[groupKey], map[photoId] != mark else { return }
-        map[photoId] = mark
-        marks[groupKey] = map
+        if let card = groups.first(where: { $0.key == groupKey }),
+           card.photos.contains(where: { $0.id == photoId }) {
+            var map = marks[groupKey] ?? [:]
+            guard map[photoId] != mark else { return }
+            map[photoId] = mark
+            marks[groupKey] = map
+            return
+        }
+        guard mark == .keep else { return }
+        let domain = domainRemainder
+        guard let updated = SimilarCompareSession.keptRemainder(routeKey: groupKey, photoId: photoId, remainder: domain),
+              let stored = SimilarCompareSession.remainderStored(routeKey: groupKey, remainder: domain),
+              updated[stored.key]?.mark != stored.value.mark,
+              var hold = remainder[stored.key] else { return }
+        hold.mark = .keep
+        remainder[stored.key] = hold
+    }
+
+    /// 路由上的组还在就用它；扫描换成新组时跟过去。组没了就用还留着的最后一张。
+    func deck(routeKey: String) -> SimilarCompareDeck? {
+        let refs = groups.map {
+            SimilarGroupRef(key: $0.key, photoIds: $0.photos.map(\.id), recommendedId: $0.recommendedId)
+        }
+        let domain = domainRemainder
+        let held = SimilarCompareSession.remainderStored(routeKey: routeKey, remainder: domain)?.value
+        guard let match = SimilarCompareSession.compareMatch(
+            routeKey: routeKey,
+            groups: refs,
+            hiddenIds: [],
+            remainder: held
+        ) else { return nil }
+        if match.fromRemainder {
+            guard let stored = SimilarCompareSession.remainderStored(routeKey: routeKey, remainder: domain),
+                  let hold = remainder[stored.key],
+                  hold.photo.id == stored.value.photoId else { return nil }
+            return SimilarCompareDeck(
+                sourceKey: routeKey,
+                photos: [hold.photo],
+                marks: [hold.photo.id: hold.mark],
+                recommendedId: hold.photo.id,
+                sharpness: [:],
+                onList: false
+            )
+        }
+        guard let card = groups.first(where: { $0.key == match.sourceKey }) else { return nil }
+        let photos = card.photos.filter { match.photoIds.contains($0.id) }
+        guard !photos.isEmpty else { return nil }
+        return SimilarCompareDeck(
+            sourceKey: card.key,
+            photos: photos,
+            marks: marks[card.key] ?? [:],
+            recommendedId: card.recommendedId,
+            sharpness: card.sharpness,
+            onList: true
+        )
     }
 
     /// 对比页下滑过阈值：眼前这一张立刻进垃圾桶，并从这一组拿掉。已经标成移走也删。
@@ -114,7 +186,10 @@ final class SimilarSession: ObservableObject {
     @discardableResult
     func swipeTrash(groupKey: String, photoId: String, now: Date = Date()) -> Bool {
         guard !moving, let library else { return false }
-        guard let cardIndex = groups.firstIndex(where: { $0.key == groupKey }) else { return false }
+        guard let cardIndex = groups.firstIndex(where: { $0.key == groupKey }),
+              groups[cardIndex].photos.contains(where: { $0.id == photoId }) else {
+            return trashRemainder(routeKey: groupKey, photoId: photoId, now: now)
+        }
         let card = groups[cardIndex]
         var deck = SimilarCompareSession(
             photos: card.photos.map(\.id),
@@ -157,6 +232,39 @@ final class SimilarSession: ObservableObject {
         }
         library.presentUndo(.movedToTrash(deck.undo?.ids ?? [photoId]), sample: photoId, burst: true)
         return true
+    }
+
+    /// 组已经不在扫描结果里。上滑只改 remainder 的标记；这里把这一张送进垃圾桶，不新建一组。
+    private func trashRemainder(routeKey: String, photoId: String, now: Date) -> Bool {
+        guard !moving, let library else { return false }
+        let domain = domainRemainder
+        guard SimilarCompareSession.trashedRemainder(routeKey: routeKey, photoId: photoId, remainder: domain) != nil,
+              let stored = SimilarCompareSession.remainderStored(routeKey: routeKey, remainder: domain),
+              let hold = remainder[stored.key] else { return false }
+        let slot = SwipeSlot(
+            photo: hold.photo,
+            mark: hold.mark,
+            groupKey: stored.key,
+            recommendedId: hold.photo.id,
+            sharpness: [:],
+            earliest: hold.photo.creationDate,
+            fromRemainder: true
+        )
+        remainder.removeValue(forKey: stored.key)
+        swiped[photoId] = slot
+        let moved = library.moveToTrash(ids: [photoId], showUndo: false)
+        if moved != 1 {
+            swiped.removeValue(forKey: photoId)
+            reinsert(slot)
+            return false
+        }
+        let burst = SimilarSwipeUndo.merge(currentBurst(at: now), id: photoId, now: now, lifetime: UndoBanner.lifetime)
+        library.presentUndo(.movedToTrash(burst.ids), sample: photoId, burst: true)
+        return true
+    }
+
+    private var domainRemainder: [String: CompareRemainder] {
+        remainder.mapValues { CompareRemainder(photoId: $0.photo.id, mark: $0.mark) }
     }
 
     private func currentBurst(at now: Date) -> SimilarSwipeUndo? {
@@ -328,10 +436,10 @@ final class SimilarSession: ObservableObject {
     }
 
     private func publish(_ grouped: [SimilarGrouping], photos: [String: PhotoItem]) {
+        let previousGroups = groups
+        let previousMarks = marks
         var cards: [SimilarCard] = []
-        var nextMarks = marks
-        let live = Set(grouped.map(\.key))
-        nextMarks = nextMarks.filter { live.contains($0.key) }
+        var nextMarks = previousMarks
         for group in grouped {
             let items = group.ids.compactMap { photos[$0] }
             guard items.count >= 2 else { continue }
@@ -344,13 +452,43 @@ final class SimilarSession: ObservableObject {
             )
             cards.append(card)
             if nextMarks[card.key] == nil {
-                var map: [String: SimilarMark] = [:]
-                for photo in items {
-                    map[photo.id] = photo.id == card.recommendedId ? .keep : .remove
-                }
-                nextMarks[card.key] = map
+                let ids = items.map(\.id)
+                nextMarks[card.key] = SimilarCompareSession.migratedMarks(
+                    previous: previousMarks,
+                    photoIds: ids,
+                    recommendedId: card.recommendedId
+                ) ?? Dictionary(uniqueKeysWithValues: ids.map { id in
+                    (id, id == card.recommendedId ? SimilarMark.keep : .remove)
+                })
             }
         }
+        let live = Set(cards.map(\.key))
+        nextMarks = nextMarks.filter { live.contains($0.key) }
+        let previousRefs = previousGroups.map {
+            SimilarGroupRef(key: $0.key, photoIds: $0.photos.map(\.id), recommendedId: $0.recommendedId)
+        }
+        let nextRefs = cards.map {
+            SimilarGroupRef(key: $0.key, photoIds: $0.photos.map(\.id), recommendedId: $0.recommendedId)
+        }
+        let nextDomain = SimilarCompareSession.soleRemainder(
+            previous: previousRefs,
+            next: nextRefs,
+            hiddenIds: Set(swiped.keys),
+            marks: previousMarks,
+            kept: domainRemainder
+        )
+        var lookup: [String: PhotoItem] = [:]
+        for card in previousGroups {
+            for photo in card.photos { lookup[photo.id] = photo }
+        }
+        for hold in remainder.values { lookup[hold.photo.id] = hold.photo }
+        var nextRemainder: [String: RemainderHold] = [:]
+        for (key, item) in nextDomain {
+            guard let photo = lookup[item.photoId] else { continue }
+            nextRemainder[key] = RemainderHold(photo: photo, mark: item.mark)
+        }
+        // 先写下最后一张，再换组。对比页不会在两组都空的那一帧被关掉。
+        remainder = nextRemainder
         marks = nextMarks
         groups = cards
     }
@@ -418,6 +556,10 @@ final class SimilarSession: ObservableObject {
     }
 
     private func reinsert(_ slot: SwipeSlot) {
+        if slot.fromRemainder {
+            remainder[slot.groupKey] = RemainderHold(photo: slot.photo, mark: slot.mark)
+            return
+        }
         var next = groups
         if let idx = next.firstIndex(where: { $0.key == slot.groupKey }) {
             var card = next[idx]

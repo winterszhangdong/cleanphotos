@@ -6,86 +6,25 @@ struct SimilarCompareRoute: Identifiable {
     var id: String { groupKey + "\n" + photoId }
 }
 
-/// 照片页范围切到「相似」时放进来。自己不进导航，对比页用全屏盖住底部导航。
-struct SimilarScopePage: View {
-    @EnvironmentObject var library: PhotoLibraryService
-    @EnvironmentObject private var language: LanguageStore
-    @ObservedObject private var session = SimilarSession.shared
-    @State private var compare: SimilarCompareRoute?
-
-    private var zh: Bool { language.isChineseUI }
+/// 相似分组的一张卡片。竖向列表由照片页的 LazyVStack 直接装，这里不再套一层 ScrollView。
+struct SimilarCardRow: View {
+    let card: SimilarCard
+    let marks: [String: SimilarMark]
+    var moving: Bool
+    var zh: Bool
+    var locale: Locale
+    var onOpen: (String) -> Void
+    var onCommit: () -> Void
 
     var body: some View {
-        ZStack {
-            DarkroomColors.room
-            if session.phase != .ready {
-                comparing
-            } else if session.listedGroups.isEmpty {
-                Text(SimilarCopy.empty(zh: zh))
-                    .font(DarkroomType.title)
-                    .foregroundStyle(DarkroomColors.paper)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-            } else {
-                list
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { session.start(library) }
-        .fullScreenCover(item: $compare) { route in
-            SimilarCompareView(groupKey: route.groupKey, photoId: route.photoId) {
-                compare = nil
-            }
-            .environmentObject(library)
-            .environmentObject(language)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let undo = session.keptUndo {
-                keptCapsule(undo)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-            }
-        }
-    }
-
-    private var comparing: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(SimilarCopy.comparing(done: session.done, total: session.total, zh: zh))
-                .font(DarkroomType.countSub)
-                .foregroundStyle(DarkroomColors.dim)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-            ForEach(0..<3, id: \.self) { i in
-                SimilarSkeletonCard(delay: Double(i) * 0.2)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var list: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(session.listedGroups) { card in
-                    cardView(card)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-    }
-
-    private func cardView(_ card: SimilarCard) -> some View {
-        let map = session.marks[card.key] ?? [:]
-        let removeCount = card.photos.filter { map[$0.id] == .remove }.count
+        let removeCount = card.photos.filter { marks[$0.id] == .remove }.count
         return VStack(alignment: .leading, spacing: 8) {
             Text(takenLabel(card.earliest))
                 .font(DarkroomType.body)
                 .foregroundStyle(DarkroomColors.paper)
                 .lineLimit(1)
-            thumbRow(card, marks: map)
-            SimilarCommitButton(title: SimilarCopy.commit(removeCount: removeCount, zh: zh), enabled: !session.moving) {
-                _ = session.commit(groupKey: card.key)
-            }
+            thumbRow(card, marks: marks)
+            SimilarCommitButton(title: SimilarCopy.commit(removeCount: removeCount, zh: zh), enabled: !moving, action: onCommit)
         }
         .padding(16)
         .background {
@@ -108,7 +47,7 @@ struct SimilarScopePage: View {
                         side: 72,
                         mark: marks[photo.id] ?? .keep,
                         label: thumbLabel(photo, mark: marks[photo.id] ?? .keep),
-                        onTap: { compare = SimilarCompareRoute(groupKey: card.key, photoId: photo.id) }
+                        onTap: { onOpen(photo.id) }
                     )
                 }
             }
@@ -123,25 +62,18 @@ struct SimilarScopePage: View {
 
     private func takenLabel(_ date: Date) -> String {
         let pattern = zh ? "M月d日 · EEE · HH:mm" : "MMM d · EEE · HH:mm"
-        return DateFormatCache.string(date, format: pattern, locale: language.effectiveLocale)
+        return DateFormatCache.string(date, format: pattern, locale: locale)
     }
 
     private func thumbLabel(_ photo: PhotoItem, mark: SimilarMark) -> String {
         let pattern = zh ? "M月d日 HH:mm" : "MMM d HH:mm"
-        let date = DateFormatCache.string(photo.creationDate, format: pattern, locale: language.effectiveLocale)
+        let date = DateFormatCache.string(photo.creationDate, format: pattern, locale: locale)
         return SimilarCopy.film(date: date, mark: SimilarCopy.mark(mark, zh: zh), zh: zh)
     }
 
-    private func keptCapsule(_ undo: SimilarKeptUndo) -> some View {
-        KeptUndoCapsule(undo: undo, zh: zh) { session.undoKept() }
-            .task(id: undo.id) {
-                try? await Task.sleep(nanoseconds: UInt64(UndoBanner.lifetime * 1_000_000_000))
-                session.expireKept(undo.id)
-            }
-    }
 }
 
-private struct SimilarSkeletonCard: View {
+struct SimilarSkeletonCard: View {
     var delay: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var high = false
@@ -182,7 +114,7 @@ private struct SimilarSkeletonCard: View {
 }
 
 /// 「都留下」没有移走，现成的撤回条文案对不上，这里单独写「已留下」。
-private struct KeptUndoCapsule: View {
+struct KeptUndoCapsule: View {
     let undo: SimilarKeptUndo
     let zh: Bool
     let onUndo: () -> Void

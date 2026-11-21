@@ -45,14 +45,10 @@ struct FavoritesView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         Color.clear.frame(height: DarkroomDimens.headerHeight + 8)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
-                        ForEach(library.favoriteSections) { year in
-                            if year.year > 0 { yearRow(year.year) }
-                            ForEach(year.days) { day in
-                                dayHeader(day)
-                                dayGrid(day)
-                            }
+                        // 每天的格子拆成行，作为 LazyVStack 的直接子视图。套着的 ForEach 会把整天一次排完。
+                        ForEach(lines) { line in
+                            lineView(line)
                         }
-                        filedSection
                         Color.clear.frame(height: 140)
                     }
                 }
@@ -145,6 +141,107 @@ struct FavoritesView: View {
         }
     }
 
+    private struct FavLine: Identifiable {
+        enum Kind {
+            case year(Int)
+            case header(PhotoDaySection)
+            case tiles(items: [PhotoItem], dayId: String, start: Int)
+            case filedHeader(Int)
+            case filedRow(FiledDayRules.Day)
+            case filedTiles(items: [PhotoItem], dayKey: String, start: Int)
+        }
+        let id: String
+        let kind: Kind
+    }
+
+    private var lines: [FavLine] {
+        let cols = 4
+        var out: [FavLine] = []
+        for year in library.favoriteSections {
+            if year.year > 0 {
+                out.append(FavLine(id: "y-\(year.id)", kind: .year(year.year)))
+            }
+            for day in year.days {
+                out.append(FavLine(id: "h-\(day.id)", kind: .header(day)))
+                var start = 0
+                while start < day.items.count {
+                    let end = min(start + cols, day.items.count)
+                    out.append(FavLine(
+                        id: "t-\(day.id)-\(start)",
+                        kind: .tiles(items: Array(day.items[start..<end]), dayId: day.id, start: start)
+                    ))
+                    start = end
+                }
+            }
+        }
+        let filed = filedDays
+        if !filed.isEmpty {
+            let total = filed.reduce(0) { $0 + $1.count }
+            out.append(FavLine(id: "filed-h", kind: .filedHeader(total)))
+            for day in filed {
+                out.append(FavLine(id: "filed-\(day.dayKey)", kind: .filedRow(day)))
+                if expandedFiled == day.dayKey {
+                    let photos = filedPhotos(day)
+                    var start = 0
+                    while start < photos.count {
+                        let end = min(start + cols, photos.count)
+                        out.append(FavLine(
+                            id: "ft-\(day.dayKey)-\(start)",
+                            kind: .filedTiles(items: Array(photos[start..<end]), dayKey: day.dayKey, start: start)
+                        ))
+                        start = end
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    @ViewBuilder
+    private func lineView(_ line: FavLine) -> some View {
+        switch line.kind {
+        case .year(let year):
+            yearRow(year)
+        case .header(let day):
+            dayHeader(day)
+        case .tiles(let items, let dayId, let start):
+            tileRow(items, start: start, dayId: dayId, tappable: true)
+        case .filedHeader(let total):
+            filedHeader(total)
+        case .filedRow(let day):
+            filedRow(day)
+        case .filedTiles(let items, _, let start):
+            tileRow(items, start: start, dayId: "filed", tappable: false)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .ignore)
+        }
+    }
+
+    private func tileRow(_ items: [PhotoItem], start: Int, dayId: String, tappable: Bool) -> some View {
+        let cols = 4
+        let gap: CGFloat = 2
+        let side = (max(listWidth, 1) - gap * CGFloat(cols - 1)) / CGFloat(cols)
+        return HStack(spacing: gap) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
+                let index = start + offset
+                let develop = tappable && initialIDs.contains(item.id)
+                PhotoTileView(
+                    item: item,
+                    side: side,
+                    develop: develop,
+                    developDelay: GridDevelopSession.staggerDelay(row: index / cols, col: index % cols),
+                    showUnseen: false
+                )
+                .onTapGesture {
+                    guard tappable else { return }
+                    reviewLaunch = ReviewLaunch(scope: .favorites, startPhotoId: item.id, dayId: nil)
+                }
+            }
+            if items.count < cols { Spacer(minLength: 0) }
+        }
+        .padding(.bottom, gap)
+    }
+
     private func yearRow(_ year: Int) -> some View {
         HStack(spacing: 12) {
             Text(String(year)).font(DarkroomType.countSub).foregroundStyle(DarkroomColors.dim)
@@ -189,46 +286,17 @@ struct FavoritesView: View {
         .overlay(Capsule().strokeBorder(DarkroomColors.rim2, lineWidth: 1))
     }
 
-    private func dayGrid(_ day: PhotoDaySection) -> some View {
-        let cols = 4
-        let gap: CGFloat = 2
-        return GeometryReader { geo in
-            let side = (geo.size.width - gap * CGFloat(cols - 1)) / CGFloat(cols)
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: gap), count: cols), spacing: gap) {
-                ForEach(Array(day.items.enumerated()), id: \.element.id) { index, item in
-                    let develop = initialIDs.contains(item.id)
-                    PhotoTileView(item: item, side: side, develop: develop, developDelay: GridDevelopSession.staggerDelay(row: index/cols, col: index%cols), showUnseen: false)
-                        .onTapGesture {
-                            reviewLaunch = ReviewLaunch(scope: .favorites, startPhotoId: item.id, dayId: nil)
-                        }
-                }
-            }
+    private func filedHeader(_ total: Int) -> some View {
+        HStack(spacing: 12) {
+            Text(FilingCopy.filedHeader(total, locale: language.effectiveLocale))
+                .font(DarkroomType.countSub)
+                .foregroundStyle(DarkroomColors.dim)
+                .lineLimit(1)
+            Rectangle().fill(DarkroomColors.rim).frame(height: 1)
         }
-        .frame(height: gridHeight(count: day.items.count))
-    }
-
-    @ViewBuilder
-    private var filedSection: some View {
-        let days = filedDays
-        if !days.isEmpty {
-            let total = days.reduce(0) { $0 + $1.count }
-            HStack(spacing: 12) {
-                Text(FilingCopy.filedHeader(total, locale: language.effectiveLocale))
-                    .font(DarkroomType.countSub)
-                    .foregroundStyle(DarkroomColors.dim)
-                    .lineLimit(1)
-                Rectangle().fill(DarkroomColors.rim).frame(height: 1)
-            }
-            .frame(height: 32)
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            ForEach(days, id: \.dayKey) { day in
-                filedRow(day)
-                if expandedFiled == day.dayKey {
-                    filedGrid(filedPhotos(day))
-                }
-            }
-        }
+        .frame(height: 32)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
     }
 
     private func filedRow(_ day: FiledDayRules.Day) -> some View {
@@ -272,30 +340,6 @@ struct FavoritesView: View {
             if a.creationDate != b.creationDate { return a.creationDate < b.creationDate }
             return a.id < b.id
         }
-    }
-
-    /// 展开后只读，不能点开。
-    private func filedGrid(_ items: [PhotoItem]) -> some View {
-        let cols = 4
-        let gap: CGFloat = 2
-        return GeometryReader { geo in
-            let side = (geo.size.width - gap * CGFloat(cols - 1)) / CGFloat(cols)
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: gap), count: cols), spacing: gap) {
-                ForEach(items) { item in
-                    PhotoTileView(item: item, side: side, develop: false, developDelay: 0, showUnseen: false)
-                }
-            }
-        }
-        .frame(height: gridHeight(count: items.count))
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .ignore)
-    }
-
-    private func gridHeight(count: Int) -> CGFloat {
-        let cols: CGFloat = 4
-        let rows = ceil(CGFloat(max(count, 1)) / cols)
-        let side = (listWidth - 2 * (cols - 1)) / cols
-        return rows * side + max(0, rows - 1) * 2
     }
 
     private func seed() {

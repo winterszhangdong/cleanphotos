@@ -11,8 +11,16 @@ final class PhotoOpenTransition: ObservableObject {
 
     var tileFrames: [String: CGRect] = [:]
     var tileImages: [String: UIImage] = [:]
-    /// 飞行中的照片 id：网格瓦片与清理页当前页据此隐藏自己（Android 共享元素在过渡期间只画在 overlay 里）。
-    @Published var flyingId: String?
+    /// 飞行中的照片 id。网格瓦片不观察这个对象：只有被藏的那一格自己的 flag 会刷新。
+    private(set) var flyingId: String? {
+        didSet {
+            guard oldValue != flyingId else { return }
+            if let oldValue { hideFlags[oldValue]?.hidden = false }
+            if let flyingId { hideFlag(for: flyingId).hidden = true }
+            objectWillChange.send()
+        }
+    }
+    private var hideFlags: [String: TileHideFlag] = [:]
 
     static let press: Double = 0.08
     static let expandEnd: Double = 0.40
@@ -32,7 +40,27 @@ final class PhotoOpenTransition: ObservableObject {
     }
 
     func register(_ id: String, frame: CGRect) { tileFrames[id] = frame }
-    func unregister(_ id: String) { tileFrames[id] = nil; tileImages[id] = nil }
+    func unregister(_ id: String) {
+        tileFrames[id] = nil
+        tileImages[id] = nil
+        if flyingId != id { hideFlags[id] = nil }
+    }
+
+    /// 这一格是否在飞行。别的格子不订阅。
+    func hideFlag(for id: String) -> TileHideFlag {
+        if let flag = hideFlags[id] { return flag }
+        let flag = TileHideFlag()
+        flag.hidden = flyingId == id
+        hideFlags[id] = flag
+        return flag
+    }
+
+    func setFlying(_ id: String?) { flyingId = id }
+}
+
+/// 只有飞行涉及的那一格会发布。
+final class TileHideFlag: ObservableObject {
+    @Published var hidden = false
 }
 
 /// 飞行层：在 from → to 之间按阶段曲线插值，内容按 fill 裁进当前矩形（网格方块 ↔ 大图 fit）。
