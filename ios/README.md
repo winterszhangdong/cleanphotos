@@ -23,7 +23,7 @@ xcodebuild -project CleanPhotos.xcodeproj -scheme CleanPhotos \
 仓库根目录：
 
 ```bash
-make run-ios                         # 装到当前连上的 iPhone 并打开（保留本机数据）
+make run-ios                         # 按 project.yml 生成工程，装到当前连上的 iPhone 并打开（保留本机数据）
 make run-ios IOS_DEVICE=<UDID>      # 连着多台时指定
 ```
 

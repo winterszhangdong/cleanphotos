@@ -64,44 +64,14 @@ clear-data: ## 清除应用数据（含 DataStore）
 
 run-ios: ## 编译当前代码，装到已连接的 iPhone 并打开（保留本机数据）
 	@set -euo pipefail; \
-	test -d ios/CleanPhotos.xcodeproj || { echo "缺少 ios/CleanPhotos.xcodeproj，先到 ios 目录执行 xcodegen generate"; exit 1; }; \
+	command -v xcodegen >/dev/null || { echo "缺少 xcodegen，先 brew install xcodegen"; exit 1; }; \
+	( cd ios && xcodegen generate ); \
 	test -f ios/Secrets.xcconfig || { echo "缺少 ios/Secrets.xcconfig（真机签名用的 Team）"; exit 1; }; \
 	device='$(IOS_DEVICE)'; \
 	if [ -z "$$device" ]; then \
 	  list=$$(mktemp); \
 	  xcrun devicectl list devices --json-output "$$list" >/dev/null; \
-	  pick=$$(python3 - "$$list" <<'PY'
-	import json, sys
-	data = json.load(open(sys.argv[1]))
-	def fields(dev):
-	    props = dev.get("properties") or {}
-	    hw = dev.get("hardwareProperties") or {}
-	    conn = props.get("connection") or dev.get("connectionProperties") or {}
-	    state = props.get("state") or dev.get("deviceProperties") or {}
-	    return {
-	        "name": state.get("name") or props.get("name") or "iPhone",
-	        "udid": props.get("udid") or hw.get("udid") or "",
-	        "reality": props.get("reality") or hw.get("reality") or "",
-	        "connected": conn.get("state") == "connected",
-	    }
-	physical = [fields(d) for d in data["result"]["devices"]]
-	physical = [d for d in physical if d["reality"] == "physical" and d["udid"]]
-	online = [d for d in physical if d["connected"]]
-	if len(online) == 1:
-	    chosen = online[0]
-	elif len(online) > 1:
-	    lines = "\n".join(f"  {d['name']}  {d['udid']}" for d in online)
-	    sys.exit("连着多台 iPhone，用 IOS_DEVICE=UDID 指定一台：\n" + lines)
-	elif len(physical) == 1:
-	    chosen = physical[0]
-	elif len(physical) > 1:
-	    lines = "\n".join(f"  {d['name']}  {d['udid']}" for d in physical)
-	    sys.exit("没有已连接的 iPhone。用 IOS_DEVICE=UDID 指定一台：\n" + lines)
-	else:
-	    sys.exit("没有已配对的 iPhone。解锁手机，用数据线连接或连上同一 Wi-Fi，并在手机上点信任")
-	print(chosen["udid"] + "\t" + chosen["name"])
-	PY
-	  ); \
+	  pick=$$(python3 ios/scripts/pick-iphone.py "$$list") || exit 1; \
 	  rm -f "$$list"; \
 	  device=$${pick%%$$'\t'*}; \
 	  name=$${pick#*$$'\t'}; \
