@@ -16,6 +16,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -88,6 +89,7 @@ import com.winters.cleanphotos.core.media.PlaybackProgressRow
 import com.winters.cleanphotos.core.media.PlaybackSurface
 import com.winters.cleanphotos.core.media.rememberPlaybackEngine
 import com.winters.cleanphotos.domain.model.DetailsMode
+import com.winters.cleanphotos.domain.model.MediaType
 import com.winters.cleanphotos.domain.model.PhotoActionType
 import com.winters.cleanphotos.domain.model.PlaybackTarget
 import com.winters.cleanphotos.domain.model.ReviewPage
@@ -117,6 +119,8 @@ fun ReviewScreen(
     onNavigateBack: () -> Unit,
     onDismissTutorial: () -> Unit,
     onPlaybackMuted: (Boolean) -> Unit,
+    onCompress: (Long) -> Unit = {},
+    onCancelCompress: () -> Unit = {},
     /** 入口照片：会话还在加载时先用它的网格缩略图铺满，避免进入那几帧空屏。 */
     entryPhotoId: Long? = null,
     modifier: Modifier = Modifier,
@@ -223,6 +227,8 @@ fun ReviewScreen(
     val current = stage.currentPage
     val currentPhoto = (current as? ReviewPage.Photo)?.photo
     val onSummary = current is ReviewPage.Summary
+    val compressHere = uiState.compress.running && currentPhoto != null && uiState.compress.sourceId == currentPhoto.id
+    stage.reviewGesturesEnabled = { !compressHere }
     val tutorial = uiState.showTutorial && !onSummary
     val pageIsVideo = playback is PlaybackTarget.Video && currentPhoto?.uri == playback.uri
     val pageIsMotion = playback is PlaybackTarget.MotionPhoto && currentPhoto?.uri == playback.uri
@@ -285,7 +291,8 @@ fun ReviewScreen(
     val previousLabel = stringResource(R.string.a11y_previous_page)
     val hasNext = stage.nextPage != null
     val hasPrevious = stage.previousPage != null
-    val a11yActions = remember(currentPhoto != null, hasNext, hasPrevious, upLabel, trashLabel, nextLabel, previousLabel) {
+    val a11yActions = remember(currentPhoto != null, hasNext, hasPrevious, upLabel, trashLabel, nextLabel, previousLabel, compressHere) {
+        if (compressHere) return@remember emptyList()
         buildList {
             if (currentPhoto != null) {
                 add(CustomAccessibilityAction(upLabel) { stage.accessibilitySwipe(up = true) })
@@ -492,8 +499,13 @@ fun ReviewScreen(
             val undoVisible = uiState.undo != null && !vertical && !tutorial && !onSummary
             if (currentPhoto != null && !tutorial) {
                 val progressVisible = playbackProgressVisible && !undoVisible
+                val showCompress = currentPhoto.mediaType == MediaType.Video &&
+                    !currentPhoto.isTrashed &&
+                    !pageIsMotion &&
+                    (compressHere || !uiState.compress.running)
+                var askCompress by remember(currentPhoto.id) { mutableStateOf(false) }
                 AnimatedVisibility(
-                    visible = (showDetails || progressVisible) && !undoVisible,
+                    visible = (showDetails || progressVisible || compressHere) && !undoVisible,
                     enter = fadeIn(tween(MotionDurations.SHORT)),
                     exit = fadeOut(tween(MotionDurations.MICRO)),
                     modifier = Modifier
@@ -517,8 +529,33 @@ fun ReviewScreen(
                                 onSeeked = { transportShown = false },
                             )
                         }
-                        if (showDetails) ReviewMeta(currentPhoto, includeDuration = !progressVisible)
+                        if (showDetails || compressHere) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                ReviewMeta(
+                                    currentPhoto,
+                                    Modifier.weight(1f),
+                                    includeDuration = !progressVisible,
+                                )
+                                if (showCompress && (showDetails || compressHere)) {
+                                    ReviewCompressSlot(
+                                        runningHere = compressHere,
+                                        progressPercent = uiState.compress.progressPercent,
+                                        onCompress = { askCompress = true },
+                                        onCancel = onCancelCompress,
+                                    )
+                                }
+                            }
+                        }
                     }
+                }
+                if (askCompress) {
+                    CompressConfirmDialog(
+                        onDismiss = { askCompress = false },
+                        onConfirm = {
+                            askCompress = false
+                            onCompress(currentPhoto.id)
+                        },
+                    )
                 }
             }
 

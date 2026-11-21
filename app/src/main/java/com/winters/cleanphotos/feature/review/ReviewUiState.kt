@@ -18,6 +18,15 @@ data class UndoInfo(
     val subtitle: UiText,
     val version: Long,
     val deadlineUptimeMillis: Long,
+    /** 压缩成功后的撤回只恢复原片，不把清理页拉回原片。 */
+    val keepPage: Boolean = false,
+)
+
+/** 清理页上这一次视频压缩的展示。进度更新不重建会话序列。 */
+data class ReviewCompressUi(
+    val sourceId: Long? = null,
+    val running: Boolean = false,
+    val progressPercent: Int = 0,
 )
 
 data class ReviewUiState(
@@ -43,4 +52,5 @@ data class ReviewUiState(
     val playback: PlaybackTarget? = null,
     /** 这次进入清理页的静音。默认静音，不写入 DataStore。 */
     val playbackMuted: Boolean = true,
+    val compress: ReviewCompressUi = ReviewCompressUi(),
 )

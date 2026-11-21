@@ -1,5 +1,6 @@
 package com.winters.cleanphotos.feature.review
 
+import com.winters.cleanphotos.core.design.plainClickable
 import com.winters.cleanphotos.core.text.asString
 import com.winters.cleanphotos.core.locale.currentLocale
 import com.winters.cleanphotos.R
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -269,6 +271,33 @@ internal fun ReviewMeta(
         ""
     }
     Text(name + size + duration, style = DarkroomText.RvFile, maxLines = 1, modifier = modifier.fillMaxWidth())
+}
+
+/** 文件信息旁边的「压缩」。进行中换成百分比，旁边可以取消。相纸白，不用删除红。 */
+@Composable
+internal fun ReviewCompressSlot(
+    runningHere: Boolean,
+    progressPercent: Int,
+    onCompress: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val style = DarkroomText.RvFile.copy(color = DarkroomColors.Paper)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (runningHere) {
+            Text(stringResource(R.string.compress_progress, progressPercent), style = style)
+            Text(
+                stringResource(R.string.cancel),
+                style = style,
+                modifier = Modifier.padding(start = 12.dp).plainClickable(onClick = onCancel),
+            )
+        } else {
+            Text(
+                stringResource(R.string.compress_action),
+                style = style,
+                modifier = Modifier.plainClickable(onClick = onCompress),
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------- 过阈值提示

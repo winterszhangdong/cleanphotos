@@ -329,4 +329,16 @@
         <item quantity="one">%1$d more</item>
         <item quantity="other">%1$d more</item>
     </plurals>
+    <string name="compress_action">Compress</string>
+    <string name="compress_confirm_title">Compress to 1080p?</string>
+    <string name="compress_confirm_body">The original moves to the trash. Space is freed only after you empty the trash.</string>
+    <string name="compress_notif_title">Compressing video</string>
+    <string name="compress_channel">Video compression</string>
+    <string name="compress_progress">%1$d%%</string>
+    <string name="compress_error_decode">This phone can\'t decode this video</string>
+    <string name="compress_error_hdr">On Android 8 and 9 this color would shift, so it was stopped</string>
+    <string name="compress_error_space">Not enough space</string>
+    <string name="compress_error_duration">The length doesn\'t match the original, so it was stopped</string>
+    <string name="compress_error_small">Already small enough</string>
+    <string name="compress_error_failed">Couldn\'t compress this video</string>
 </resources>

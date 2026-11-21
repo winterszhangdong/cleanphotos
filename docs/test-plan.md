@@ -127,6 +127,9 @@ Android 8–9 DATA → relativePath（relativePathFromData / normalizeRelativePa
 权限判定（图片可用、13+ 完整访问要图片+视频、请求列表、补请求视频权限、能否读视频）
 动态照片识别（MotionPhotoLocatorTest：Google 属性与元素、Padding 不计入、多项 Length 相加、同一份 XMP 出现两次不把 Length 加两遍、MicroVideo、vivo Exif 0x02BC 与 uuid 越界尾、vivo Description 夹无关 rdf:li、属性反序、目录项缺 Length 不借用相邻项、OPPO VideoLength 截尾、OPPO 长度失败后的 EOI 扫描、三星 SEFT 有 mpv2 头和无 mpv2 头、荣耀 LIVE_、LIVE_ 起点晚 20 字节时就近扫描、HEIC mpvd、华为 Make 扫描、普通 JPEG null、偏移不是 ftyp null、moov 越出文件 null）
 是否自动播放（PlaybackPolicyTest：视频和动态照片都不循环；动画开 = 自动播一次，动画关 = 不自动播）。中心键 / 详情 / 单击分流 / 播完回到 0（PlaybackChromeTest）
+压缩计划（CompressVideoPlanTest：3840×2160 → 1920×1080，2160×3840 → 1080×1920，90/270 的 1920×1080 当成 1080×1920 且不再缩小，180° 的 4K 仍缩小，720p 和 640×480 不放大，奇数向下取偶，帧率超过 60 封顶、未知按 30，1080p30 为 8Mbps，1080p60 按根号放大，原片总码率太小时下调，框内且码率已不超过目标则跳过，分辨率仍超出则不跳过，HDR 在 API 28 拒绝、29 允许并标成 SDR，时长差超过 max(500ms, 3%) 作废，显示名加 `_1080p.mp4`）
+压缩执行（CompressVideoUseCaseTest，假的 Transcoder：成功后收藏和看过迁到新 id，原片进入垃圾桶；未收藏则不写新收藏；拒绝、取消、时长不符时丢掉半成品或不发布，原片不动，没有新收藏；非视频不调用转码）
+iOS 压缩计划与编排（VideoCompressPlanTests、ReviewLedgerTests：尺寸、不放大、偶数、帧率、码率、跳过、时长；成功迁收藏/看过并 moveToTrash；失败、取消、时长不符、iCloud 无本地文件时不入库）
 ```
 
 ### ViewModel 测试

@@ -1,6 +1,7 @@
 package com.winters.cleanphotos.core.design
 
 import android.annotation.SuppressLint
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.view.HapticFeedbackConstants
 
@@ -51,6 +52,17 @@ data class ApiTier(val sdkInt: Int) {
     /** 拖着照片叠换了目标（袋子 / 面板里的行）：14+ 更轻的分段滴答，更早 CLOCK_TICK。 */
     val hoverTickHaptic: Int
         get() = if (sdkInt >= 34) HapticFeedbackConstants.SEGMENT_FREQUENT_TICK else HapticFeedbackConstants.CLOCK_TICK
+
+    /** 压缩前台服务：35+ mediaProcessing，34 dataSync，更低是普通前台服务（类型 0）。 */
+    val compressForegroundServiceType: Int
+        get() = when {
+            sdkInt >= 35 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+            sdkInt >= 34 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            else -> 0
+        }
+
+    /** MediaStore IS_PENDING / RELATIVE_PATH 从 API 29 起。 */
+    val supportsMediaStorePending: Boolean get() = sdkInt >= 29
 
     companion object {
         const val MIN_SDK = 26

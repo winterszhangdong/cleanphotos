@@ -223,6 +223,8 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     var onDayChanged: () -> Unit = {}
     var exitTarget: (ExitKind) -> Offset = { Offset.Zero }
     var verticalEnabled: () -> Boolean = { true }
+    /** 压缩这一页时锁住上下滑和左右换页。缩放和双击仍可用。 */
+    var reviewGesturesEnabled: () -> Boolean = { true }
     /** 最后一张被处理、没有下一页：不再回退到 ViewModel 的旧 currentKey。撤回或失败恢复序号变化时清掉。 */
     var sessionEndedLocally: Boolean = false
     private var lastVmPages: List<ReviewPage>? = null
@@ -321,6 +323,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         }
 
         override fun onDragStart(axis: DragAxis) {
+            if ((axis == DragAxis.Horizontal || axis == DragAxis.Vertical) && !reviewGesturesEnabled()) return
             this@ReviewStageState.axis = axis
             dragging = true
             if (axis == DragAxis.Horizontal || axis == DragAxis.Vertical) {
@@ -352,6 +355,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
         }
 
         override fun onDrag(axis: DragAxis, delta: Offset) {
+            if ((axis == DragAxis.Horizontal || axis == DragAxis.Vertical) && !reviewGesturesEnabled()) return
             when (axis) {
                 DragAxis.Horizontal -> {
                     rawDx += delta.x
@@ -377,6 +381,10 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
 
         override fun onDragEnd(axis: DragAxis, velocity: Velocity) {
             dragging = false
+            if ((axis == DragAxis.Horizontal || axis == DragAxis.Vertical) && !reviewGesturesEnabled()) {
+                if (dx != 0f || dy != 0f) settleBack(0f, 0f)
+                return
+            }
             when (axis) {
                 DragAxis.Horizontal -> releaseHorizontal(velocity.x)
                 DragAxis.Vertical -> releaseVertical(velocity.y)
@@ -451,6 +459,10 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
     }
 
     private fun releaseHorizontal(vx: Float, dir: Int = ReviewGestureMath.horizontalRelease(dx, vx, thresholds)) {
+        if (!reviewGesturesEnabled()) {
+            settleBack(0f, 0f)
+            return
+        }
         val target = when (dir) {
             -1 -> nextPage
             1 -> previousPage
@@ -627,14 +639,14 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
      */
     fun accessibilitySwipe(up: Boolean): Boolean {
         val photo = currentPage as? ReviewPage.Photo ?: return false
-        if (dragging || !verticalEnabled()) return false
+        if (dragging || !verticalEnabled() || !reviewGesturesEnabled()) return false
         trigger(photo, if (up) VerticalRelease.Up else VerticalRelease.Down, 0f)
         return true
     }
 
     /** TalkBack「上一张」：与右滑一样走翻页动画。 */
     fun goPrevious() {
-        if (previousPage == null || pendingCommitKey != null) return
+        if (!reviewGesturesEnabled() || previousPage == null || pendingCommitKey != null) return
         onDetailsDismiss()
         axis = DragAxis.Horizontal
         releaseHorizontal(thresholds.horizontalFlingVelocity * 2f, dir = 1)
@@ -642,7 +654,7 @@ internal class ReviewStageState(private val scope: CoroutineScope) {
 
     /** 小结「下一天」：与左滑一样走翻页动画。 */
     fun goNext() {
-        if (nextPage == null || pendingCommitKey != null) return
+        if (!reviewGesturesEnabled() || nextPage == null || pendingCommitKey != null) return
         onDetailsDismiss()
         axis = DragAxis.Horizontal
         // 静止时 dx = 0，按位移推不出方向，直接指定去下一页

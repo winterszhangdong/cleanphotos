@@ -11,7 +11,7 @@
 - Coroutines
 - Flow
 - Coil
-- Media3 ExoPlayer（只播清理页和垃圾桶预览；`media3-exoplayer` 1.11.1）
+- Media3 1.11.1：`media3-exoplayer` 只播清理页和垃圾桶预览；`media3-transformer` 与 `media3-effect` 只把一条普通视频压到 1080p。不升版本，不加 INTERNET 权限。
 - MediaStore
 - DataStore
 - Hilt
@@ -210,6 +210,7 @@ com.example.photocleaner
 * `PlaybackSurface`：`AndroidView(TextureView)`，`isOpaque = false`。监听 `onVideoSizeChanged`（宽高 × 像素比；Media3 1.11 已在解码端转正），在叠层里按视频自己的比例 Fit 居中；尺寸未到或 `onRenderedFirstFrame` 之前 `graphicsLayer` alpha 为 0。不用 SurfaceView，否则去色、圆角、离场飞行带不走画面。未引入 `media3-ui-compose`，避免和 Compose BOM 2026.02.01 冲突。控件图标是 `DarkroomIcons` 的 Play（实心三角）/ Pause（两根实心条）/ Motion / SoundOn / SoundOff。
 * `PlaybackCenterButton` / `PlaybackProgressRow` / `MotionReplayPill` / `PlaybackAutoplay`：停稳后延迟 `PLAYBACK_START_DELAY` 再播。这段延迟里中心键不出现；系统关闭动画时不自动播，未开始直接显示。播放中单击只切换暂停键和进度行的显隐，不改播放；点中心键才播放或暂停。拖动或点按进度，松手后从该位置直接开始播放，暂停和播完都一样，控件收回。底是实色 `DarkroomColors.Glass` 加 `GlassRim`，不走 `glassBlur`：TextureView 采不到背景。进度行在 chrome 层，自己的 pointerInput 里同时处理点按和拖动。进度行显示时，清理页文件信息行不再追加时长。静音是 `volume = 0f` 且不申请音频焦点；取消静音才 `handleAudioFocus = true`。动态照片 `ensureMuted` 恒为静音，不改 ViewModel 记住的开关。
 * 是否自动播放由 `playbackPolicy(kind, animationsEnabled)` 决定，跟着系统动画开关。视频和动态照片都是 `REPEAT_MODE_OFF`。视频 `STATE_ENDED` 时先 `pause` 再 `seekTo(0)`，`ended` 保持到下一次真正开播或用户拖进度。`started` 用来区分「还没开始」和「手势暂停」。
+* `Media3VideoCompressor` 由 Repository 调用，Composable 不碰 Transformer。按计划缩放到偶数尺寸，旋转烤进画面。同一条片子按顺序试到成功：缩放且声音原样（HDR 在 API 29+ 用 OpenGL 收到 SDR）；OpenGL 色彩转换失败且 API ≥ 31 时改用 MediaCodec 色调映射；音轨进不了 MP4 时改 AAC-LC 160kbps；编码器拒绝原时间戳时改固定帧率，仍不超过 60，时长保持播放时长。只有读到三星 SEF 慢动作元数据才展平。不内置软解。先写应用缓存，完成后再以 `IS_PENDING` 插入原来的文件夹；API 26–28 没有 `IS_PENDING`，用 `DATA` 写到原目录。失败或取消删掉缓存和未完成的行。
 
 ### core/navigation
 
@@ -412,7 +413,10 @@ SetTutorialSeenUseCase
 ObserveTotalFreedBytesUseCase（读 total_freed_bytes）
 AddFreedBytesUseCase（累加已确认删除的字节，bytes 必须 > 0）
 LocateMotionPhotoVideoUseCase（图片走 Repository；视频直接变成 PlaybackTarget.Video，不读文件）
+CompressVideoUseCase（一条普通视频：转码、收藏和看过迁到新文件、原片移入垃圾桶。失败、取消、时长不符时原片不动）
 ```
+
+iOS 不走 Media3。计划在 `VideoCompressPlan`，编排在 `VideoCompressJob`，导出在 `VideoCompressor`（AVAssetReader + AVAssetWriter，不用会放大的 1080p 预设）。新资产用 `PHAssetCreationRequest` 写入，原片走现有 `moveToTrash`。只申请一段后台时间，不加后台模式。
 
 ---
 
@@ -461,6 +465,7 @@ ReviewPagerLayout
 * `ReviewScreen` 使用本地 `displayIndex`、`pendingSwitchIndex`、`settledOffsetXOverride`、`isHorizontalFlinging` 实现无缝 fling 切页缓冲：fling 动画先在本地完成视觉过渡，完成后再同步 ViewModel 索引，避免 fling 结束瞬间的跳变。
 * `ReviewPagerLayout` 是 deprecated shim，直接委托给共享 `buildPhotoPagerPages`。
 * `ReviewViewModel` 在当前页变化时算出 `PlaybackTarget?` 和本次进入的静音状态，放进 `ReviewUiState`。视频立刻给出地址；图片先清空再异步识别，识别完若已不是当前页则丢弃。读失败打日志并当成静态图。ExoPlayer 留在 `ReviewScreen`。离场飞行和左右翻页都用 `playbackPinnedKey` 把播放器留在离开的那一页（左右滑时这一页会变成 Previous / Next，弹簧落定前继续画定格帧）。离场主体结束或横向弹簧落定后再交给新的当前页。没钉住时，只有 `engine.media` 和 `uiState.playback` 是同一个目标、并且地址就是这一页，才把 TextureView 挂上去。
+* 压缩挂在进程级控制器和前台服务上，不跟清理页 ViewModel 一起取消。API 35+ 的前台服务类型是 `mediaProcessing`，API 34 是 `dataSync`，更低版本是普通前台服务。清单声明 `FOREGROUND_SERVICE` 以及 34/35 的类型权限。轨道信息在开压时用提取器读，不进网格的 `PhotoItem` 查询。成功后账本原位换成新视频。
 
 ### favorites
 
