@@ -10,6 +10,7 @@ import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.core.design.MotionDurations
 import com.winters.cleanphotos.core.util.DayDisplay
 import com.winters.cleanphotos.core.util.FileSizeFormatter
+import com.winters.cleanphotos.domain.model.CompressFailure
 import com.winters.cleanphotos.domain.model.PhotoAction
 import com.winters.cleanphotos.domain.model.PhotoActionType
 import com.winters.cleanphotos.domain.model.PhotoFilterMode
@@ -39,6 +40,7 @@ import com.winters.cleanphotos.domain.usecase.RemoveFavoritePhotoUseCase
 import com.winters.cleanphotos.domain.usecase.SetTutorialSeenUseCase
 import com.winters.cleanphotos.domain.usecase.StartReviewSessionUseCase
 import com.winters.cleanphotos.domain.usecase.UndoPhotoActionUseCase
+import com.winters.cleanphotos.feature.compress.VideoCompressController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import android.util.Log
 import kotlinx.coroutines.CancellationException
@@ -87,6 +89,7 @@ class ReviewViewModel @Inject constructor(
     private val observeLibraryDayStateUseCase: ObserveLibraryDayStateUseCase,
     private val locateMotionPhotoVideoUseCase: LocateMotionPhotoVideoUseCase,
     private val operationQueue: ReviewOperationQueue,
+    private val videoCompressController: VideoCompressController,
     private val uptimeClock: UptimeClock,
     @DefaultDispatcher computeDispatcher: CoroutineDispatcher,
     private val savedStateHandle: SavedStateHandle,
@@ -132,6 +135,7 @@ class ReviewViewModel @Inject constructor(
     /** 当前页的播放目标。识别在 IO，不放进 buildUiState（那条在计算线程上）。 */
     private val playbackTarget = MutableStateFlow<PlaybackTarget?>(null)
     private val playbackMuted = MutableStateFlow(true)
+    private val compressUi = MutableStateFlow(ReviewCompressUi())
     private var playbackJob: Job? = null
     private var prefetchJob: Job? = null
 
@@ -148,8 +152,9 @@ class ReviewViewModel @Inject constructor(
             .flowOn(computeDispatcher),
         playbackTarget,
         playbackMuted,
-    ) { base, target, muted ->
-        base.copy(playback = target, playbackMuted = muted)
+        compressUi,
+    ) { base, target, muted, compress ->
+        base.copy(playback = target, playbackMuted = muted, compress = compress)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ReviewUiState())
 
     init {
@@ -161,6 +166,27 @@ class ReviewViewModel @Inject constructor(
         }
         viewModelScope.launch {
             core.map { it.currentKey }.distinctUntilChanged().collect { resolvePlayback(it) }
+        }
+        viewModelScope.launch {
+            var seen = videoCompressController.state.value.generation
+            videoCompressController.state.collect { incoming ->
+                compressUi.value = ReviewCompressUi(
+                    sourceId = incoming.sourceId,
+                    running = incoming.running,
+                    progressPercent = incoming.progressPercent,
+                )
+                if (incoming.generation == seen) return@collect
+                seen = incoming.generation
+                if (incoming.running) return@collect
+                val failure = incoming.failure
+                val created = incoming.created
+                val sourceId = incoming.sourceId
+                when {
+                    failure == null && created != null && sourceId != null -> adoptCompressed(sourceId, created)
+                    failure == null || failure == CompressFailure.Cancelled -> Unit
+                    else -> core.update { it.copy(error = compressFailureText(failure)) }
+                }
+            }
         }
     }
 
@@ -301,6 +327,18 @@ class ReviewViewModel @Inject constructor(
             return null
         }
         val photo = undo.photo
+        if (undo.keepPage) {
+            val actVersion = undo.version
+            core.value = c.copy(undo = null)
+            enqueue {
+                if (settledAct[actVersion] != true) return@enqueue
+                val result = safeOperation { undoPhotoActionUseCase(PhotoAction(photo, undo.type, 0, System.currentTimeMillis())) }
+                if (!awaitSuccess(result)) {
+                    core.update { it.copy(error = UiText.Res(R.string.error_undo)) }
+                }
+            }
+            return c.currentKey
+        }
         if (photo.id !in c.removed) return null
         val previousOutcome = ledger.outcomes[photo.id]
         var newLedger = ledger.undoOutcome(photo.id)
@@ -346,6 +384,18 @@ class ReviewViewModel @Inject constructor(
     }
 
     fun dismissError() = core.update { it.copy(error = null) }
+
+    /** 确认框点了压缩。一次只压一条普通视频。 */
+    fun requestCompress(photoId: Long) {
+        if (videoCompressController.state.value.running) return
+        val photo = photoOf(ReviewPage.keyOf(photoId)) ?: return
+        if (photo.mediaType != MediaType.Video || photo.isTrashed) return
+        videoCompressController.start(photo)
+    }
+
+    fun cancelCompress() {
+        videoCompressController.cancel()
+    }
 
     /** 点「知道了」或完成任意一次滑动后永久关闭教学。 */
     fun dismissTutorial() {
@@ -538,6 +588,43 @@ class ReviewViewModel @Inject constructor(
         lastUi = result
         return result
     }
+
+    /** 成品已经进相册、原片已经进垃圾桶。当前页换成新视频，撤回不拉回原片。 */
+    private fun adoptCompressed(sourceId: Long, created: PhotoItem) {
+        val c = core.value
+        val ledger = c.ledger ?: return
+        if (ledger.indexOrNull(sourceId) == null) return
+        val original = ledger.photo(sourceId)
+        val version = nextVersion++
+        settledAct[version] = true
+        val undo = UndoInfo(
+            seq = ++undoSeq,
+            photo = original,
+            type = PhotoActionType.MoveToTrash,
+            title = undoTitle(PhotoActionType.MoveToTrash),
+            subtitle = undoSubtitle(ledger, original, PhotoActionType.MoveToTrash),
+            version = version,
+            deadlineUptimeMillis = uptimeClock.uptimeMillis() + MotionDurations.UNDO_COUNTDOWN,
+            keepPage = true,
+        )
+        core.value = c.copy(
+            ledger = ledger.replacePhoto(sourceId, created),
+            currentKey = ReviewPage.keyOf(created.id),
+            activeSummaryDay = null,
+            undo = undo,
+        )
+    }
+
+    private fun compressFailureText(failure: CompressFailure): UiText = UiText.Res(
+        when (failure) {
+            CompressFailure.Undecodable -> R.string.compress_error_decode
+            CompressFailure.HdrOnOldAndroid -> R.string.compress_error_hdr
+            CompressFailure.NotEnoughSpace -> R.string.compress_error_space
+            CompressFailure.DurationMismatch -> R.string.compress_error_duration
+            CompressFailure.AlreadySmall -> R.string.compress_error_small
+            CompressFailure.Cancelled, CompressFailure.Failed -> R.string.compress_error_failed
+        },
+    )
 
     private fun undoTitle(type: PhotoActionType) = when (type) {
         PhotoActionType.Favorite -> UiText.Res(R.string.undo_favorited)

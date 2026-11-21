@@ -7,6 +7,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### 新增
+
+- 安卓和 iOS：清理页可以把一条普通视频压成 1080p。文件信息旁边有「压缩」；确认后才开始，确认钮用相纸白。原片移入垃圾桶，清空后才空出空间。进行中锁住这一页的上下滑和左右换页。安卓离开页面后通知里仍有进度和取消；iOS 没有这则通知。
+
+---
+
+### Added
+
+- Android and iOS: the review page can compress one ordinary video to 1080p. Compress sits beside the file info and starts only after confirmation. The confirm button is paper white. The original moves to the trash, and space is freed only after the trash is emptied. While it runs, that page cannot swipe up, down, left, or right. Android keeps progress and cancel in a notification after leaving the page; iOS has no notification.
+
 ## [1.7.11] - 2026-11-15
 
 ### Changed

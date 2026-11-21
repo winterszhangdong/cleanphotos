@@ -43,6 +43,10 @@ import com.winters.cleanphotos.fake.FakeReviewRepository
 import com.winters.cleanphotos.fake.FakeSeenStateRepository
 import com.winters.cleanphotos.core.coroutines.UptimeClock
 import com.winters.cleanphotos.fake.FakeUserPreferencesRepository
+import com.winters.cleanphotos.feature.compress.VideoCompressController
+import com.winters.cleanphotos.feature.compress.VideoCompressState
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import androidx.lifecycle.ViewModelStore
 import io.mockk.every
 import io.mockk.mockk
@@ -181,6 +185,7 @@ class ReviewViewModelTest {
             observeLibraryDayStateUseCase = ObserveLibraryDayStateUseCase(photoRepository, seen),
             locateMotionPhotoVideoUseCase = LocateMotionPhotoVideoUseCase(motionPhotos),
             operationQueue = ReviewOperationQueue(CoroutineScope(SupervisorJob() + testDispatcher)),
+            videoCompressController = IdleVideoCompressController(),
             uptimeClock = UptimeClock { now },
             computeDispatcher = compute,
             savedStateHandle = savedState,
@@ -802,4 +807,10 @@ private class HoldDispatcher(private val delegate: CoroutineDispatcher) : Corout
         }
         blocks.forEach { delegate.dispatch(EmptyCoroutineContext, it) }
     }
+}
+
+private class IdleVideoCompressController : VideoCompressController {
+    override val state: StateFlow<VideoCompressState> = MutableStateFlow(VideoCompressState())
+    override fun start(photo: PhotoItem) = Unit
+    override fun cancel() = Unit
 }

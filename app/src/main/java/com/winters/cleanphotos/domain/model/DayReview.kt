@@ -49,6 +49,18 @@ data class ReviewLedger(
 
     fun markSummarized(dayKey: String): ReviewLedger = copy(summarizedDays = summarizedDays + dayKey)
 
+    /** 压缩成功：原位换成新视频。新 id 算看过，原 id 的处理记录去掉。 */
+    fun replacePhoto(oldId: Long, newPhoto: PhotoItem): ReviewLedger {
+        val at = indexOrNull(oldId) ?: return this
+        val updated = orderedPhotos.toMutableList()
+        updated[at] = newPhoto
+        return copy(
+            orderedPhotos = updated,
+            viewedIds = viewedIds - oldId + newPhoto.id,
+            outcomes = outcomes - oldId,
+        )
+    }
+
     /** 看过或处理过。 */
     fun isTouched(photoId: Long): Boolean = photoId in viewedIds || photoId in outcomes
 }

@@ -11,7 +11,9 @@ import com.winters.cleanphotos.domain.repository.PhotoRepository
 import com.winters.cleanphotos.domain.repository.ReviewRepository
 import com.winters.cleanphotos.domain.repository.SimilarPhotoRepository
 import com.winters.cleanphotos.domain.repository.SimilarResolvedRepository
+import com.winters.cleanphotos.data.repository.VideoTranscoderImpl
 import com.winters.cleanphotos.domain.repository.UserPreferencesRepository
+import com.winters.cleanphotos.domain.repository.VideoTranscoder
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -75,4 +77,8 @@ abstract class RepositoryModule {
     abstract fun bindAlbumRepository(
         impl: com.winters.cleanphotos.data.repository.AlbumRepositoryImpl
     ): com.winters.cleanphotos.domain.repository.AlbumRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindVideoTranscoder(impl: VideoTranscoderImpl): VideoTranscoder
 }

@@ -295,4 +295,16 @@
     <plurals name="tray_more">
         <item quantity="other">还有 %1$d 个</item>
     </plurals>
+    <string name="compress_action">压缩</string>
+    <string name="compress_confirm_title">压成 1080p？</string>
+    <string name="compress_confirm_body">原片会移到垃圾桶，清空后才会空出空间。</string>
+    <string name="compress_notif_title">正在压缩视频</string>
+    <string name="compress_channel">视频压缩</string>
+    <string name="compress_progress">%1$d%%</string>
+    <string name="compress_error_decode">这部手机解不了这种视频</string>
+    <string name="compress_error_hdr">Android 8 / 9 上的 HDR：这种色彩在这个系统上压出会偏色，已停止</string>
+    <string name="compress_error_space">空间不够</string>
+    <string name="compress_error_duration">压完时长和原来对不上，已停止</string>
+    <string name="compress_error_small">已经够小</string>
+    <string name="compress_error_failed">没压成</string>
 </resources>

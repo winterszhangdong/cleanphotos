@@ -52,5 +52,7 @@ fun ReviewRoute(
         onNavigateBack = onNavigateBack,
         onDismissTutorial = viewModel::dismissTutorial,
         onPlaybackMuted = viewModel::onPlaybackMuted,
+        onCompress = viewModel::requestCompress,
+        onCancelCompress = viewModel::cancelCompress,
     )
 }
