@@ -61,6 +61,7 @@ struct ReviewView: View {
     @GestureState private var dragLive = false
     @GestureState private var pinchLive = false
     @StateObject private var playback = PlaybackEngine()
+    @StateObject private var compress = VideoCompressController()
     /// 这次进入清理页记住的静音。默认静音，不写盘。实况照片不改这个开关。
     @State private var playbackMuted = true
     @State private var transportShown = false
@@ -111,9 +112,12 @@ struct ReviewView: View {
                         locale: language.effectiveLocale,
                         onUp: { a11ySwipe(up: true, size: size, insets: insets) },
                         onDown: { a11ySwipe(up: false, size: size, insets: insets) },
-                        onNext: { if page(at: session.index + 1) != nil { advance(-1, size: size) } },
-                        onPrevious: { if page(at: session.index - 1) != nil { advance(1, size: size) } }))
+                        onNext: { if !compress.isRunning, page(at: session.index + 1) != nil { advance(-1, size: size) } },
+                        onPrevious: { if !compress.isRunning, page(at: session.index - 1) != nil { advance(1, size: size) } }))
                     chrome(size: size, insets: insets)
+                    if compress.isConfirming {
+                        compressDialog(zh: language.isChineseUI, size: size, insets: insets)
+                    }
                     TimelineView(.animation(paused: releaseCue == nil)) { tl in
                         cueLayer(size: size, insets: insets, now: tl.date)
                     }
@@ -143,12 +147,14 @@ struct ReviewView: View {
             }
             .onDisappear {
                 detailsTask?.cancel()
+                compress.cancel()
                 playbackHoldToken += 1
                 playback.release()
                 FrameMonitor.shared.stop("review")
                 library.endReview()
             }
             .onChange(of: session.index) { _, _ in
+                compress.dismissFailure()
                 transportShown = false
                 if playbackSettled { loadCurrentPlayback() }
                 prepareSoon(size: size, insets: insets); markSeenCurrent(); resetZoom()
@@ -597,6 +603,7 @@ struct ReviewView: View {
         let photo: PhotoItem; let cells: [DayCellState]; let tutorial: Bool; let undoNil: Bool; let details: Bool
         let showCenter: Bool; let showPause: Bool; let showProgress: Bool; let motion: Bool; let muted: Bool
         let fileDuration: Bool
+        let compress: VideoCompressController.Phase
         let size: CGSize; let insets: EdgeInsets; let locale: String
     }
 
@@ -605,16 +612,18 @@ struct ReviewView: View {
         if let photo = session.currentPhoto {
             let cells = session.cells(for: photo)
             let decision = playbackChrome(for: photo)
-            let details = effectiveDetails(decision, photo: photo)
-            let showProgress = decision.showProgress && library.undoBanner == nil && !tutorialVisible
-            let motion = isCurrentMotion(photo) && details && !tutorialVisible
+            let details = effectiveDetails(decision, photo: photo) || compress.keepsDetails
+            let showCenter = decision.showCenter && !tutorialVisible && !compress.keepsDetails
+            let showProgress = decision.showProgress && library.undoBanner == nil && !tutorialVisible && !compress.keepsDetails
+            let motion = isCurrentMotion(photo) && details && !tutorialVisible && !compress.keepsDetails
             EquatableBox(key: ChromeKey(photo: photo, cells: cells, tutorial: tutorialVisible, undoNil: library.undoBanner == nil,
-                                        details: details, showCenter: decision.showCenter && !tutorialVisible,
+                                        details: details, showCenter: showCenter,
                                         showPause: decision.showPauseIcon, showProgress: showProgress, motion: motion,
-                                        muted: playbackMuted, fileDuration: photo.isVideo && details && !showProgress,
+                                        muted: playbackMuted, fileDuration: photo.isVideo && details && !showProgress && !compress.keepsDetails,
+                                        compress: compress.phase,
                                         size: size, insets: insets, locale: language.effectiveLocale.identifier)) {
                 chromeBody(photo, cells: cells, size: size, insets: insets, details: details,
-                           showCenter: decision.showCenter && !tutorialVisible, showPause: decision.showPauseIcon,
+                           showCenter: showCenter, showPause: decision.showPauseIcon,
                            showProgress: showProgress, motion: motion)
             }
             .equatable()
@@ -671,12 +680,15 @@ struct ReviewView: View {
                         .padding(.bottom, details ? DarkroomDimens.playbackGap : bottom)
                     }
                     if details && library.undoBanner == nil {
-                        ReviewMetaRow(photo: photo, duration: fileDuration)
-                            .padding(.leading, land ? 48 + insets.leading : 16)
-                            .padding(.trailing, land ? 16 + insets.trailing : 16)
-                            .padding(.bottom, bottom)
-                            .allowsHitTesting(false)
-                            .transition(.opacity)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ReviewMetaRow(photo: photo, duration: fileDuration)
+                                .allowsHitTesting(false)
+                            compressControls(photo, zh: zh)
+                        }
+                        .padding(.leading, land ? 48 + insets.leading : 16)
+                        .padding(.trailing, land ? 16 + insets.trailing : 16)
+                        .padding(.bottom, bottom)
+                        .transition(.opacity)
                     }
                 }
                 PlaybackCenterButton(
@@ -690,8 +702,117 @@ struct ReviewView: View {
             }
     }
 
+    @ViewBuilder
+    private func compressControls(_ photo: PhotoItem, zh: Bool) -> some View {
+        let live = photo.asset.mediaSubtypes.contains(.photoLive)
+        let offer = VideoCompressPlan.offersEntry(isVideo: photo.isVideo, isLivePhoto: live, isTrashed: photo.isTrashed)
+        if offer || compress.isRunning {
+            HStack(spacing: 16) {
+                Button {
+                    guard !compress.isRunning else { return }
+                    compress.ask()
+                } label: {
+                    Text(compress.buttonTitle(zh: zh))
+                        .font(DarkroomFonts.plexMono(size: 10.5))
+                        .foregroundStyle(DarkroomColors.paper.opacity(0.88))
+                        .frame(minHeight: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("review-compress")
+                if compress.isRunning {
+                    Button {
+                        compress.cancel()
+                        loadCurrentPlayback()
+                    } label: {
+                        Text(CompressCopy.cancel(zh: zh))
+                            .font(DarkroomFonts.plexMono(size: 10.5))
+                            .foregroundStyle(DarkroomColors.paper.opacity(0.62))
+                            .frame(minHeight: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("review-compress-cancel")
+                }
+            }
+            if let message = compress.failureMessage(zh: zh) {
+                Text(message)
+                    .font(DarkroomFonts.plexMono(size: 10.5))
+                    .foregroundStyle(DarkroomColors.fadeText)
+                    .accessibilityIdentifier("review-compress-error")
+            }
+        }
+    }
+
+    private func compressDialog(zh: Bool, size: CGSize, insets: EdgeInsets) -> some View {
+        ZStack {
+            DarkroomColors.dialogScrim.ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { compress.dismissConfirm() }
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(CompressCopy.title(zh: zh))
+                    .font(Font.custom("NotoSansSC-SemiBold", size: 17))
+                    .foregroundStyle(DarkroomColors.paper)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(CompressCopy.body(zh: zh))
+                    .font(Font.custom("NotoSansSC-Regular", size: 13))
+                    .foregroundStyle(DarkroomColors.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button { compress.dismissConfirm() } label: {
+                        Text(CompressCopy.cancel(zh: zh))
+                            .font(Font.custom("NotoSansSC-SemiBold", size: 14))
+                            .foregroundStyle(DarkroomColors.paper)
+                            .padding(.horizontal, 20).frame(height: 40)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("review-compress-dismiss")
+                    Button {
+                        guard let photo = session.currentPhoto else { return }
+                        compress.dismissConfirm()
+                        playback.clear()
+                        showDetails = true
+                        let original = photo
+                        compress.start(photo: photo, library: library) { item in
+                            if let item {
+                                if library.undoBanner?.sampleId == original.id {
+                                    decorateUndo(for: original, trash: true)
+                                }
+                                session.replaceCurrent(with: item)
+                                prepare(size: size, insets: insets)
+                                loadCurrentPlayback()
+                            } else if !compress.keepsDetails {
+                                loadCurrentPlayback()
+                            } else {
+                                showDetails = true
+                            }
+                        }
+                    } label: {
+                        Text(CompressCopy.confirm(zh: zh))
+                            .font(Font.custom("NotoSansSC-SemiBold", size: 14))
+                            .foregroundStyle(DarkroomColors.room)
+                            .padding(.horizontal, 20).frame(height: 40)
+                            .background(DarkroomColors.paper, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("review-compress-confirm")
+                }
+                .padding(.top, 24)
+            }
+            .padding(24)
+            .background(DarkroomColors.tray, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(DarkroomColors.rim, lineWidth: 1))
+            .shadow(color: DarkroomColors.dialogShadow, radius: 24, y: 24)
+            .padding(.horizontal, 24)
+        }
+    }
+
     /// 关闭清理页：有共享元素宿主时交给它收回到网格瓦片（控件先 100ms 淡出），否则普通 dismiss。
     private func close() {
+        compress.cancel()
         library.flushDeferredSeen()
         guard let handler = reviewClose.handler else { dismiss(); return }
         navChrome = NavChromeFade.State(start: Date(), entering: false)
@@ -844,6 +965,7 @@ struct ReviewView: View {
     private func dragGesture(size: CGSize, insets: EdgeInsets) -> some Gesture {
         DragGesture(minimumDistance: ReviewTokens.touchSlop, coordinateSpace: .global)
             .onChanged { v in
+                if compress.isRunning { return }
                 let t = v.translation
                 if pinched { return } // 这次触摸里捏合过：单指位移交给缩放
                 if axis == nil, zoom > 1.01 {
@@ -861,6 +983,7 @@ struct ReviewView: View {
                 update(t, size: size)
             }
             .onEnded { v in
+                if compress.isRunning { return }
                 // 方向已经定过时，最后一段只出现在 onEnded 的 translation 里，也要并进 dx/dy 再判定。
                 switch ReviewGestureEnd.finish(pinched: pinched, axis: endAxis, translation: v.translation, panBase: panBase) {
                 case .pinch(let clearPan):
@@ -1061,6 +1184,7 @@ struct ReviewView: View {
     /// 翻页：同一个动画事务里改 index 和 dx，按 page id 绑定的三页各自从原位置弹到新位置。
     /// direction: -1 = 下一张，+1 = 上一张。
     private func advance(_ direction: Int, size: CGSize, velocity: CGFloat = 0) {
+        guard !compress.isRunning else { return }
         // 只有用户翻页才关教学（Android：页面 settle 到别的页）；重建页序导致的 index 变化不算
         if playbackPinnedId == nil, session.currentPhoto != nil { pinPlayback() }
         cancelDetailsToggle()
@@ -1100,7 +1224,7 @@ struct ReviewView: View {
 
     /// 读屏自定义操作：和过阈值松手走同一条路径（离场 + 撤回条）。
     private func a11ySwipe(up: Bool, size: CGSize, insets: EdgeInsets) {
-        guard !session.isOnSummary, let photo = session.currentPhoto else { return }
+        guard !compress.isRunning, !session.isOnSummary, let photo = session.currentPhoto else { return }
         hideDetails()
         trigger(photo, up: up, vy: up ? -1500 : 1500, size: size, insets: insets)
     }
@@ -1113,6 +1237,7 @@ struct ReviewView: View {
     }
 
     private func trigger(_ photo: PhotoItem, up: Bool, vy: CGFloat, size: CGSize, insets: EdgeInsets) {
+        guard !compress.isRunning else { return }
         let now = Date()
         let kind: ExitKind = up ? .up : .down
         let e = (entry?.pageId == ReviewPage.photo(photo).id) ? entry : nil
@@ -1205,7 +1330,7 @@ struct ReviewView: View {
     private func pinchGesture(size: CGSize, insets: EdgeInsets) -> some Gesture {
         MagnifyGesture(minimumScaleDelta: 0.01)
             .onChanged { v in
-                guard session.currentPhoto != nil, !session.isOnSummary else { return }
+                guard !compress.isRunning, session.currentPhoto != nil, !session.isOnSummary else { return }
                 if pinchBase == nil {
                     pinched = true
                     cancelDetailsToggle()
@@ -1246,7 +1371,7 @@ struct ReviewView: View {
     }
 
     private func doubleTap(at loc: CGPoint, size: CGSize, insets: EdgeInsets) {
-        guard session.currentPhoto != nil, !tutorialVisible else { return }
+        guard !compress.isRunning, session.currentPhoto != nil, !tutorialVisible else { return }
         let target: CGFloat = zoom > 1.01 ? 1 : GestureTokensIOS.doubleTapScale
         let off: CGSize = target == 1 ? .zero : clampZoomOffset(
             CGSize(width: (loc.x - size.width / 2) * (1 - target), height: (loc.y - size.height / 2) * (1 - target)), target, size: size, insets: insets)
@@ -1279,6 +1404,11 @@ struct ReviewView: View {
     /// 系统会把单击立刻交上来。等 280ms，双击放大或拖动开始就取消，避免详情闪一下。
     private func scheduleDetailsToggle() {
         detailsTask?.cancel()
+        guard !compress.isRunning else { return }
+        if case .failed = compress.phase {
+            compress.dismissFailure()
+            loadCurrentPlayback()
+        }
         guard Date() >= suppressDetailsUntil else { return }
         guard tutorialVisible == false, session.currentPhoto != nil else { return }
         detailsTask = Task { @MainActor in

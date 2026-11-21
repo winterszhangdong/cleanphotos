@@ -50,7 +50,7 @@ final class ReviewSessionModel: ObservableObject {
 
     let scope: ReviewScope
     private var core: ReviewSessionCore
-    private let photosById: [String: PhotoItem]
+    private var photosById: [String: PhotoItem]
     private weak var library: PhotoLibraryService?
 
     init(scope: ReviewScope, items: [PhotoItem], startIndex: Int, library: PhotoLibraryService? = nil) {
@@ -124,6 +124,14 @@ final class ReviewSessionModel: ObservableObject {
 
     func reinsert(_ photo: PhotoItem) {
         core.undo(photo.id)
+        publish()
+    }
+
+    /// 压缩成功：当前页换成成品，不前进到下一张。
+    func replaceCurrent(with photo: PhotoItem) {
+        guard let current = currentPhoto, current.id != photo.id else { return }
+        photosById[photo.id] = photo
+        core.replace(current.id, with: LedgerPhoto(id: photo.id, day: Self.dayKey(photo.creationDate), size: 0))
         publish()
     }
 

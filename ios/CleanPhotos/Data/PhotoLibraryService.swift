@@ -59,6 +59,34 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         // 全库字典：照片 / 收藏 / 垃圾桶三个入口都找得到（之前只查照片网格和垃圾桶，收藏页打开时没有共享元素飞入）
         allById[id] ?? trashItems.first { $0.id == id }
     }
+
+    /// 压缩成品在下次整库重读之前先放进内存列表。清理页开着时不重算网格。
+    func insertCreated(_ asset: PHAsset) -> PhotoItem {
+        let video = asset.mediaType == .video
+        let item = PhotoItem(
+            id: asset.localIdentifier,
+            asset: asset,
+            creationDate: asset.creationDate ?? .distantPast,
+            isUnseen: !seen.seenIds.contains(asset.localIdentifier),
+            isFavorite: favorites.contains(asset.localIdentifier),
+            isTrashed: trash.contains(asset.localIdentifier),
+            isVideo: video,
+            duration: video ? asset.duration : 0,
+            systemScreenshot: asset.mediaSubtypes.contains(.photoScreenshot)
+        )
+        allById[item.id] = item
+        if !fetchOrdered.isEmpty {
+            fetchOrdered.removeAll { $0.id == item.id }
+            let index = fetchOrdered.firstIndex { $0.creationDate < item.creationDate } ?? fetchOrdered.count
+            fetchOrdered.insert(item, at: index)
+        }
+        if reviewActive {
+            seenDirty = true
+        } else {
+            rebuildDerived()
+        }
+        return item
+    }
     private var undoTask: Task<Void, Never>?
     /// 最近一次可撤回的「取消收藏」的原条目（撤回时按原收藏时间放回）。
     private var unfavoriteBackup: [FavoriteEntry] = []
