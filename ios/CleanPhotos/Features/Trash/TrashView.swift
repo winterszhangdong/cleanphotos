@@ -659,7 +659,7 @@ struct TrashPreview: View {
     private var topBar: some View {
         ZStack {
             HStack {
-                GlassCircleButton(systemName: "chevron.left", action: onClose)
+                GlassCircleButton(icon: .back, action: onClose)
                     .accessibilityLabel(Text(L10n.string("cd_back", locale: loc)))
                     .accessibilityIdentifier("trash-preview-back")
                 Spacer()

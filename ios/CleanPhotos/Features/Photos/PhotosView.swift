@@ -139,12 +139,23 @@ struct PhotosView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessMenu)) { note in
             switch note.object as? String {
+            case "language":
+                guard AuditHooks.enabled else { return }
+                exitSelection()
+                withAnimation(DarkroomMotion.menuIn) {
+                    menuOpen = false
+                    showLanguageSheet = true
+                }
+                overlay.setCollapse(0, animated: false)
             case "sort", "filter", "more":
                 withAnimation(DarkroomMotion.menuIn) { menuOpen = true }
                 overlay.setCollapse(0, animated: false)
             default:
                 exitSelection()
-                withAnimation(DarkroomMotion.menuIn) { menuOpen = false }
+                withAnimation(DarkroomMotion.menuIn) {
+                    menuOpen = false
+                    showLanguageSheet = false
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessScope)) { note in
@@ -402,15 +413,15 @@ struct PhotosView: View {
         let page = pageData(scope)
         let items: [PhotoItem]
         if scope == .largeFiles || (scope == .all && viewMode == .immersive) {
-            items = Array(page.flat.prefix(24))
+            items = Array(page.flat.prefix(32))
         } else {
-            items = Array(page.groups.flatMap { $0.days.flatMap(\.items) }.prefix(24))
+            items = Array(page.groups.flatMap { $0.days.flatMap(\.items) }.prefix(32))
         }
         guard !items.isEmpty else { return }
         let ids = Set(items.map(\.id))
+        for id in ids { GridDevelopSession.seed(grid: .photos, id: id) }
         initialIDs = ids
         didSeedDevelop = true
-        for id in ids { _ = GridDevelopSession.shouldDevelop(grid: .photos, id: id, isInitialPass: true) }
     }
 
     // MARK: Scrubber
@@ -649,15 +660,14 @@ struct PhotosView: View {
                     withAnimation(DarkroomMotion.menuIn) { showLanguageSheet = false }
                 }
                 .zIndex(5)
-            VStack {
-                Spacer()
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
                 LanguageSheetView(selection: language.preference) { pref in
                     if pref != language.preference { language.select(pref) }
                     withAnimation(DarkroomMotion.menuIn) { showLanguageSheet = false }
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 48)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .zIndex(6)
         }
@@ -787,8 +797,7 @@ struct PhotosView: View {
                 exitSelection()
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 16, weight: .medium))
+                    DarkroomIconView(icon: .starSolid, size: 16)
                         .foregroundStyle(DarkroomColors.amber)
                     Text(L10n.string("action_favorite", locale: locale))
                 }
@@ -803,8 +812,7 @@ struct PhotosView: View {
                 exitSelection()
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 16, weight: .regular))
+                    DarkroomIconView(icon: .trash, size: 16)
                     Text(L10n.string("action_move_to_trash", locale: locale))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
@@ -894,7 +902,7 @@ private struct SimilarKeptUndoOverlay: View {
                 Spacer()
                 KeptUndoCapsule(undo: undo, zh: chinese) { similarSession.undoKept() }
                     .padding(.horizontal, 16)
-                    .padding(.bottom, DarkroomDimens.navBottom + DarkroomDimens.navHeight + 8)
+                    .padding(.bottom, DarkroomDimens.navBottom + DarkroomDimens.navHeight + 16)
                     .task(id: undo.id) {
                         try? await Task.sleep(nanoseconds: UInt64(UndoBanner.lifetime * 1_000_000_000))
                         similarSession.expireKept(undo.id)

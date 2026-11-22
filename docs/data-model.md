@@ -270,7 +270,7 @@ OnThisDay：规则见 OnThisDayRules
 ```text
 截图：relativePath 或 bucketName 含 "screenshot"、"截屏"、"截图"；字段为 null 不命中
 大文件：size ≥ 10 * 1024 * 1024 字节，图片和视频同一阈值；size 为 null 不算
-聊天软件存图：relativePath 含 "weixin"、"whatsapp"、"telegram"，或以 "Pictures/QQ/" 开头
+聊天软件存图：relativePath 含 "weixin"、"whatsapp"、"telegram"，或以 "Pictures/QQ/" 开头。iOS 没有 relativePath，`ScopeRules.chatNeedles` 为 weixin / wechat / 微信 / whatsapp / telegram / qq，只匹配用户相册标题，不扫描单张文件名
 ```
 
 「那年今天」在 `domain/model/OnThisDayRules.kt`（纯函数，今天和时区由调用方传入；生产路径用 `LocalDate.now()` 和 `ZoneId.systemDefault()`）：

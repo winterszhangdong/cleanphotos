@@ -257,9 +257,7 @@ struct DaySummaryView: View {
                         .frame(height: 16)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 20, height: 20)
+                DarkroomIconView(icon: .arrow, size: 20)
                     .foregroundStyle(DarkroomColors.room)
             }
             .padding(.leading, 8)

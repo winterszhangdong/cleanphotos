@@ -875,7 +875,7 @@ struct ReviewView: View {
     private func topBar(_ photo: PhotoItem, motion: Bool, showDate: Bool) -> some View {
         ZStack {
             HStack {
-                GlassCircleButton(systemName: "chevron.left") { close() }
+                GlassCircleButton(icon: .back) { close() }
                     .accessibilityLabel(Text(L10n.string("cd_back", locale: language.effectiveLocale)))
                     .accessibilityIdentifier("review-back")
                 Spacer()
@@ -1744,7 +1744,10 @@ struct ReviewCueView: View {
     private static let amberInk = Color(red: 0x2A/255, green: 0x1A/255, blue: 0x04/255)
     private static let paperWarm = Color(red: 0xEE/255, green: 0xEE/255, blue: 0xE2/255)
 
-    private var icon: String { up ? (unfavorite ? "star" : "star.fill") : "trash" }
+    private var icon: DarkroomIcon {
+        if !up { return .trash }
+        return unfavorite ? .star : .starSolid
+    }
 
     var body: some View {
         if !past {
@@ -1756,8 +1759,7 @@ struct ReviewCueView: View {
                     Circle().trim(from: 0, to: progress)
                         .stroke(ring, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Image(systemName: icon)
-                        .font(.system(size: 13, weight: .regular))
+                    DarkroomIconView(icon: icon, size: 16)
                         .foregroundStyle(text)
                 }
                 .frame(width: 32, height: 32)
@@ -1777,8 +1779,7 @@ struct ReviewCueView: View {
                         .fill(accent)
                         .frame(width: 56, height: 56)
                         .shadow(color: up ? DarkroomColors.amberGlow : .clear, radius: 16)
-                    Image(systemName: icon)
-                        .font(.system(size: 20, weight: .medium))
+                    DarkroomIconView(icon: icon, size: 24)
                         .foregroundStyle(up ? Self.amberInk : DarkroomColors.room)
                 }
                 .frame(width: 56, height: 56)

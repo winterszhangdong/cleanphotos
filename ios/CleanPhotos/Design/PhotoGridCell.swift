@@ -13,6 +13,7 @@ struct PhotoGridCellConfig {
     var circled: Bool = false
     var develop: Bool = false
     var developDelay: Double = 0
+    var developGrid: DevelopGrid? = nil
     var interactive: Bool = true
     var locale: Locale = .current
     var accessibilityId: String? = nil
@@ -32,7 +33,9 @@ final class PhotoGridCell: UICollectionViewCell {
     private var hasFinalImage = false
     private var token: ThumbnailToken?
     private var didRunDevelop = false
-    private var developAnimator: UIViewPropertyAnimator?
+    private var claimedGrid: DevelopGrid?
+    private var claimedId: String?
+    private let developOverlay = TileDevelopOverlay()
     private var selectAnimator: UIViewPropertyAnimator?
 
     private var a11yDate: Date = .distantPast
@@ -141,8 +144,8 @@ final class PhotoGridCell: UICollectionViewCell {
         super.prepareForReuse()
         token?.cancel()
         token = nil
-        developAnimator?.stopAnimation(true)
-        developAnimator = nil
+        abandonDevelopClaim()
+        developOverlay.reset()
         selectAnimator?.stopAnimation(true)
         selectAnimator = nil
         representedAssetId = nil
@@ -223,6 +226,7 @@ final class PhotoGridCell: UICollectionViewCell {
             circleRingView.frame = ringFrame
             circleRingView.layer.cornerRadius = ringFrame.width / 2
         }
+        developOverlay.layout(in: imageView.frame)
     }
 
     func configure(_ config: PhotoGridCellConfig, pipeline: ThumbnailPipeline, animated: Bool) {
@@ -272,6 +276,9 @@ final class PhotoGridCell: UICollectionViewCell {
         applySelection(selecting: config.selecting, picked: picked, animated: animated && !UIAccessibility.isReduceMotionEnabled)
 
         if sameAsset && sameSize && !styleChanged && (imageView.image != nil || token != nil) {
+            if imageView.image != nil {
+                maybeDevelop(config)
+            }
             return
         }
 
@@ -291,8 +298,9 @@ final class PhotoGridCell: UICollectionViewCell {
         }
 
         if !sameAsset {
-            developAnimator?.stopAnimation(true)
-            developAnimator = nil
+            abandonDevelopClaim()
+            developOverlay.reset()
+            didRunDevelop = false
             imageView.image = nil
             imageView.alpha = 1
         }
@@ -453,6 +461,7 @@ final class PhotoGridCell: UICollectionViewCell {
         } else {
             scrimImageView?.isHidden = true
         }
+        raiseDevelopChrome()
         setNeedsLayout()
     }
 
@@ -526,30 +535,51 @@ final class PhotoGridCell: UICollectionViewCell {
     }
 
     private func maybeDevelop(_ config: PhotoGridCellConfig) {
-        guard config.develop, !didRunDevelop, !config.selecting, !UIAccessibility.isReduceMotionEnabled else {
-            imageView.alpha = 1
+        guard let image = imageView.image else { return }
+        if developOverlay.isActive {
+            developOverlay.updateImage(image, assetId: config.item.id)
             return
         }
-        didRunDevelop = true
-        developAnimator?.stopAnimation(true)
-        imageView.alpha = 0.08
-        let anim = UIViewPropertyAnimator(
-            duration: DarkroomMotion.develop,
-            controlPoint1: CGPoint(x: 0.45, y: 0),
-            controlPoint2: CGPoint(x: 0.2, y: 1)
-        ) {
-            self.imageView.alpha = 1
+        if didRunDevelop { return }
+        guard config.develop,
+              let grid = config.developGrid,
+              !config.selecting,
+              !UIAccessibility.isReduceMotionEnabled,
+              GridDevelopSession.claim(grid: grid, id: config.item.id) else {
+            return
         }
-        developAnimator = anim
-        anim.startAnimation(afterDelay: max(0, config.developDelay))
+        claimedGrid = grid
+        claimedId = config.item.id
+        didRunDevelop = true
+        imageView.alpha = 1
+        developOverlay.start(
+            image: image,
+            assetId: config.item.id,
+            delay: max(0, config.developDelay),
+            in: tileContainer,
+            above: imageView,
+            bounds: imageView.bounds.width > 0 ? imageView.bounds : contentView.bounds
+        )
+        raiseDevelopChrome()
+    }
+
+    private func abandonDevelopClaim() {
+        if developOverlay.isActive, let grid = claimedGrid, let id = claimedId {
+            GridDevelopSession.release(grid: grid, id: id)
+        }
+        claimedGrid = nil
+        claimedId = nil
+    }
+
+    private func raiseDevelopChrome() {
+        if let scrimImageView { tileContainer.bringSubviewToFront(scrimImageView) }
+        if let bottomLeftLabel { tileContainer.bringSubviewToFront(bottomLeftLabel) }
+        if let bottomRightLabel { tileContainer.bringSubviewToFront(bottomRightLabel) }
     }
 }
 
 private final class SelectionBadgeView: UIView {
-    private static let checkImage = UIImage(
-        systemName: "checkmark",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .heavy)
-    )
+    private static let checkImage = DarkroomIcons.template(.checkBold, size: 14)
 
     private let checkImageView: UIImageView = {
         let iv = UIImageView(image: SelectionBadgeView.checkImage)

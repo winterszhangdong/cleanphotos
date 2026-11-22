@@ -97,7 +97,7 @@ struct DarkroomGlassCapsuleBackground: UIViewRepresentable {
 
 final class DarkroomGlassCapsuleView: UIView {
     private let blurView: UIVisualEffectView = {
-        let v = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        let v = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
         v.isUserInteractionEnabled = false
         v.clipsToBounds = true
         v.layer.cornerCurve = .continuous
@@ -144,6 +144,22 @@ final class DarkroomGlassCapsuleView: UIView {
             lastShadowBounds = b
             layer.shadowPath = UIBezierPath(roundedRect: b, cornerRadius: r).cgPath
         }
+    }
+}
+
+/// 暖暗房模糊：只用 `.dark`，去掉系统超薄材质自带的冷灰提亮。上面只叠一层暖色 tint。
+struct DarkroomBlurBackdrop: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        view.isUserInteractionEnabled = false
+        view.clipsToBounds = true
+        return view
+    }
+
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIVisualEffectView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
     }
 }
 

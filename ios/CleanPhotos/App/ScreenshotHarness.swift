@@ -35,10 +35,11 @@ enum ScreenshotHarness {
         if library.trashCount == 0, ids.count > 1 {
             _ = library.moveToTrash(ids: [ids[1]], showUndo: false)
         }
-        if let chatId = ids.dropFirst(2).first ?? ids.first {
+        if let markerId = ids.first {
             let albums = await AlbumLibrary.fetchUserAlbums()
-            if !albums.contains(where: { ScopeRules.isChatAlbumTitle($0.title) }) {
-                _ = try? await AlbumLibrary.create(title: "WeChat", assetIds: [chatId])
+            // 中文系统里微信默认相册标题是「微信」。截图库里没有这个标题时补一个。
+            if !albums.contains(where: { $0.title == "微信" }) {
+                _ = try? await AlbumLibrary.create(title: "微信", assetIds: [markerId])
                 var sawLoading = false
                 for _ in 0..<40 {
                     if library.isLoading { sawLoading = true }
@@ -62,6 +63,11 @@ enum ScreenshotHarness {
         NotificationCenter.default.post(name: .cleanphotosHarnessMenu, object: "filter")
         try? await Task.sleep(nanoseconds: 500_000_000)
         await waitForShot(named: "menu-filter")
+        NotificationCenter.default.post(name: .cleanphotosHarnessMenu, object: nil)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        NotificationCenter.default.post(name: .cleanphotosHarnessMenu, object: "language")
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        await waitForShot(named: "language")
         NotificationCenter.default.post(name: .cleanphotosHarnessMenu, object: nil)
         try? await Task.sleep(nanoseconds: 400_000_000)
 
@@ -112,7 +118,7 @@ enum ScreenshotHarness {
         let two = Array(library.visiblePhotos.prefix(2).map(\.id))
         if !two.isEmpty {
             _ = library.moveToTrash(ids: two)
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
             await waitForShot(named: "undo")
             library.undoLast()
             try? await Task.sleep(nanoseconds: 400_000_000)

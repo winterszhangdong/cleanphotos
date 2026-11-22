@@ -82,6 +82,7 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
         private var dayHeadersById: [String: PhotoDaySection] = [:]
         private var photosById: [String: PhotoItem] = [:]
         private var photoIndexInDay: [String: Int] = [:]
+        private var dayStartRow: [String: Int] = [:]
         private var filedByDayKey: [String: FiledDayRules.Day] = [:]
         private var filedTotal = 0
         private var didInitialOffset = false
@@ -204,9 +205,10 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
                         let width = cv.bounds.width
                         let side = self.tileSide(width: width)
                         let idx = self.photoIndexInDay[dayId + "\n" + photoId] ?? indexPath.item
+                        let startRow = self.dayStartRow[dayId] ?? 0
                         let develop = self.parent.initialIDs.contains(photoId)
-                            && GridDevelopSession.shouldDevelop(grid: .favorites, id: photoId, isInitialPass: false)
-                        let delay = GridDevelopSession.staggerDelay(row: idx / 4, col: idx % 4)
+                            && !GridDevelopSession.hasPlayed(.favorites)
+                        let delay = GridDevelopSession.staggerDelay(row: startRow + idx / 4, col: idx % 4)
                         cell.configure(self.photoConfig(item: item, dayId: dayId, index: idx, side: side, develop: develop, delay: delay, interactive: true),
                                        pipeline: self.parent.pipeline, animated: false)
                         cell.contentView.alpha = PhotoOpenTransition.shared.flyingId == photoId ? 0 : 1
@@ -270,10 +272,13 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
             dayHeadersById.removeAll(keepingCapacity: true)
             photosById.removeAll(keepingCapacity: true)
             photoIndexInDay.removeAll(keepingCapacity: true)
+            dayStartRow.removeAll(keepingCapacity: true)
             filedByDayKey.removeAll(keepingCapacity: true)
             sectionKinds.removeAll(keepingCapacity: true)
 
             var snapshot = NSDiffableDataSourceSnapshot<SectionKind, RowItem>()
+            var rowCursor = 0
+            let cols = 4
 
             for year in source.sections {
                 if year.year > 0 {
@@ -284,6 +289,7 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
                 }
                 for day in year.days {
                     dayHeadersById[day.id] = day
+                    dayStartRow[day.id] = rowCursor
                     let hSec = SectionKind.dayHeader(day.id)
                     sectionKinds.append(hSec)
                     snapshot.appendSections([hSec])
@@ -300,6 +306,7 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
                         rowItems.append(.photo(dayId: day.id, photoId: item.id))
                     }
                     snapshot.appendItems(rowItems, toSection: gSec)
+                    rowCursor += (day.items.count + cols - 1) / cols
                 }
             }
 
@@ -399,6 +406,7 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
                 circled: false,
                 develop: develop,
                 developDelay: delay,
+                developGrid: develop ? .favorites : nil,
                 interactive: interactive,
                 locale: parent.locale,
                 accessibilityId: interactive ? "tile-\(index)-\(dayId)" : nil
@@ -434,6 +442,10 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
             case .year, .filedHeader, .filedPhoto:
                 break
             }
+        }
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            GridDevelopSession.markPlayed(.favorites)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -521,10 +533,7 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
 final class FavoriteDayHeaderCell: UICollectionViewCell {
     static let reuseIdentifier = "FavoriteDayHeaderCell"
 
-    private static let pillIconImage = UIImage(
-        systemName: "film",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-    )
+    private static let pillIconImage = DarkroomIcons.filmMiniTemplate()
 
     private let dayNumLabel: UILabel = {
         let l = UILabel()
@@ -610,9 +619,8 @@ final class FavoriteDayHeaderCell: UICollectionViewCell {
         let availH = max(0, h - topPad - bottomPad)
         let cy = topPad + availH / 2
 
-        let iconSize = pillIcon.sizeThatFits(CGSize(width: 24, height: 24))
-        let iconW = ceil(iconSize.width)
-        let iconH = ceil(iconSize.height)
+        let iconW: CGFloat = 14
+        let iconH: CGFloat = 10
         let pillTextSize = pillLabel.sizeThatFits(CGSize(width: 140, height: 32))
         let pillTextW = ceil(pillTextSize.width)
         let pillTextH = ceil(pillTextSize.height)
@@ -696,8 +704,7 @@ final class FiledDayRowCell: UICollectionViewCell {
     }()
 
     private let chevronView: UIImageView = {
-        let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-        let iv = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: cfg))
+        let iv = UIImageView(image: DarkroomIcons.template(.chevron, size: 16))
         iv.tintColor = DarkroomUIColors.dim
         iv.contentMode = .center
         return iv

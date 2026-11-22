@@ -51,7 +51,7 @@ struct ContactSheetScreen: View {
 
     private var header: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            ToolIconButton(systemName: "chevron.left", action: onClose)
+            ToolIconButton(icon: .back, action: onClose)
                 .accessibilityLabel(L10n.string("cd_back", locale: locale))
                 .disabled(model.busy)
             VStack(alignment: .leading, spacing: 2) {
@@ -163,16 +163,16 @@ struct ContactSheetScreen: View {
                 .foregroundStyle(DarkroomColors.dim)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    trayChip(title: FilingCopy.newSleeve(locale), subtitle: nil, systemImage: "plus") {
+                    trayChip(title: FilingCopy.newSleeve(locale), subtitle: nil, icon: .plus) {
                         showNew = true
                     }
                     ForEach(model.tray, id: \.id) { album in
-                        trayChip(title: album.title.isEmpty ? "—" : album.title, subtitle: FilingCopy.albumCount(album.count, locale: locale), systemImage: nil) {
+                        trayChip(title: album.title.isEmpty ? "—" : album.title, subtitle: FilingCopy.albumCount(album.count, locale: locale), icon: nil) {
                             Task { await model.fileExisting(id: album.id, fromMore: false, locale: locale) }
                         }
                     }
                     if model.moreCount > 0 {
-                        trayChip(title: FilingCopy.more(model.moreCount, locale: locale), subtitle: nil, systemImage: nil) {
+                        trayChip(title: FilingCopy.more(model.moreCount, locale: locale), subtitle: nil, icon: nil) {
                             showSearch = true
                         }
                     }
@@ -193,12 +193,11 @@ struct ContactSheetScreen: View {
         .overlay(alignment: .top) { Rectangle().fill(DarkroomColors.rim).frame(height: 1) }
     }
 
-    private func trayChip(title: String, subtitle: String?, systemImage: String?, action: @escaping () -> Void) -> some View {
+    private func trayChip(title: String, subtitle: String?, icon: DarkroomIcon?, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 4) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .medium))
+                if let icon {
+                    DarkroomIconView(icon: icon, size: 16)
                         .foregroundStyle(DarkroomColors.paper)
                 }
                 Text(title)
@@ -379,110 +378,23 @@ private struct PeekOverlay: View {
     }
 }
 
-/// 印样表自己的 4 秒撤回条（样式对齐 UndoCapsule）。装袋是中性色；取消收藏沿用收藏的琥珀。
+/// 印样表自己的 4 秒撤回条。装袋描边中性，小样保留原色；取消收藏沿用琥珀。
 private struct FilingUndoBar: View {
     let banner: FilingUndoBanner
     let locale: Locale
     let onUndo: () -> Void
-    @EnvironmentObject private var library: PhotoLibraryService
-    @State private var thumb: UIImage?
-    @State private var thumbToken: ThumbnailToken?
-    @State private var countdown: CGFloat = 1
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(DarkroomColors.tray2)
-                if let thumb {
-                    Image(uiImage: thumb)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 40, height: 40)
-                        .saturation(banner.amber ? 1 : 0.4)
-                        .brightness(banner.amber ? 0 : -0.3)
-                }
-            }
-            .frame(width: 40, height: 40)
-            .clipShape(Circle())
-            .overlay(Circle().strokeBorder(banner.amber ? DarkroomColors.amber : DarkroomColors.paper.opacity(0.16), lineWidth: banner.amber ? 1.5 : 1))
-
-            Text(banner.title)
-                .font(Font.custom("NotoSansSC-Medium", size: 14))
-                .foregroundStyle(DarkroomColors.paper)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button(action: onUndo) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(L10n.string("undo_action", locale: locale))
-                        .font(Font.custom("NotoSansSC-SemiBold", size: 13))
-                }
-                .foregroundStyle(DarkroomColors.room)
-                .padding(.horizontal, 16)
-                .frame(height: 40)
-                .background(DarkroomColors.paper, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .frame(minHeight: 56)
-        .frame(maxWidth: .infinity)
-        .background {
-            Capsule().fill(UndoCapsule.glass).background(.ultraThinMaterial, in: Capsule())
-        }
-        .clipShape(Capsule())
-        .overlay(Capsule().strokeBorder(DarkroomColors.menuRim, lineWidth: 1))
-        .overlay(alignment: .bottom) {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(banner.amber ? DarkroomColors.amber.opacity(0.25) : DarkroomColors.paper.opacity(0.12))
-                    Rectangle()
-                        .fill(banner.amber ? DarkroomColors.amber : DarkroomColors.fade)
-                        .frame(width: geo.size.width)
-                        .scaleEffect(x: countdown, y: 1, anchor: .leading)
-                }
-            }
-            .frame(height: 2)
-            .padding(.horizontal, 28)
-            .padding(.bottom, 6)
-            .allowsHitTesting(false)
-        }
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 16)
-        .task(id: banner.sampleId) { loadThumb() }
-        .onAppear { startCountdown() }
-        .onChange(of: banner.id) { _, _ in startCountdown(); loadThumb() }
-        .onDisappear {
-            thumbToken?.cancel()
-            thumbToken = nil
-        }
-    }
-
-    private func startCountdown() {
-        let remaining = max(0, UndoBanner.lifetime - Date().timeIntervalSince(banner.shownAt))
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { countdown = CGFloat(remaining / UndoBanner.lifetime) }
-        guard remaining > 0 else { return }
-        DispatchQueue.main.async {
-            withAnimation(.linear(duration: remaining)) { countdown = 0 }
-        }
-    }
-
-    private func loadThumb() {
-        thumbToken?.cancel()
-        thumbToken = nil
-        guard let id = banner.sampleId, let asset = library.item(id: id)?.asset else {
-            thumb = nil
-            return
-        }
-        if let hit = library.thumbnails.cached(id: id, side: 40, style: .normal) {
-            thumb = hit
-            return
-        }
-        thumbToken = library.thumbnails.request(asset: asset, side: 40, style: .normal) { img, _ in
-            thumb = img
-        }
+        UndoCapsuleSurface(
+            countdownKey: banner.id,
+            sampleId: banner.sampleId,
+            title: banner.title,
+            subtitle: nil,
+            amber: banner.amber,
+            keepColor: true,
+            shownAt: banner.shownAt,
+            locale: locale,
+            onUndo: onUndo
+        )
     }
 }

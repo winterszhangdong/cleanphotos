@@ -50,8 +50,8 @@ enum DarkroomDimens {
     static let menuItemHeight: CGFloat = 44
     static let menuItemCorner: CGFloat = 12
 
-    static let langSheetCorner: CGFloat = 20
-    static let langItemHeight: CGFloat = 48
+    static let langSheetCorner: CGFloat = 24
+    static let langItemHeight: CGFloat = 56
 
     static let playbackCenter: CGFloat = 64
     static let playbackRowHeight: CGFloat = 48

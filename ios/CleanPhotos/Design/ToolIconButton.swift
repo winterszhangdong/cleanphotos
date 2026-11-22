@@ -3,7 +3,7 @@ import SwiftUI
 /// 36pt 圆形工具按钮：托盘色底 + 9% 细线，图标 18pt；菜单打开时反白。
 /// `pip`：筛选为「仅未看过」时右上角（内缩 7pt）6pt 相纸白小点。
 struct ToolIconButton: View {
-    var systemName: String
+    var icon: DarkroomIcon
     var inverted: Bool = false
     var pip: Bool = false
     var rotation: Angle = .zero
@@ -11,8 +11,7 @@ struct ToolIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 15, weight: .medium))
+            DarkroomIconView(icon: icon, size: DarkroomDimens.toolIcon)
                 .rotationEffect(rotation)
                 .foregroundStyle(inverted ? DarkroomColors.room : DarkroomColors.paper)
                 .frame(width: DarkroomDimens.toolButton, height: DarkroomDimens.toolButton)

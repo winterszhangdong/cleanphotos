@@ -109,15 +109,15 @@ struct ReviewTutorialOverlay: View {
 
     private func rows(_ t: Double) -> some View {
         VStack(spacing: 0) {
-            row(0, t, "arrow.up", DarkroomColors.amber, "tut_up", "tut_up_desc", last: false)
-            row(1, t, "arrow.down", DarkroomColors.paper, "tut_down", "tut_down_desc", last: false)
-            row(2, t, "arrow.left.and.right", DarkroomColors.paper, "tut_lr", "tut_lr_desc", last: true)
+            row(0, t, .up, DarkroomColors.amber, "tut_up", "tut_up_desc", last: false)
+            row(1, t, .down, DarkroomColors.paper, "tut_down", "tut_down_desc", last: false)
+            row(2, t, .leftRight, DarkroomColors.paper, "tut_lr", "tut_lr_desc", last: true)
         }
     }
 
-    private func row(_ i: Int, _ t: Double, _ icon: String, _ tint: Color, _ title: String, _ right: String, last: Bool) -> some View {
+    private func row(_ i: Int, _ t: Double, _ icon: DarkroomIcon, _ tint: Color, _ title: String, _ right: String, last: Bool) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint).frame(width: 24)
+            DarkroomIconView(icon: icon, size: 18).foregroundStyle(tint).frame(width: 24)
             Text(L10n.string(title, locale: locale)).font(Font.custom("NotoSansSC-Medium", size: 15)).foregroundStyle(DarkroomColors.paper)
             Spacer()
             Text(L10n.string(right, locale: locale)).font(Font.custom("NotoSansSC-Regular", size: 13)).foregroundStyle(DarkroomColors.dim)
@@ -178,8 +178,7 @@ struct ReviewTutorialOverlay: View {
             if amber && on > 0 { Circle().fill(DarkroomColors.amber.opacity(0.2 * on)).frame(width: 40, height: 40) }
             if on > 0 { Circle().fill(fill.opacity(on)) }
             if on < 1 { Circle().strokeBorder(DarkroomColors.paper.opacity(0.2 * (1 - on)), lineWidth: 1) }
-            Image(systemName: amber ? "star.fill" : "trash")
-                .font(.system(size: 13, weight: .medium))
+            DarkroomIconView(icon: amber ? .starSolid : .trash, size: 16)
                 .foregroundStyle(on > 0.5 ? DarkroomColors.room.opacity(on) : DarkroomColors.paper.opacity(0.5 * (1 - on) + 0.0))
         }
         .frame(width: 32, height: 32)

@@ -61,7 +61,10 @@ struct DarkroomMenuView: View {
         .background {
             RoundedRectangle(cornerRadius: DarkroomDimens.menuCorner, style: .continuous)
                 .fill(DarkroomColors.menuGlass)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DarkroomDimens.menuCorner, style: .continuous))
+                .background {
+                    DarkroomBlurBackdrop()
+                        .clipShape(RoundedRectangle(cornerRadius: DarkroomDimens.menuCorner, style: .continuous))
+                }
                 .overlay(
                     RoundedRectangle(cornerRadius: DarkroomDimens.menuCorner, style: .continuous)
                         .strokeBorder(DarkroomColors.menuRim, lineWidth: 1)

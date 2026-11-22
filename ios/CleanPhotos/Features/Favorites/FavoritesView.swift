@@ -183,12 +183,12 @@ struct FavoritesView: View {
             for d in y.days {
                 for i in d.items {
                     ids.insert(i.id); n += 1
-                    _ = GridDevelopSession.shouldDevelop(grid: .favorites, id: i.id, isInitialPass: true)
-                    if n >= 24 { break }
+                    GridDevelopSession.seed(grid: .favorites, id: i.id)
+                    if n >= 32 { break }
                 }
-                if n >= 24 { break }
+                if n >= 32 { break }
             }
-            if n >= 24 { break }
+            if n >= 32 { break }
         }
         if !ids.isEmpty { initialIDs = ids; didSeed = true }
     }

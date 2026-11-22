@@ -53,11 +53,11 @@ struct PhotoHeaderBar: View {
             .opacity(menuOpen ? 0.5 : 1)
 
             if selecting {
-                ToolIconButton(systemName: "xmark", action: onClose)
+                ToolIconButton(icon: .close, action: onClose)
                     .accessibilityLabel(Text(L10n.string("cd_exit_selection", locale: locale)))
                     .accessibilityIdentifier("select-exit")
             } else {
-                ToolIconButton(systemName: "ellipsis", inverted: menuOpen, pip: pip, action: onMore)
+                ToolIconButton(icon: .more, inverted: menuOpen, pip: pip, action: onMore)
                     .accessibilityLabel(Text(L10n.string("cd_more", locale: locale)))
             }
         }

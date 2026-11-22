@@ -10,8 +10,7 @@ struct SelectionCheck: View {
                 .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
             Circle()
                 .strokeBorder(DarkroomColors.room, lineWidth: 2)
-            Image(systemName: "checkmark")
-                .font(.system(size: 11, weight: .heavy))
+            DarkroomIconView(icon: .checkBold, size: 14)
                 .foregroundStyle(DarkroomColors.room)
         }
         .frame(width: 22, height: 22)

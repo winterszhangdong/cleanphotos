@@ -109,7 +109,7 @@ App 包含五个主要页面和若干状态页：
 *   「只看没看过」只显示未看过的照片。相似范围忽略它。
 *   「截图」：relativePath 或 bucketName 含 screenshot / 截屏 / 截图（不区分大小写）。
 *   「大文件」：size ≥ 10 MB（10 × 1024 × 1024 字节），图片和视频同一阈值；size 为 null 不算。
-*   「聊天」：relativePath 含 weixin / whatsapp / telegram，或以 Pictures/QQ/ 开头（不区分大小写）。
+*   「聊天」：relativePath 含 weixin / whatsapp / telegram，或以 Pictures/QQ/ 开头（不区分大小写）。iOS 没有 relativePath，只按用户相册标题匹配 weixin / wechat / 微信 / whatsapp / telegram / qq（不区分大小写），不扫描单张文件名。中文系统里微信默认相册标题是「微信」。
 *   「那年今天」：有效拍摄时间（dateTaken，≤0 视为没有）按系统时区换成本地日期，月、日都等于今天且年份早于今年。2 月 29 日的照片只在 2 月 29 日命中。图片和视频都算。今天只在照片列表或看过状态变化时重算，跨过午夜不会自动刷新。
 
 ***

@@ -10,48 +10,34 @@ struct SimilarSkeletonCard: View {
     var delay: Double
     var active: Bool = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var high = false
+    @State private var epoch = Date()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(DarkroomColors.skeletonHigh)
-                .frame(width: 120, height: 14)
-            HStack(spacing: 8) {
-                ForEach(0..<4, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(DarkroomColors.skeletonHigh)
-                        .frame(width: 72, height: 72)
+        TimelineView(.animation(paused: reduceMotion || !active)) { tl in
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(SkeletonBreath.color(delay: delay, now: tl.date, epoch: epoch))
+                    .frame(width: 120, height: 14)
+                HStack(spacing: 8) {
+                    ForEach(0..<4, id: \.self) { col in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(SkeletonBreath.color(delay: delay + Double(col + 1) * 0.2, now: tl.date, epoch: epoch))
+                            .frame(width: 72, height: 72)
+                    }
                 }
+                Capsule()
+                    .fill(SkeletonBreath.color(delay: delay, now: tl.date, epoch: epoch))
+                    .frame(height: 36)
             }
-            Capsule()
-                .fill(DarkroomColors.skeletonHigh)
-                .frame(height: 36)
-        }
-        .padding(16)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(DarkroomColors.tray)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(DarkroomColors.rim, lineWidth: 1)
-                )
-        }
-        .opacity(reduceMotion ? 1 : (high ? 1 : 0.55))
-        .onAppear { syncAnimation() }
-        .onChange(of: active) { _, _ in syncAnimation() }
-    }
-
-    private func syncAnimation() {
-        if active && !reduceMotion {
-            guard !high else { return }
-            withAnimation(.easeInOut(duration: 2.7).repeatForever(autoreverses: true).delay(delay)) {
-                high = true
+            .padding(16)
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(DarkroomColors.tray)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(DarkroomColors.rim, lineWidth: 1)
+                    )
             }
-        } else {
-            var tx = Transaction(animation: nil)
-            tx.disablesAnimations = true
-            withTransaction(tx) { high = false }
         }
     }
 }
@@ -61,100 +47,18 @@ struct KeptUndoCapsule: View {
     let undo: SimilarKeptUndo
     let zh: Bool
     let onUndo: () -> Void
-    @EnvironmentObject private var library: PhotoLibraryService
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var thumb: UIImage?
-    @State private var thumbToken: ThumbnailToken?
-    @State private var countdown: CGFloat = 1
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(DarkroomColors.tray2)
-                if let thumb {
-                    Image(uiImage: thumb)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 40, height: 40)
-                        .saturation(0.4)
-                        .brightness(-0.3)
-                }
-            }
-            .frame(width: 40, height: 40)
-            .clipShape(Circle())
-            .overlay(Circle().strokeBorder(DarkroomColors.paper.opacity(0.16), lineWidth: 1))
-
-            Text(SimilarCopy.kept(zh: zh))
-                .font(Font.custom("NotoSansSC-Medium", size: 14))
-                .foregroundStyle(DarkroomColors.paper)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button(action: onUndo) {
-                Text(L10n.string("undo_action", locale: zh ? Locale(identifier: "zh-Hans") : Locale(identifier: "en")))
-                    .font(Font.custom("NotoSansSC-SemiBold", size: 13))
-                    .foregroundStyle(DarkroomColors.room)
-                    .padding(.horizontal, 16)
-                    .frame(height: 40)
-                    .background(DarkroomColors.paper, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 56)
-        .overlay(alignment: .bottom) {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(DarkroomColors.paper.opacity(0.12))
-                    Rectangle()
-                        .fill(DarkroomColors.fade)
-                        .frame(width: geo.size.width)
-                        .scaleEffect(x: countdown, y: 1, anchor: .leading)
-                }
-            }
-            .frame(height: 2)
-            .padding(.horizontal, 28)
-            .allowsHitTesting(false)
-        }
-        .background {
-            Capsule()
-                .fill(Color(red: 26 / 255, green: 24 / 255, blue: 22 / 255).opacity(0.78))
-                .background(.ultraThinMaterial, in: Capsule())
-        }
-        .clipShape(Capsule())
-        .overlay(Capsule().strokeBorder(DarkroomColors.menuRim, lineWidth: 1))
-        .task(id: undo.sampleId) { loadThumb() }
-        .onAppear { startCountdown() }
-        .onDisappear {
-            thumbToken?.cancel()
-            thumbToken = nil
-        }
-    }
-
-    private func startCountdown() {
-        let remaining = max(0, UndoBanner.lifetime - Date().timeIntervalSince(undo.shownAt))
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { countdown = CGFloat(remaining / UndoBanner.lifetime) }
-        guard remaining > 0, !reduceMotion else { return }
-        DispatchQueue.main.async {
-            withAnimation(.linear(duration: remaining)) { countdown = 0 }
-        }
-    }
-
-    private func loadThumb() {
-        thumbToken?.cancel()
-        thumbToken = nil
-        let id = undo.sampleId
-        guard let asset = library.item(id: id)?.asset else {
-            thumb = nil
-            return
-        }
-        if let hit = library.thumbnails.cached(id: id, side: 40, style: .normal) {
-            thumb = hit
-            return
-        }
-        thumbToken = library.thumbnails.request(asset: asset, side: 40, style: .normal) { img, _ in
-            self.thumb = img
-        }
+        UndoCapsuleSurface(
+            countdownKey: undo.id,
+            sampleId: undo.sampleId,
+            title: SimilarCopy.kept(zh: zh),
+            subtitle: nil,
+            amber: false,
+            keepColor: false,
+            shownAt: undo.shownAt,
+            locale: zh ? Locale(identifier: "zh-Hans") : Locale(identifier: "en"),
+            onUndo: onUndo
+        )
     }
 }

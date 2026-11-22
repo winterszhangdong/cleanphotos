@@ -90,19 +90,18 @@ struct ReviewProgressBar: View {
 
 /// 40pt 玻璃圆钮（.rv-top 返回）：#141210 56% + 14% 描边 + 模糊。
 struct GlassCircleButton: View {
-    var systemName: String
+    var icon: DarkroomIcon
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 17, weight: .medium))
+            DarkroomIconView(icon: icon, size: 18)
                 .foregroundStyle(DarkroomColors.paper)
                 .frame(width: 40, height: 40)
                 .background {
                     Circle()
                         .fill(DarkroomColors.glass)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .background { DarkroomBlurBackdrop().clipShape(Circle()) }
                         .overlay(Circle().strokeBorder(DarkroomColors.glassRim, lineWidth: 1))
                 }
                 .contentShape(Circle())

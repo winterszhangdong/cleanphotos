@@ -97,8 +97,7 @@ struct AlbumSearchSheet: View {
                     .foregroundStyle(DarkroomColors.dim)
             }
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
+                DarkroomIconView(icon: .search, size: 16)
                     .foregroundStyle(DarkroomColors.dim)
                 TextField(FilingCopy.searchHint(locale), text: $query)
                     .textInputAutocapitalization(.never)

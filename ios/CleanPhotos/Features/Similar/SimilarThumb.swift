@@ -68,8 +68,7 @@ struct SimilarRemoveBadge: View {
             .fill(DarkroomColors.paper)
             .frame(width: 22, height: 22)
             .overlay {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                DarkroomIconView(icon: .trashMark, size: 14)
                     .foregroundStyle(DarkroomColors.room)
             }
             .accessibilityHidden(true)
@@ -92,7 +91,7 @@ struct SimilarCommitButton: View {
                 .background {
                     Capsule()
                         .fill(DarkroomColors.glass)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background { DarkroomBlurBackdrop().clipShape(Capsule()) }
                 }
                 .overlay(Capsule().strokeBorder(DarkroomColors.glassRim, lineWidth: 1))
                 .opacity(enabled ? 1 : 0.45)

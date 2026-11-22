@@ -1,19 +1,25 @@
 import SwiftUI
 
-/// 撤回胶囊（ui-design 4.1 / Android UndoCapsule.kt）：
-/// 56pt 玻璃胶囊 #1A1816 78%，左 40pt 圆形小样，主文案 14 500 + 可选副文案 11 dim，
-/// 右侧相纸白「撤回」40pt 胶囊（13 600 暗室色）；底部 2pt 4 秒倒计时细线（左右内缩 28pt）。
-/// 移到垃圾桶：小样去色压暗、描边 / 倒计时中性灰；收藏：琥珀。
-struct UndoCapsule: View {
-    let banner: UndoBanner
-    var locale: Locale
-    var onUndo: () -> Void
+/// 撤回胶囊的共同表面（ui-design 4.1 / Android UndoCapsule.kt）。
+/// 清理页、照片页批量、相似「已留下」、印样表装袋共用这一块。
+struct UndoCapsuleSurface: View {
+    let countdownKey: AnyHashable
+    let sampleId: String?
+    let title: String
+    let subtitle: String?
+    let amber: Bool
+    let keepColor: Bool
+    let shownAt: Date
+    let locale: Locale
+    let onUndo: () -> Void
+
     @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var thumb: UIImage?
     @State private var thumbToken: ThumbnailToken?
     @State private var countdown: CGFloat = 1
 
-    private var fav: Bool { banner.isAmber }
+    private var colored: Bool { amber || keepColor }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -22,9 +28,9 @@ struct UndoCapsule: View {
                 Text(title)
                     .font(Font.custom("NotoSansSC-Medium", size: 14))
                     .foregroundStyle(DarkroomColors.paper)
-                    .lineLimit(1)
-                if let sub = banner.subtitle {
-                    Text(sub)
+                    .lineLimit(2)
+                if let subtitle {
+                    Text(subtitle)
                         .font(Font.custom("NotoSansSC-Regular", size: 11))
                         .foregroundStyle(DarkroomColors.dim)
                         .lineLimit(1)
@@ -34,8 +40,7 @@ struct UndoCapsule: View {
 
             Button(action: onUndo) {
                 HStack(spacing: 4) {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 13, weight: .semibold))
+                    DarkroomIconView(icon: .undo, size: 16)
                     Text(L10n.string("undo_action", locale: locale))
                         .font(Font.custom("NotoSansSC-SemiBold", size: 13))
                 }
@@ -48,33 +53,30 @@ struct UndoCapsule: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 8)
-        .frame(height: 56)
+        .frame(minHeight: 56)
         .frame(maxWidth: .infinity)
         .overlay(alignment: .bottom) { timer }
         .clipShape(Capsule())
-        .background {
-            ZStack {
-                Capsule()
-                    .fill(Self.glass)
-                    .shadow(color: .black.opacity(0.5), radius: 20, y: 16)
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                Capsule()
-                    .fill(Self.glass)
-            }
-        }
+        .background { glass }
         .overlay(Capsule().strokeBorder(DarkroomColors.menuRim, lineWidth: 1))
         .environment(\.locale, locale)
-        .task(id: banner.sampleId) { loadThumb() }
+        .task(id: thumbKey) { loadThumb() }
         .onAppear { startCountdown() }
-        .onChange(of: banner.id) { _, _ in
-            startCountdown()
-            loadThumb()
-        }
+        .onChange(of: countdownKey) { _, _ in startCountdown() }
+        .onChange(of: shownAt) { _, _ in startCountdown() }
+        .onChange(of: reduceMotion) { _, _ in startCountdown() }
         .onDisappear {
             thumbToken?.cancel()
             thumbToken = nil
         }
+    }
+
+    /// 外层投影不裁切；模糊裁成胶囊；上面只叠一层 78% 暖玻璃。
+    private var glass: some View {
+        Capsule()
+            .fill(UndoCapsule.glass)
+            .background { DarkroomBlurBackdrop().clipShape(Capsule()) }
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 16)
     }
 
     private var thumbView: some View {
@@ -91,17 +93,19 @@ struct UndoCapsule: View {
         .frame(width: 40, height: 40)
         .clipShape(Circle())
         .overlay(
-            Circle().strokeBorder(fav ? DarkroomColors.amber : DarkroomColors.paper.opacity(0.16), lineWidth: fav ? 1.5 : 1)
+            Circle().strokeBorder(
+                amber ? DarkroomColors.amber : DarkroomColors.paper.opacity(0.16),
+                lineWidth: amber ? 1.5 : 1
+            )
         )
     }
 
     private var timer: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(fav ? DarkroomColors.amber.opacity(0.25) : DarkroomColors.paper.opacity(0.12))
-                // 倒计时用横向缩放（左端锚点）而不是改宽度：4 秒里每帧不用重新布局
+                Capsule().fill(amber ? DarkroomColors.amber.opacity(0.25) : DarkroomColors.paper.opacity(0.12))
                 Rectangle()
-                    .fill(fav ? DarkroomColors.amber : DarkroomColors.fade)
+                    .fill(amber ? DarkroomColors.amber : DarkroomColors.fade)
                     .frame(width: geo.size.width)
                     .scaleEffect(x: countdown, y: 1, anchor: .leading)
             }
@@ -111,16 +115,69 @@ struct UndoCapsule: View {
         .allowsHitTesting(false)
     }
 
-    /// 倒计时线按撤回条真实剩余时间走：清理页里拖动 / 停在小结页时胶囊暂时藏起，再露出时接着走，不会重新满格
-    /// （撤回条本身的 4 秒计时在 PhotoLibraryService，不因藏起而重置）。
+    /// 减弱动态效果时细线保持满格。否则按这次操作的剩余时间接着走，藏起再露出不重新满格。
     private func startCountdown() {
-        let remaining = max(0, UndoBanner.lifetime - Date().timeIntervalSince(banner.shownAt))
-        var t = Transaction(); t.disablesAnimations = true
-        withTransaction(t) { countdown = CGFloat(remaining / UndoBanner.lifetime) }
+        if reduceMotion {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { countdown = 1 }
+            return
+        }
+        let remaining = max(0, UndoBanner.lifetime - Date().timeIntervalSince(shownAt))
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { countdown = CGFloat(remaining / UndoBanner.lifetime) }
         guard remaining > 0 else { return }
         DispatchQueue.main.async {
             withAnimation(.linear(duration: remaining)) { countdown = 0 }
         }
+    }
+
+    private var thumbKey: String {
+        "\(sampleId ?? "")-\(colored)"
+    }
+
+    private func loadThumb() {
+        thumbToken?.cancel()
+        thumbToken = nil
+        guard let id = sampleId, let asset = library.item(id: id)?.asset else {
+            thumb = nil
+            return
+        }
+        let style: ThumbnailStyle = colored ? .normal : .trashed
+        if let hit = library.thumbnails.cached(id: id, side: 40, style: style) {
+            thumb = hit
+            return
+        }
+        thumbToken = library.thumbnails.request(asset: asset, side: 40, style: style) { img, _ in
+            self.thumb = img
+        }
+    }
+}
+
+/// 撤回胶囊（ui-design 4.1 / Android UndoCapsule.kt）：
+/// 56pt 玻璃胶囊 #1A1816 78%，左 40pt 圆形小样，主文案 14 500 + 可选副文案 11 dim，
+/// 右侧相纸白「撤回」40pt 胶囊（13 600 暗室色）；底部 2pt 4 秒倒计时细线（左右内缩 28pt）。
+/// 移到垃圾桶：小样去色压暗、描边 / 倒计时中性灰；收藏：琥珀。
+struct UndoCapsule: View {
+    let banner: UndoBanner
+    var locale: Locale
+    var onUndo: () -> Void
+
+    private var fav: Bool { banner.isAmber }
+
+    var body: some View {
+        UndoCapsuleSurface(
+            countdownKey: banner.id,
+            sampleId: banner.sampleId,
+            title: title,
+            subtitle: banner.subtitle,
+            amber: fav,
+            keepColor: fav,
+            shownAt: banner.shownAt,
+            locale: locale,
+            onUndo: onUndo
+        )
     }
 
     private var title: String {
@@ -141,23 +198,6 @@ struct UndoCapsule: View {
             }
         }()
         return L10n.plural(key, count: n, locale: locale)
-    }
-
-    private func loadThumb() {
-        thumbToken?.cancel()
-        thumbToken = nil
-        guard let id = banner.sampleId, let asset = library.allById[id]?.asset else {
-            thumb = nil
-            return
-        }
-        let style: ThumbnailStyle = fav ? .normal : .trashed
-        if let hit = library.thumbnails.cached(id: id, side: 40, style: style) {
-            thumb = hit
-            return
-        }
-        thumbToken = library.thumbnails.request(asset: asset, side: 40, style: style) { img, _ in
-            self.thumb = img
-        }
     }
 
     static let glass = Color(red: 26/255, green: 24/255, blue: 22/255).opacity(0.78)

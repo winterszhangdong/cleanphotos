@@ -122,7 +122,7 @@ struct SimilarCompareView: View {
     private var header: some View {
         ZStack {
             HStack {
-                GlassCircleButton(systemName: "chevron.left", action: onClose)
+                GlassCircleButton(icon: .back, action: onClose)
                     .accessibilityLabel(Text(L10n.string("cd_back", locale: language.effectiveLocale)))
                 Spacer()
             }
@@ -676,8 +676,7 @@ private struct SimilarCue: View {
                         .trim(from: 0, to: progress)
                         .stroke(DarkroomColors.paper.opacity(0.9), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Image(systemName: up ? "checkmark" : "trash.fill")
-                        .font(.system(size: 13, weight: .regular))
+                    DarkroomIconView(icon: up ? .check : .trash, size: 16)
                         .foregroundStyle(DarkroomColors.paper.opacity(0.8))
                 }
                 .frame(width: 32, height: 32)
@@ -689,8 +688,7 @@ private struct SimilarCue: View {
             VStack(spacing: 12) {
                 ZStack {
                     Circle().fill(DarkroomColors.paper).frame(width: 56, height: 56)
-                    Image(systemName: up ? "checkmark" : "trash.fill")
-                        .font(.system(size: 20, weight: .medium))
+                    DarkroomIconView(icon: up ? .check : .trash, size: 24)
                         .foregroundStyle(DarkroomColors.room)
                 }
                 Text(text)

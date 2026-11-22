@@ -39,6 +39,10 @@ final class ScopeRulesTests: XCTestCase {
         XCTAssertTrue(ScopeRules.isChatAlbumTitle("WhatsApp"))
         XCTAssertTrue(ScopeRules.isChatAlbumTitle("Telegram"))
         XCTAssertTrue(ScopeRules.isChatAlbumTitle("QQ"))
+        XCTAssertTrue(ScopeRules.isChatAlbumTitle("微信"))
+        XCTAssertTrue(ScopeRules.isChatAlbumTitle("微信图片"))
+        XCTAssertTrue(ScopeRules.isChatAlbumTitle("企业微信"))
+        XCTAssertFalse(ScopeRules.isChatAlbumTitle("旅行"))
         XCTAssertFalse(ScopeRules.isChatAlbumTitle("Camera"))
         XCTAssertFalse(ScopeRules.isChatAlbumTitle(nil))
     }

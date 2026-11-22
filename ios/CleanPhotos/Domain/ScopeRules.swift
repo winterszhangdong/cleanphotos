@@ -45,8 +45,9 @@ enum ScopeRules {
 
     static let screenshotNeedles = ["screenshot", "截屏", "截图"]
     /// Android 的聊天路径是 weixin / whatsapp / telegram，以及 Pictures/QQ/。
-    /// iOS 相册标题里微信也可能写成 WeChat，所以多一个 wechat。
-    static let chatNeedles = ["weixin", "wechat", "whatsapp", "telegram", "qq"]
+    /// iOS 没有相对路径，只按用户相册标题匹配，不扫单张文件名。
+    /// 英文标题常见 WeChat；中文系统里微信默认相册标题是「微信」。
+    static let chatNeedles = ["weixin", "wechat", "微信", "whatsapp", "telegram", "qq"]
 
     /// 与 Android RawFile.kt 同一份扩展名。
     static let rawExtensions: Set<String> = [

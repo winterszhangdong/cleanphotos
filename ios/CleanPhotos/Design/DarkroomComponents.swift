@@ -191,19 +191,18 @@ struct EmptyPileArt: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(sink ? DarkroomColors.rim : DarkroomColors.pileRim, lineWidth: 1)
                 let s = 1 + 0.25 * star
                 if sink {
-                    Image(systemName: "trash").font(.system(size: 22)).foregroundStyle(DarkroomColors.dim).scaleEffect(s)
+                    DarkroomIconView(icon: .trash, size: 24).foregroundStyle(DarkroomColors.dim).scaleEffect(s)
                 } else {
-                    Image(systemName: "star.fill").font(.system(size: 24)).foregroundStyle(DarkroomColors.pileStarGlow)
+                    DarkroomIconView(icon: .starSolid, size: 28).foregroundStyle(DarkroomColors.pileStarGlow)
                         .blur(radius: 8).opacity(min(1, max(0, star))).scaleEffect(s)
-                    Image(systemName: "star.fill").font(.system(size: 24)).foregroundStyle(DarkroomColors.amber).scaleEffect(s)
+                    DarkroomIconView(icon: .starSolid, size: 28).foregroundStyle(DarkroomColors.amber).scaleEffect(s)
                 }
             }
             .frame(width: 100, height: 128)
             .shadow(color: sink ? DarkroomColors.printShadow : DarkroomColors.pileGlow, radius: 20)
             .rotationEffect(.degrees(dir * 3 * push))
             .offset(x: 30, y: 24 + CGFloat(dir * 44 * push))
-            Image(systemName: sink ? "arrow.down" : "arrow.up")
-                .font(.system(size: 15, weight: .medium))
+            DarkroomIconView(icon: sink ? .down : .up, size: 19)
                 .foregroundStyle(sink ? DarkroomColors.dim : DarkroomColors.amber)
                 .frame(width: 19, height: 19)
                 .opacity(arrowAlpha)

@@ -34,6 +34,7 @@ final class SimilarPageView: UIView, UICollectionViewDataSource, UICollectionVie
     }()
 
     private var rawResolveTask: Task<Void, Never>?
+    private var revealAnimator: UIViewPropertyAnimator?
     private var programmaticScroll = false
     private var lastReportedCanScroll: Bool?
 
@@ -96,17 +97,25 @@ final class SimilarPageView: UIView, UICollectionViewDataSource, UICollectionVie
         cancellables.removeAll()
         rawResolveTask?.cancel()
         rawResolveTask = nil
+        revealAnimator?.stopAnimation(true)
+        revealAnimator = nil
         prefetch.reset()
     }
 
     func update(zh: Bool, locale: Locale, chromeHeight: CGFloat, photosVisible: Bool, isActiveScope: Bool) {
         let localeChanged = self.zh != zh || self.locale.identifier != locale.identifier
         let chromeChanged = abs(self.chromeHeight - chromeHeight) > 0.5
+        let wasActive = self.isActiveScope
+        let wasPhotosVisible = self.photosVisible
+        let showedList = !collectionView.isHidden
         self.zh = zh
         self.locale = locale
         self.chromeHeight = chromeHeight
         self.photosVisible = photosVisible
         self.isActiveScope = isActiveScope
+        if wasActive && showedList && (!isActiveScope || (wasPhotosVisible && !photosVisible)) {
+            GridDevelopSession.markPlayed(.similar)
+        }
 
         if isActiveScope && ScrollProbe.enabled {
             ScrollProbe.shared.page = "photos-similar"
@@ -196,16 +205,20 @@ final class SimilarPageView: UIView, UICollectionViewDataSource, UICollectionVie
     private func syncFromSession() {
         let ready = session.phase == .ready
         let listed = ready ? session.listedGroups : []
-        cards = listed
         marksByGroup = session.marks
         isMoving = session.moving
 
         let showList = ready && !listed.isEmpty
-        collectionView.isHidden = !showList
-        statusHost.view.isHidden = showList
         updateStatusModel()
 
         guard showList else {
+            revealAnimator?.stopAnimation(true)
+            revealAnimator = nil
+            collectionView.isHidden = true
+            collectionView.alpha = 1
+            statusHost.view.isHidden = false
+            statusHost.view.alpha = 1
+            cards = []
             lastCardIds = []
             lastCardPhotoIds = []
             if lastReportedCanScroll != false {
@@ -214,19 +227,96 @@ final class SimilarPageView: UIView, UICollectionViewDataSource, UICollectionVie
             return
         }
 
-        let nextIds = listed.map(\.key)
-        let nextPhotoIds = listed.map { $0.photos.map(\.id) }
-        if nextIds != lastCardIds || nextPhotoIds != lastCardPhotoIds {
-            lastCardIds = nextIds
-            lastCardPhotoIds = nextPhotoIds
-            updateLayoutMetrics()
-            collectionView.reloadData()
-            warmInitialCards()
-            resolveVisibleRawIfIdle()
-        } else {
-            refreshVisibleCards()
+        let revealing = collectionView.isHidden
+        if revealing {
+            collectionView.alpha = 0
+            collectionView.isHidden = false
+        }
+        applyListedCards(listed)
+        if revealing {
+            revealList(animated: !UIAccessibility.isReduceMotionEnabled)
         }
         reportCanScrollIfChanged()
+    }
+
+    private func applyListedCards(_ listed: [SimilarCard]) {
+        let nextIds = listed.map(\.key)
+        let nextPhotoIds = listed.map { $0.photos.map(\.id) }
+        guard nextIds != lastCardIds || nextPhotoIds != lastCardPhotoIds else {
+            cards = listed
+            refreshVisibleCards()
+            return
+        }
+        if collectionView.numberOfItems(inSection: 0) == lastCardIds.count,
+           let removals = deletionIndexPaths(nextIds: nextIds, nextPhotoIds: nextPhotoIds) {
+            cards = listed
+            lastCardIds = nextIds
+            lastCardPhotoIds = nextPhotoIds
+            collectionView.performBatchUpdates {
+                self.collectionView.deleteItems(at: removals)
+            }
+            return
+        }
+        cards = listed
+        lastCardIds = nextIds
+        lastCardPhotoIds = nextPhotoIds
+        updateLayoutMetrics()
+        collectionView.reloadData()
+        warmInitialCards()
+        resolveVisibleRawIfIdle()
+    }
+
+    /// `nextIds` 是上一帧卡片去掉若干项、顺序不变，且留下的卡片照片数组没变。
+    private func deletionIndexPaths(nextIds: [String], nextPhotoIds: [[String]]) -> [IndexPath]? {
+        guard !lastCardIds.isEmpty, nextIds.count < lastCardIds.count else { return nil }
+        var previousPhotos: [String: [String]] = [:]
+        previousPhotos.reserveCapacity(lastCardIds.count)
+        for (index, id) in lastCardIds.enumerated() where lastCardPhotoIds.indices.contains(index) {
+            previousPhotos[id] = lastCardPhotoIds[index]
+        }
+        var removals: [IndexPath] = []
+        var cursor = 0
+        for (index, id) in lastCardIds.enumerated() {
+            if cursor < nextIds.count && nextIds[cursor] == id {
+                guard nextPhotoIds.indices.contains(cursor), previousPhotos[id] == nextPhotoIds[cursor] else { return nil }
+                cursor += 1
+            } else {
+                removals.append(IndexPath(item: index, section: 0))
+            }
+        }
+        guard cursor == nextIds.count, !removals.isEmpty else { return nil }
+        return removals
+    }
+
+    private func revealList(animated: Bool) {
+        revealAnimator?.stopAnimation(true)
+        revealAnimator = nil
+        if !animated {
+            collectionView.alpha = 1
+            statusHost.view.isHidden = true
+            statusHost.view.alpha = 1
+            return
+        }
+        statusHost.view.isHidden = false
+        statusHost.view.alpha = 1
+        let anim = UIViewPropertyAnimator(
+            duration: DarkroomMotion.short,
+            controlPoint1: CGPoint(x: 0.2, y: 0),
+            controlPoint2: CGPoint(x: 0, y: 1)
+        ) { [weak self] in
+            self?.collectionView.alpha = 1
+            self?.statusHost.view.alpha = 0
+        }
+        anim.addCompletion { [weak self] position in
+            guard let self else { return }
+            if position == .end && !self.collectionView.isHidden {
+                self.statusHost.view.isHidden = true
+            }
+            self.statusHost.view.alpha = 1
+            self.revealAnimator = nil
+        }
+        revealAnimator = anim
+        anim.startAnimation()
     }
 
     private func syncMarksAndMoving() {
@@ -274,7 +364,8 @@ final class SimilarPageView: UIView, UICollectionViewDataSource, UICollectionVie
                 moving: isMoving,
                 zh: zh,
                 locale: locale,
-                pipeline: pipeline
+                pipeline: pipeline,
+                cardIndex: ip.item
             )
         }
     }
@@ -313,7 +404,8 @@ final class SimilarPageView: UIView, UICollectionViewDataSource, UICollectionVie
             moving: isMoving,
             zh: zh,
             locale: locale,
-            pipeline: pipeline
+            pipeline: pipeline,
+            cardIndex: indexPath.item
         )
         cell.onOpenPhoto = { [weak self] photoId in
             self?.onOpenPhoto?(card.key, photoId)
@@ -345,12 +437,16 @@ final class SimilarPageView: UIView, UICollectionViewDataSource, UICollectionVie
     // MARK: UIScrollViewDelegate
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        GridDevelopSession.markPlayed(.similar)
         if isActiveScope {
             onScrollState?(scrollView.contentOffset.y, true, false, canScrollNow())
         }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView.contentOffset.y > 1 {
+            GridDevelopSession.markPlayed(.similar)
+        }
         guard isActiveScope else { return }
         if ScrollProbe.enabled {
             ScrollProbe.shared.offsetCallback()
@@ -432,7 +528,7 @@ private final class SimilarCardCell: UICollectionViewCell, UICollectionViewDataS
 
     private lazy var commitButton: UIButton = {
         let b = UIButton(type: .system)
-        b.backgroundColor = DarkroomUIColors.tray2
+        b.backgroundColor = DarkroomUIColors.glass
         b.layer.cornerRadius = 18
         b.layer.cornerCurve = .continuous
         b.layer.borderWidth = 1
@@ -454,6 +550,7 @@ private final class SimilarCardCell: UICollectionViewCell, UICollectionViewDataS
     private var lastDateString = ""
     private var lastCommitTitle = ""
     private var lastMoving = false
+    private var cardIndex = 0
 
     var onOpenPhoto: ((String) -> Void)?
     var onCommit: (() -> Void)?
@@ -533,8 +630,10 @@ private final class SimilarCardCell: UICollectionViewCell, UICollectionViewDataS
         moving: Bool,
         zh: Bool,
         locale: Locale,
-        pipeline: ThumbnailPipeline
+        pipeline: ThumbnailPipeline,
+        cardIndex: Int
     ) {
+        self.cardIndex = cardIndex
         let photoIds = card.photos.map(\.id)
         let photosChanged = photoIds != lastPhotoIds || self.card?.key != card.key
         let marksChanged = marks != lastMarks
@@ -578,7 +677,7 @@ private final class SimilarCardCell: UICollectionViewCell, UICollectionViewDataS
                       let cell = stripView.cellForItem(at: ip) as? SimilarStripThumbCell else { continue }
                 let photo = photos[ip.item]
                 let mark = marks[photo.id] ?? .keep
-                cell.configure(item: photo, mark: mark, zh: zh, locale: locale, pipeline: pipeline)
+                cell.configure(item: photo, mark: mark, zh: zh, locale: locale, pipeline: pipeline, cardIndex: cardIndex, thumbIndex: ip.item)
             }
         }
     }
@@ -607,7 +706,7 @@ private final class SimilarCardCell: UICollectionViewCell, UICollectionViewDataS
         if let card, card.photos.indices.contains(indexPath.item), let pipeline {
             let photo = card.photos[indexPath.item]
             let mark = marks[photo.id] ?? .keep
-            cell.configure(item: photo, mark: mark, zh: zh, locale: locale, pipeline: pipeline)
+            cell.configure(item: photo, mark: mark, zh: zh, locale: locale, pipeline: pipeline, cardIndex: cardIndex, thumbIndex: indexPath.item)
         }
         return cell
     }
@@ -623,10 +722,7 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
     static let reuseIdentifier = "SimilarStripThumbCell"
     private static let side: CGFloat = SimilarCardCell.thumbSide
     private static let scrimHeight: CGFloat = 24
-    private static let trashImage = UIImage(
-        systemName: "trash.fill",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-    )
+    private static let trashImage = DarkroomIcons.template(.trashMark, size: 14)
 
     private static let scrimImage: UIImage = {
         let fmt = UIGraphicsImageRendererFormat()
@@ -643,6 +739,9 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
     private(set) var representedAssetId: String?
     private var token: ThumbnailToken?
     private var hasFinalImage = false
+    private var didRunDevelop = false
+    private var claimedId: String?
+    private let developOverlay = TileDevelopOverlay()
 
     private let imageView: UIImageView = {
         let iv = UIImageView()
@@ -682,6 +781,9 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
         super.prepareForReuse()
         token?.cancel()
         token = nil
+        abandonDevelopClaim()
+        developOverlay.reset()
+        didRunDevelop = false
         representedAssetId = nil
         hasFinalImage = false
         imageView.image = nil
@@ -706,6 +808,8 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
             let s = rawLabel.sizeThatFits(CGSize(width: b.width - inset * 2, height: b.height))
             rawLabel.frame = CGRect(x: inset, y: b.height - inset - ceil(s.height), width: ceil(s.width), height: ceil(s.height))
         }
+        developOverlay.layout(in: b)
+        raiseDevelopChrome()
     }
 
     func showRawBadge() {
@@ -727,10 +831,11 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
         }
         scrimView?.isHidden = false
         rawLabel?.isHidden = false
+        raiseDevelopChrome()
         setNeedsLayout()
     }
 
-    func configure(item: PhotoItem, mark: SimilarMark, zh: Bool, locale: Locale, pipeline: ThumbnailPipeline) {
+    func configure(item: PhotoItem, mark: SimilarMark, zh: Bool, locale: Locale, pipeline: ThumbnailPipeline, cardIndex: Int, thumbIndex: Int) {
         let sameAsset = representedAssetId == item.id
         representedAssetId = item.id
 
@@ -765,8 +870,12 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
             scrimView?.isHidden = true
             rawLabel?.isHidden = true
         }
+        raiseDevelopChrome()
 
         if sameAsset && (imageView.image != nil || token != nil) {
+            if developOverlay.isActive, let image = imageView.image {
+                developOverlay.updateImage(image, assetId: item.id)
+            }
             return
         }
 
@@ -774,9 +883,11 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
         token = nil
         hasFinalImage = false
 
+        let delay = GridDevelopSession.staggerDelay(row: cardIndex, col: thumbIndex)
         if let hit = pipeline.cached(id: item.id, side: Self.side, style: .normal) {
             imageView.image = hit
             hasFinalImage = true
+            maybeDevelop(image: hit, assetId: item.id, delay: delay)
             return
         }
 
@@ -787,7 +898,42 @@ private final class SimilarStripThumbCell: UICollectionViewCell {
             if degraded && self.hasFinalImage { return }
             if !degraded { self.hasFinalImage = true }
             self.imageView.image = img
+            self.maybeDevelop(image: img, assetId: targetId, delay: delay)
         }
+    }
+
+    private func maybeDevelop(image: UIImage, assetId: String, delay: Double) {
+        if developOverlay.isActive {
+            developOverlay.updateImage(image, assetId: assetId)
+            return
+        }
+        if didRunDevelop { return }
+        guard !UIAccessibility.isReduceMotionEnabled,
+              GridDevelopSession.claim(grid: .similar, id: assetId) else { return }
+        claimedId = assetId
+        didRunDevelop = true
+        developOverlay.start(
+            image: image,
+            assetId: assetId,
+            delay: delay,
+            in: contentView,
+            above: imageView,
+            bounds: contentView.bounds.width > 0 ? contentView.bounds : CGRect(x: 0, y: 0, width: Self.side, height: Self.side)
+        )
+        raiseDevelopChrome()
+    }
+
+    private func abandonDevelopClaim() {
+        if developOverlay.isActive, let id = claimedId {
+            GridDevelopSession.release(grid: .similar, id: id)
+        }
+        claimedId = nil
+    }
+
+    private func raiseDevelopChrome() {
+        if let scrimView { contentView.bringSubviewToFront(scrimView) }
+        if let rawLabel { contentView.bringSubviewToFront(rawLabel) }
+        if let removeBadgeView { contentView.bringSubviewToFront(removeBadgeView) }
     }
 }
 

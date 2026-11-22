@@ -116,10 +116,8 @@ struct PlaybackCenterButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: showPause ? "pause.fill" : "play.fill")
-                .font(.system(size: 22, weight: .semibold))
+            DarkroomIconView(icon: showPause ? .pause : .play, size: 36)
                 .foregroundStyle(DarkroomColors.paper)
-                .offset(x: showPause ? 0 : 1)
                 .frame(width: DarkroomDimens.playbackCenter, height: DarkroomDimens.playbackCenter)
                 .background {
                     Circle()
@@ -145,11 +143,7 @@ struct PlaybackMotionPill: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: DarkroomDimens.playbackPillGap) {
-                ZStack {
-                    Circle().stroke(DarkroomColors.paper, lineWidth: 1.5)
-                    Circle().fill(DarkroomColors.paper).frame(width: 5, height: 5)
-                }
-                .frame(width: DarkroomDimens.playbackMotionIcon, height: DarkroomDimens.playbackMotionIcon)
+                DarkroomIconView(icon: .motion, size: DarkroomDimens.playbackMotionIcon)
                 Text(title)
                     .font(Font.custom("NotoSansSC-Medium", size: 13))
             }
@@ -159,6 +153,7 @@ struct PlaybackMotionPill: View {
             .background {
                 Capsule()
                     .fill(DarkroomColors.glass)
+                    .background { DarkroomBlurBackdrop().clipShape(Capsule()) }
                     .overlay(Capsule().strokeBorder(DarkroomColors.glassRim, lineWidth: 1))
             }
         }
@@ -231,13 +226,13 @@ struct PlaybackProgressRow: View {
                 .foregroundStyle(DarkroomColors.paper.opacity(0.62))
                 .frame(width: 52, alignment: .trailing)
             Button(action: onMute) {
-                Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: DarkroomDimens.playbackSoundIcon, weight: .medium))
+                DarkroomIconView(icon: muted ? .soundOff : .soundOn, size: DarkroomDimens.playbackSoundIcon)
                     .foregroundStyle(DarkroomColors.paper)
                     .frame(width: 40, height: 40)
                     .background {
                         Circle()
                             .fill(DarkroomColors.glass)
+                            .background { DarkroomBlurBackdrop().clipShape(Circle()) }
                             .overlay(Circle().strokeBorder(DarkroomColors.glassRim, lineWidth: 1))
                     }
             }

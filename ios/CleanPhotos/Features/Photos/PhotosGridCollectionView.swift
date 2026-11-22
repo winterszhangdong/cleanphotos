@@ -132,6 +132,8 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
 
     private var config: Config
     private var sections: [SectionData] = []
+    /// 每个 `.tiles` 分区之前已经铺过的行数，对角线显影跨天连续。
+    private var tileStartRows: [Int] = []
     private(set) var built: PhotosGridGeometry.BuiltLayout
     private(set) var drawnOrder: [PhotoItem] = []
     private var photoIndexById: [String: Int] = [:]
@@ -409,10 +411,13 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
         lastSelected = config.selected
 
         var nextSections: [SectionData] = []
+        var nextStartRows: [Int] = []
         var specs: [PhotosGridGeometry.SectionSpec] = []
         var nextDrawnOrder: [PhotoItem] = []
         var nextIndexById: [String: Int] = [:]
         var nextTileSlices: [Int] = []
+        var rowCursor = 0
+        let cols = DarkroomDimens.gridColumns
 
         if config.scope == .largeFiles || config.immersive {
             let items = config.page.flat
@@ -420,8 +425,10 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
             let showSize = config.scope == .largeFiles
             if !items.isEmpty {
                 nextTileSlices.append(nextSections.count)
+                nextStartRows.append(rowCursor)
                 nextSections.append(.tiles(items: items, dayId: dayId, showSize: showSize))
                 specs.append(.init(kind: .tiles(count: items.count, dayId: nil)))
+                rowCursor += (items.count + cols - 1) / cols
                 nextDrawnOrder = items
                 nextIndexById.reserveCapacity(items.count)
                 for (i, item) in items.enumerated() {
@@ -433,29 +440,35 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
             let lastDayId = daysAll.last { $0.header == .day }?.id
             for year in config.page.groups {
                 if year.year > 0 {
+                    nextStartRows.append(0)
                     nextSections.append(.year(year.year))
                     specs.append(.init(kind: .year))
                 }
                 for day in year.days {
                     if day.header == .month {
+                        nextStartRows.append(0)
                         nextSections.append(.monthHeader(day))
                         specs.append(.init(kind: .monthHeader))
                     } else if day.header == .day {
+                        nextStartRows.append(0)
                         nextSections.append(.dayHeader(day))
                         specs.append(.init(kind: .dayHeader(id: day.id)))
                     }
                     let drawn = (config.scope == .onThisDay && config.expandedDayId == day.id) ? day.allItems : day.items
                     if !drawn.isEmpty {
                         nextTileSlices.append(nextSections.count)
+                        nextStartRows.append(rowCursor)
                         nextSections.append(.tiles(items: drawn, dayId: day.id, showSize: false))
                         let markDay = (day.id == lastDayId) ? day.id : nil
                         specs.append(.init(kind: .tiles(count: drawn.count, dayId: markDay)))
+                        rowCursor += (drawn.count + cols - 1) / cols
                         for item in drawn {
                             nextIndexById[item.id] = nextDrawnOrder.count
                             nextDrawnOrder.append(item)
                         }
                     }
                     if config.scope == .onThisDay && config.expandedDayId != day.id && !day.overflow.isEmpty {
+                        nextStartRows.append(0)
                         nextSections.append(.more(day))
                         specs.append(.init(kind: .more))
                     }
@@ -486,6 +499,7 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
         }
 
         sections = nextSections
+        tileStartRows = nextStartRows
         drawnOrder = nextDrawnOrder
         photoIndexById = nextIndexById
         tileSliceIndices = nextTileSlices
@@ -560,7 +574,7 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
                       let cell = collectionView.cellForItem(at: ip) as? PhotoGridCell else { continue }
                 let item = items[ip.item]
                 cell.configure(
-                    tileConfig(item: item, dayId: dayId, index: ip.item, showSize: showSize),
+                    tileConfig(item: item, dayId: dayId, section: ip.section, index: ip.item, showSize: showSize),
                     pipeline: pipeline,
                     animated: animated
                 )
@@ -652,7 +666,7 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotoGridCell.reuseIdentifier, for: indexPath) as! PhotoGridCell
             let item = items[indexPath.item]
             cell.configure(
-                tileConfig(item: item, dayId: dayId, index: indexPath.item, showSize: showSize),
+                tileConfig(item: item, dayId: dayId, section: indexPath.section, index: indexPath.item, showSize: showSize),
                 pipeline: pipeline,
                 animated: false
             )
@@ -661,21 +675,20 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
         }
     }
 
-    private func tileConfig(item: PhotoItem, dayId: String, index: Int, showSize: Bool) -> PhotoGridCellConfig {
+    private func tileConfig(item: PhotoItem, dayId: String, section: Int, index: Int, showSize: Bool) -> PhotoGridCellConfig {
         let rawName = AssetSizeCache.shared.cachedOriginalFilename(item.id)
         let rawText = ScopeRules.isRawFileName(rawName) ? "RAW" : nil
         let sizeText = showSize ? FileSizeFormatter.format(AssetSizeCache.shared.cachedBytes(item.id) ?? 0) : nil
         let leftText = ScopeRules.photoMarkLine(raw: rawText, size: sizeText)
         let durationText = item.isVideo ? ScopeRules.formatDuration(seconds: item.duration) : nil
         let moving = isListMoving()
+        let cols = DarkroomDimens.gridColumns
+        let startRow = tileStartRows.indices.contains(section) ? tileStartRows[section] : 0
         let develop = !moving
             && !config.selecting
             && config.initialIDs.contains(item.id)
-            && GridDevelopSession.shouldDevelop(grid: .photos, id: item.id, isInitialPass: false)
-        let delay = GridDevelopSession.staggerDelay(
-            row: index / DarkroomDimens.gridColumns,
-            col: index % DarkroomDimens.gridColumns
-        )
+            && !GridDevelopSession.hasPlayed(.photos)
+        let delay = GridDevelopSession.staggerDelay(row: startRow + index / cols, col: index % cols)
         return PhotoGridCellConfig(
             item: item,
             side: built.tileSide,
@@ -688,6 +701,7 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
             circled: false,
             develop: develop,
             developDelay: delay,
+            developGrid: develop ? .photos : nil,
             interactive: true,
             locale: config.locale,
             accessibilityId: "tile-\(index)-\(dayId)"
@@ -727,6 +741,7 @@ final class PhotosGridView: UIView, UICollectionViewDataSource, UICollectionView
     // MARK: UIScrollViewDelegate
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        GridDevelopSession.markPlayed(.photos)
         lastIsMoving = true
         lastUserScrollTime = CACurrentMediaTime()
         if isActiveScope {
