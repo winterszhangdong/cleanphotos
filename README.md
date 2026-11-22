@@ -52,13 +52,14 @@ Requirements:
 - Gradle 9.4.1 is downloaded by the wrapper (`./gradlew`)
 
 ```bash
-make build         # assemble debug APK (./gradlew assembleDebug)
-make test          # unit tests (./gradlew testDebugUnitTest)
-make lint          # Android Lint (./gradlew lint)
-make release       # assemble release APK
-make install       # install debug APK on a connected device
-make android-test  # instrumentation tests (device or emulator required)
-make help          # list all targets
+make android-debug           # assemble debug APK (./gradlew assembleDebug)
+make android-release         # assemble release APK
+make android-install         # install debug APK on a connected device
+make android-install-release # install release APK on a connected device
+make test                    # unit tests (./gradlew testDebugUnitTest)
+make lint                    # Android Lint (./gradlew lint)
+make android-test            # instrumentation tests (device or emulator required)
+make help                    # list all targets
 ```
 
 Tech stack: Kotlin, Jetpack Compose, MVVM + UseCase, Coroutines/Flow, Hilt, Navigation Compose, Coil, MediaStore, DataStore, Haze. Architecture: `Compose → ViewModel → UseCase → Repository → MediaStore / DataStore` (see `docs/architecture.md`). Design and interaction specs live in `docs/` (in Chinese).

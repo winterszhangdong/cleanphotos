@@ -50,12 +50,15 @@ docs/test-plan.md: 测试设计说明
 
 ```bash
 make help          # 查看所有可用命令
-make build         # 构建 debug APK
-make test          # 运行单元测试
-make lint          # 运行 Lint 检查
-make install       # 安装到设备
-make run-ios       # 编译并安装到已连接的 iPhone，然后打开
-make logcat        # 查看应用日志
+make android-debug           # 构建 debug APK
+make android-release         # 构建 release APK
+make android-install         # 安装 debug APK 到设备
+make android-install-release # 安装 release APK 到设备
+make ios-install             # 编译 debug，装到已连接的 iPhone 并打开
+make ios-install-release     # 编译 release，装到已连接的 iPhone 并打开
+make test                    # 运行单元测试
+make lint                    # 运行 Lint 检查
+make logcat                  # 查看应用日志
 ```
 
 完整命令列表见 `Makefile`。

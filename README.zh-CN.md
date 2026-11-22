@@ -61,17 +61,18 @@ Apache License 2.0，见 [LICENSE](LICENSE)。第三方字体、照片和依赖�
 项目提供了 Makefile 封装常用操作，直接 `make` 查看所有可用命令：
 
 ```bash
-make help          # 显示所有命令
-make build         # 构建 debug APK
-make release       # 构建 release APK
-make test          # 运行单元测试
-make android-test  # 运行 instrumentation 测试
-make lint          # 运行 Lint 检查
-make install       # 安装到设备
-make clean         # 清理构建产物
-make deps          # 查看依赖树
-make logcat        # 查看应用日志
-make clear-data    # 清除应用数据
+make help                    # 显示所有命令
+make android-debug           # 构建 debug APK
+make android-release         # 构建 release APK
+make android-install         # 安装 debug APK 到设备
+make android-install-release # 安装 release APK 到设备
+make test                    # 运行单元测试
+make android-test            # 运行 instrumentation 测试
+make lint                    # 运行 Lint 检查
+make clean                   # 清理构建产物
+make deps                    # 查看依赖树
+make logcat                  # 查看应用日志
+make clear-data              # 清除应用数据
 ```
 
 也可以直接使用 Gradle：

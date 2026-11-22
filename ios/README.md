@@ -23,8 +23,9 @@ xcodebuild -project CleanPhotos.xcodeproj -scheme CleanPhotos \
 仓库根目录：
 
 ```bash
-make run-ios                         # 按 project.yml 生成工程，装到当前连上的 iPhone 并打开（保留本机数据）
-make run-ios IOS_DEVICE=<UDID>      # 连着多台时指定
+make ios-install                     # 编译 debug，装到当前连上的 iPhone 并打开（保留本机数据）
+make ios-install-release             # 编译 release，装到当前连上的 iPhone 并打开（判断动效以它为准）
+make ios-install IOS_DEVICE=<UDID>   # 连着多台时指定；release 同样加在命令后面
 ```
 
 真机签名用本机 `Secrets.xcconfig` 里的 Team（从 `Secrets.example.xcconfig` 复制）。模拟器构建不签名。动效流畅度以 Release 包、真机为准。Judge smoothness on a Release build on a real device.

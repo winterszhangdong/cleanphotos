@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""为 make run-ios 选一台已配对的 iPhone。成功时打印 udid<TAB>name。"""
+"""为 make ios-install 选一台已配对的 iPhone。成功时打印 udid<TAB>name。"""
 import json
 import sys
 
