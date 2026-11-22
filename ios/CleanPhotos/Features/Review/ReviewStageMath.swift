@@ -485,6 +485,128 @@ struct EquatableBox<Key: Equatable, Content: View>: View, Equatable {
     var body: some View { content() }
 }
 
+/// 左右位移。清理页本身不订阅它：手指移动和落定弹簧只刷新真正跟着走的那几页。
+/// 写在页面的 `@State` 上会让进度条、顶栏、教学每一帧都重算。
+@MainActor
+final class ReviewDragModel: ObservableObject {
+    @Published private(set) var dx: CGFloat = 0
+
+    private struct Spring {
+        var from: CGFloat
+        var to: CGFloat
+        var velocity: CGFloat
+        var damping: Double
+        var stiffness: Double
+        var start: CFTimeInterval
+    }
+
+    private var spring: Spring?
+    private var link: ReviewDragLink?
+
+    /// 手指接管。停掉落定弹簧，直接写位移。
+    func set(_ x: CGFloat) {
+        if spring != nil {
+            spring = nil
+            syncLink()
+        }
+        if dx != x { dx = x }
+    }
+
+    func cancelSpring() {
+        guard spring != nil else { return }
+        spring = nil
+        syncLink()
+    }
+
+    /// 从 `from` 收到 0。翻页前先把 `from` 接成连续的位置。减弱动态效果直接落到 0。
+    func settle(from: CGFloat, velocity: CGFloat, snappy: Bool, reduce: Bool) {
+        spring = nil
+        if reduce || abs(from) < 0.25 {
+            if dx != 0 { dx = 0 }
+            syncLink()
+            return
+        }
+        let token = snappy ? SpringToken.snappy : SpringToken.settle
+        spring = Spring(
+            from: from,
+            to: 0,
+            velocity: velocity,
+            damping: token.damping,
+            stiffness: token.stiffness,
+            start: CACurrentMediaTime()
+        )
+        dx = from
+        syncLink()
+    }
+
+    func stop() {
+        spring = nil
+        link?.stop()
+        link = nil
+    }
+
+    private func syncLink() {
+        if spring != nil {
+            if link == nil {
+                link = ReviewDragLink { [weak self] in self?.tick() }
+            }
+            link?.start()
+        } else {
+            link?.stop()
+        }
+    }
+
+    private func tick() {
+        guard let spring else {
+            syncLink()
+            return
+        }
+        let step = ScopePagerMath.springStep(
+            from: spring.from,
+            to: spring.to,
+            initialVelocity: spring.velocity,
+            elapsed: CACurrentMediaTime() - spring.start,
+            dampingRatio: spring.damping,
+            stiffness: spring.stiffness
+        )
+        if step.settled {
+            self.spring = nil
+            if dx != spring.to { dx = spring.to }
+            syncLink()
+        } else if dx != step.x {
+            dx = step.x
+        }
+    }
+}
+
+@MainActor
+private final class ReviewDragLink: NSObject {
+    private var link: CADisplayLink?
+    private let onFrame: @MainActor () -> Void
+
+    init(onFrame: @escaping @MainActor () -> Void) {
+        self.onFrame = onFrame
+        super.init()
+    }
+
+    deinit { link?.invalidate() }
+
+    func start() {
+        guard link == nil else { return }
+        let display = CADisplayLink(target: self, selector: #selector(step))
+        display.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        display.add(to: .main, forMode: .common)
+        link = display
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+    }
+
+    @objc private func step() { onFrame() }
+}
+
 /// 复用同一组反馈生成器并在开始上下拖动时 prepare：每次过阈值临时 new 一个生成器要在主线程现起 Taptic 引擎，正好卡在拖动那一帧。
 @MainActor
 enum ReviewHaptics {

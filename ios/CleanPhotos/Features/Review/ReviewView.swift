@@ -4,7 +4,8 @@ import CoreImage
 import os
 
 /// 清理页（暗房）。对齐 Android `ReviewScreen` / `ReviewStage` / `ReviewStageState`：
-/// - 自绘三页（上一张 / 当前 / 下一张）按 page id 放在同一个 ZStack，左右 1:1 跟手，松手 snappy 弹簧；
+/// - 自绘三页（上一张 / 当前 / 下一张）按 page id 放在同一个 ZStack，左右 1:1 跟手，松手 snappy 弹簧。
+///   位移不写在这一页的状态上：手指和落定弹簧只改已经画好的图层，进度条和顶栏不跟着重算；
 /// - 上下拖动整页（环境光 + 照片）像拎起的相纸：1 → 0.9、32pt 圆角、下滑去色压暗、上滑底部琥珀光 / 下滑暗角；
 /// - 提示圆：上滑在底部、下滑在顶部；过阈值 32 → 56 实心 + 1.14 pop；
 /// - 过阈值松手：离场层 250ms 飞向导航「收藏 / 垃圾桶」位置，当前页立刻换下一张（0.94 / 亮度 0.6 升起），不锁输入。
@@ -29,7 +30,8 @@ struct ReviewView: View {
     @StateObject private var session: ReviewSessionModel
     @StateObject private var images = ReviewImageStore()
 
-    @State private var dx: CGFloat = 0
+    /// 左右位移。不要改成 `@State`：那一页的 body 会在每一帧重算。
+    @State private var drag = ReviewDragModel()
     @State private var dy: CGFloat = 0
     @State private var axis: DragAxis? = nil
     @State private var slop: CGFloat = 0
@@ -158,6 +160,7 @@ struct ReviewView: View {
             }
             .onDisappear {
                 detailsTask?.cancel()
+                drag.stop()
                 compress.cancel()
                 playbackHoldToken += 1
                 playback.release()
@@ -284,15 +287,17 @@ struct ReviewView: View {
                     .zIndex(2.5)
             }
             if PerfLegacy.on {
-                ForEach(placed) { item in
-                    if !(receding?.id == item.page.id && entry?.undoFrom != nil) {
-                        pageLayer(item, size: size, insets: insets, now: now)
-                            .zIndex(item.role == 0 ? 3 : 2)
+                LegacyDragPages(drag: drag) { dx in
+                    ForEach(placed) { item in
+                        if !(receding?.id == item.page.id && entry?.undoFrom != nil) {
+                            legacyPageLayer(item, size: size, insets: insets, now: now, dx: dx)
+                                .zIndex(item.role == 0 ? 3 : 2)
+                        }
                     }
-                }
-                ForEach(flights) { f in
-                    flightLayer(f, size: size, insets: insets, now: now).zIndex(4)
-                    if f.kind == .up { afterimages(f, size: size, insets: insets, now: now).zIndex(3.5) }
+                    ForEach(flights) { f in
+                        flightLayer(f, size: size, insets: insets, now: now).zIndex(4)
+                        if f.kind == .up { afterimages(f, size: size, insets: insets, now: now).zIndex(3.5) }
+                    }
                 }
             } else {
                 // 离场层与页面放在同一个 ForEach、按 page id 认人：松手时当前页原地变成离场层（同一个视图只换参数），
@@ -308,10 +313,6 @@ struct ReviewView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipped()
-    }
-
-    private func pageLayer(_ item: Placed, size: CGSize, insets: EdgeInsets, now: Date) -> some View {
-        legacyPageLayer(item, size: size, insets: insets, now: now)
     }
 
     private struct StageItem: Identifiable {
@@ -336,6 +337,7 @@ struct ReviewView: View {
     /// 三页共用同一条修饰链（只是参数不同）：翻页时「下一张」变成「当前」不换视图结构，SwiftUI 不必把整页
     /// （大图 + 环境光 + 滤镜）拆掉重建、重新栅格化 —— 之前每次翻页落定都要在主线程同步重画一整页。
     /// 亮度用黑色蒙版透明度（c × b ≡ c 叠 (1 − b) 黑，逐像素等价），拖动时只改一个图层的 opacity。
+    /// 左右位移不在这里读：`HorizontalFollow` 用渲染期平移跟着 `drag`，这一页的 body 不因手指移动重算。
     private func stablePageLayer(_ item: StageItem, size: CGSize, insets: EdgeInsets, now: Date) -> some View {
         let flight = item.flight
         let isCur = item.role == 0 && flight == nil
@@ -346,14 +348,16 @@ struct ReviewView: View {
         let sat: Double
         let corner: CGFloat
         let scale: CGFloat
-        let offset: CGSize
+        let y: CGFloat
+        let followX: CGFloat
         var alpha = Double(e?.alpha(now) ?? 1)
         if let f = flight {
             // 离场层：路径同 ExitFlight.pose；亮度用黑色蒙版（不透明内容上与 colorMultiply 逐像素等价）
             let pose = f.pose(f.progress(now))
             sat = Double(pose.saturation); bright = Double(pose.brightness)
             corner = ReviewTokens.liftCorner; scale = pose.scale
-            offset = CGSize(width: pose.x, height: pose.y)
+            y = pose.y
+            followX = pose.x
             alpha = Double(pose.alpha)
         } else if isCur {
             let entryOffset = e?.offset(now) ?? .zero
@@ -363,30 +367,43 @@ struct ReviewView: View {
             sat = Double(ReviewMath.dragSaturation(vertical && !isSummary ? dy : 0) * (e?.saturation(now) ?? 1)) * (dim ? 0.6 : 1)
             bright = Double(ReviewMath.dragBrightness(vertical && !isSummary ? dy : 0) * (e?.brightness(now) ?? 1)) * (dim ? 0.32 : 1)
             corner = (e?.undoFrom != nil) ? ReviewTokens.liftCorner : ReviewTokens.liftCorner * lift
-            offset = CGSize(width: dx + entryOffset.x + (isSummary ? 0 : zoomOffset.width),
-                            height: (isSummary ? summaryBounce : dy) + entryOffset.y + (isSummary ? 0 : zoomOffset.height))
+            followX = entryOffset.x + (isSummary ? 0 : zoomOffset.width)
+            y = (isSummary ? summaryBounce : dy) + entryOffset.y + (isSummary ? 0 : zoomOffset.height)
         } else {
-            let towards = item.role == 1 ? min(0, dx) : max(0, dx)
-            bright = Double(ReviewMath.enteringBrightness(towards, width: size.width))
+            // 邻页进入亮度由 HorizontalFollow 按位移画。这里不读 drag，避免整页跟着刷新。
+            bright = 1
             sat = 1; corner = 0; scale = 1
-            offset = CGSize(width: dx + CGFloat(item.role) * size.width, height: 0)
+            followX = CGFloat(item.role) * size.width
+            y = 0
         }
         let desaturate = CGFloat(max(0, min(1, 1 - sat)))
-        return pageContent(item.page, size: size, insets: insets, rim: isCur && vertical && !isSummary, desaturate: desaturate)
+        let veil = max(0, 1 - bright)
+        let page = pageContent(item.page, size: size, insets: insets, rim: isCur && vertical && !isSummary, desaturate: desaturate)
             .overlay { videoPlate(item.page, size: size, insets: insets) }
-            .overlay { Color.black.opacity(max(0, 1 - bright)).allowsHitTesting(false) }
+            .overlay {
+                if veil > 0.001 {
+                    Color.black.opacity(veil).allowsHitTesting(false)
+                }
+            }
             // RAW 在色调层外面：下滑去色压暗不把它带灰。详情 / 教学 / 撤回胶囊出现时自己淡出。
             .overlay(alignment: .bottomLeading) { rawMark(for: item.page, size: size, insets: insets) }
             .cornerRadius(corner)
             .scaleEffect(scale)
             .opacity(alpha)
-            .offset(x: offset.width, y: offset.height)
+            .offset(x: flight == nil ? 0 : followX, y: y)
             .allowsHitTesting(flight == nil)
+        return HorizontalFollow(
+            drag: drag,
+            role: flight == nil ? item.role : 0,
+            width: size.width,
+            baseX: followX,
+            active: flight == nil
+        ) { page }
     }
 
     /// 改之前的写法（-cpLegacy 对照用）：当前页 / 邻页两套修饰链，亮度走 colorMultiply。
     @ViewBuilder
-    private func legacyPageLayer(_ item: Placed, size: CGSize, insets: EdgeInsets, now: Date) -> some View {
+    private func legacyPageLayer(_ item: Placed, size: CGSize, insets: EdgeInsets, now: Date, dx: CGFloat) -> some View {
         switch item.role {
         case 0:
             let e = (entry?.pageId == item.page.id) ? entry : nil
@@ -689,20 +706,26 @@ struct ReviewView: View {
             let bottom = insets.bottom + (land ? 20 : 32)
             let fileDuration = photo.isVideo && details && !showProgress && photo.duration > 0
                 ? ScopeRules.formatDuration(seconds: photo.duration) : nil
+            let showDate = details || tutorialVisible
+            let barShown = showDate || showBack
+            let metaShown = details && library.activeUndo == nil
+            let fade = Animation.timingCurve(0.2, 0, 0, 1, duration: details ? DarkroomMotion.short : DarkroomMotion.micro)
             return ZStack {
-                if details {
-                    VStack(spacing: 0) {
-                        LinearGradient(colors: [Self.warmBlack.opacity(0.62), .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: land ? 96 : 160)
-                        Spacer()
-                        if !land {
-                            LinearGradient(colors: [.clear, Self.warmBlack.opacity(0.70)], startPoint: .top, endPoint: .bottom)
-                                .frame(height: 200)
-                        }
+                // 渐变、返回、日期从进入起就在树上。点按只改透明度。
+                // 不再在双击超时那一帧才创建模糊按钮，也不用 withAnimation 把整页卷进淡入。
+                // 文件信息仍按显隐插入，避免藏着的时候把视频进度行顶高；名字和大小在翻到这张时已经预取。
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [Self.warmBlack.opacity(0.62), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: land ? 96 : 160)
+                    Spacer()
+                    if !land {
+                        LinearGradient(colors: [.clear, Self.warmBlack.opacity(0.70)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 200)
                     }
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
                 }
+                .opacity(details ? 1 : 0)
+                .animation(fade, value: details)
+                .allowsHitTesting(false)
 
                 VStack(spacing: 0) {
                     ReviewProgressBar(cells: cells)
@@ -711,25 +734,27 @@ struct ReviewView: View {
                         .padding(.top, insets.top + (land ? 12 : 8))
                         .opacity(tutorialVisible ? 0 : 1)
                         .allowsHitTesting(false)
-                    if details || tutorialVisible || showBack {
-                        topBar(photo, motion: motion, showDate: details || tutorialVisible)
-                            .padding(.leading, land ? 40 - 12 + insets.leading : 0)
-                            .padding(.trailing, land ? 24 - 12 + insets.trailing : 0)
-                            .padding(.top, land ? 12 : 12)
-                            .transition(.opacity)
-                    }
+                    topBar(photo, motion: motion, showDate: showDate, showBack: barShown)
+                        .padding(.leading, land ? 40 - 12 + insets.leading : 0)
+                        .padding(.trailing, land ? 24 - 12 + insets.trailing : 0)
+                        .padding(.top, land ? 12 : 12)
+                        .allowsHitTesting(barShown)
                     Spacer()
-                    if showProgress {
-                        PlaybackProgressRow(engine: playback, muted: playbackMuted, zh: zh, onMute: {
-                            playbackMuted.toggle()
-                        }, onSeeked: {
-                            transportShown = false
-                        })
-                        .padding(.leading, land ? 48 + insets.leading : 16)
-                        .padding(.trailing, land ? 16 + insets.trailing : 16)
-                        .padding(.bottom, details ? DarkroomDimens.playbackGap : bottom)
+                    Group {
+                        if showProgress {
+                            PlaybackProgressRow(engine: playback, muted: playbackMuted, zh: zh, onMute: {
+                                playbackMuted.toggle()
+                            }, onSeeked: {
+                                transportShown = false
+                            })
+                            .padding(.leading, land ? 48 + insets.leading : 16)
+                            .padding(.trailing, land ? 16 + insets.trailing : 16)
+                            .padding(.bottom, details ? DarkroomDimens.playbackGap : bottom)
+                            .transition(.opacity)
+                        }
                     }
-                    if details && library.activeUndo == nil {
+                    .animation(reduceMotion ? nil : DarkroomMotion.shortCurve, value: showProgress)
+                    if metaShown {
                         VStack(alignment: .leading, spacing: 6) {
                             ReviewMetaRow(photo: photo, duration: fileDuration)
                                 .allowsHitTesting(false)
@@ -741,6 +766,7 @@ struct ReviewView: View {
                         .transition(.opacity)
                     }
                 }
+                .animation(fade, value: metaShown)
                 PlaybackCenterButton(
                     visible: showCenter,
                     showPause: showPause,
@@ -872,10 +898,11 @@ struct ReviewView: View {
     }
 
     /// .rv-top：40pt 玻璃返回 + 日期 15/20 500 + mono 10.5「星期 · 时间」相纸白 66%。没有右上角菜单。
-    private func topBar(_ photo: PhotoItem, motion: Bool, showDate: Bool) -> some View {
+    private func topBar(_ photo: PhotoItem, motion: Bool, showDate: Bool, showBack: Bool) -> some View {
         ZStack {
             HStack {
-                GlassCircleButton(icon: .back) { close() }
+                ReviewBackButton(shown: showBack) { close() }
+                    .frame(width: 40, height: 40)
                     .accessibilityLabel(Text(L10n.string("cd_back", locale: language.effectiveLocale)))
                     .accessibilityIdentifier("review-back")
                 Spacer()
@@ -889,26 +916,28 @@ struct ReviewView: View {
                     }
                 }
             }
-            if showDate {
-                VStack(spacing: 0) {
-                    // Android ReviewTopBar：日期走里程表，方向按「第几天」（epoch day）定
-                    OdometerText(value: Int64(((photo.creationDate.timeIntervalSince1970 + Double(TimeZone.current.secondsFromGMT())) / 86400).rounded(.down)),
-                                 text: dateTitle(photo.creationDate),
-                                 font: Font.custom("NotoSansSC-Medium", size: 15), color: DarkroomColors.paper)
-                    Text(timeLine(photo.creationDate))
-                        .font(DarkroomFonts.plexMono(size: 10.5))
-                        .tracking(0.42)
-                        .foregroundStyle(DarkroomColors.paper.opacity(0.66))
-                }
-                // 翻页在 snappy 弹簧事务里换 index：不让这里的文字跟着做隐式插值（带阴影的文字组每帧都要在主线程 CPU 重画）。
-                // 日期里程表自己按时间轴滚动，不受影响；时间行与 Android 一样直接换字。
-                // 日期不吃点击，点在字上也能收回详情；返回钮自己可点。
-                .allowsHitTesting(false)
-                .transaction { if !PerfLegacy.on { $0.animation = nil } }
-                .shadow(color: .black.opacity(0.4), radius: 10, y: 2.6)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("review-date")
+            VStack(spacing: 0) {
+                // Android ReviewTopBar：日期走里程表，方向按「第几天」（epoch day）定
+                OdometerText(value: Int64(((photo.creationDate.timeIntervalSince1970 + Double(TimeZone.current.secondsFromGMT())) / 86400).rounded(.down)),
+                             text: dateTitle(photo.creationDate),
+                             font: Font.custom("NotoSansSC-Medium", size: 15), color: DarkroomColors.paper,
+                             rolls: showDate)
+                Text(timeLine(photo.creationDate))
+                    .font(DarkroomFonts.plexMono(size: 10.5))
+                    .tracking(0.42)
+                    .foregroundStyle(DarkroomColors.paper.opacity(0.66))
             }
+            // 翻页换 index 时不让这里的文字跟着做隐式插值（带阴影的文字组每帧都要在主线程 CPU 重画）。
+            // 日期里程表自己按时间轴滚动，不受影响；时间行与 Android 一样直接换字。
+            // 显隐的透明度在这层外面，不被这段清掉。
+            .transaction { if !PerfLegacy.on { $0.animation = nil } }
+            .shadow(color: .black.opacity(0.4), radius: 10, y: 2.6)
+            .opacity(showDate ? 1 : 0)
+            .animation(.timingCurve(0.2, 0, 0, 1, duration: showDate ? DarkroomMotion.short : DarkroomMotion.micro), value: showDate)
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("review-date")
+            .accessibilityHidden(!showDate)
         }
         .frame(height: 40)
         .padding(.horizontal, 12)
@@ -974,25 +1003,16 @@ struct ReviewView: View {
         .allowsHitTesting(false)
     }
 
-    @ViewBuilder
     private func edgeHint(size: CGSize) -> some View {
-        let atStart = axis == .horizontal && dx > 0 && page(at: session.index - 1) == nil
-        let atEnd = axis == .horizontal && dx < 0 && page(at: session.index + 1) == nil
-        if atStart || atEnd {
-            HStack {
-                if atEnd { Spacer() }
-                Text(L10n.string(atStart ? "edge_first" : "edge_last", locale: language.effectiveLocale))
-                    .font(Font.custom("NotoSansSC-Regular", size: 13))
-                    .foregroundStyle(DarkroomColors.paper)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(DarkroomColors.tray.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .opacity(Double(min(1, abs(dx) / (size.width * 0.3 * 0.5))))
-                if atStart { Spacer() }
-            }
-            .padding(.horizontal, 16)
-            .allowsHitTesting(false)
-        }
+        EdgeHint(
+            drag: drag,
+            tracking: axis == .horizontal,
+            hasPrev: page(at: session.index - 1) != nil,
+            hasNext: page(at: session.index + 1) != nil,
+            width: size.width,
+            first: L10n.string("edge_first", locale: language.effectiveLocale),
+            last: L10n.string("edge_last", locale: language.effectiveLocale)
+        )
     }
 
     private var emptyDone: some View {
@@ -1147,9 +1167,10 @@ struct ReviewView: View {
         }
         if a == .vertical {
             ReviewHaptics.prepare()
-            dx = 0
+            drag.set(0)
             withAnimation(.linear(duration: 0.08)) { chromeAlpha = 0 }
         } else {
+            drag.cancelSpring()
             dy = 0
         }
     }
@@ -1161,9 +1182,9 @@ struct ReviewView: View {
             let hasPrev = page(at: session.index - 1) != nil
             let hasNext = page(at: session.index + 1) != nil
             if (raw > 0 && !hasPrev) || (raw < 0 && !hasNext) {
-                dx = ReviewMath.edgeResistance(raw, length: size.width * 0.3)
+                drag.set(ReviewMath.edgeResistance(raw, length: size.width * 0.3))
             } else {
-                dx = raw
+                drag.set(raw)
             }
         case .vertical:
             dy = ReviewGestureEnd.displacement(raw: t.height, slop: slop)
@@ -1182,7 +1203,7 @@ struct ReviewView: View {
         axis = nil
         switch a {
         case .horizontal:
-            withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0 }
+            drag.settle(from: drag.dx, velocity: 0, snappy: false, reduce: reduceMotion)
             releasePlayback(after: DarkroomMotion.long)
         case .vertical:
             if past { setPast(false) }
@@ -1217,6 +1238,7 @@ struct ReviewView: View {
     }
 
     private func releaseHorizontal(vx: CGFloat, size: CGSize) {
+        let dx = drag.dx
         let dir = ReviewMath.horizontalRelease(dx: dx, vx: vx, width: size.width)
         let hasPrev = page(at: session.index - 1) != nil
         let hasNext = page(at: session.index + 1) != nil
@@ -1226,13 +1248,13 @@ struct ReviewView: View {
         } else if dir == 1 && hasPrev {
             advance(1, size: size, velocity: vx)
         } else {
-            let rel = dx == 0 ? 0 : Double(-vx / dx)
-            withAnimation(reduceMotion ? nil : SpringToken.settle.animation(initialVelocity: rel)) { dx = 0 }
+            drag.settle(from: dx, velocity: vx, snappy: false, reduce: reduceMotion)
             releasePlayback(after: DarkroomMotion.long)
         }
     }
 
-    /// 翻页：同一个动画事务里改 index 和 dx，按 page id 绑定的三页各自从原位置弹到新位置。
+    /// 翻页：先换下标，同时把位移接上（下一张加上屏宽），再只把位移弹回 0。
+    /// 弹簧写在 `drag` 上，不走这一页的 `withAnimation`，顶栏和进度条不跟着每帧重算。
     /// direction: -1 = 下一张，+1 = 上一张。
     private func advance(_ direction: Int, size: CGSize, velocity: CGFloat = 0) {
         guard !compress.isRunning else { return }
@@ -1242,13 +1264,13 @@ struct ReviewView: View {
         hideDetails()
         dismissTutorial()
         let fromDay = session.currentPhoto.map { ReviewSessionModel.dayKey($0.creationDate) }
-        let remaining = size.width - abs(dx)
-        let rel = remaining > 1 ? Double(abs(velocity) / remaining) : 0
-        // Reduce Motion：直接换页（interaction.md「移除动画」）
-        withAnimation(reduceMotion ? nil : SpringToken.snappy.animation(initialVelocity: rel)) {
+        let connected = ReviewPageShift.connectedOffset(dx: drag.dx, direction: direction, width: size.width)
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) {
             if direction < 0 { session.goNext() } else { session.goPrevious() }
-            dx = 0
         }
+        drag.settle(from: connected, velocity: velocity, snappy: true, reduce: reduceMotion)
         let toDay = session.currentPhoto.map { ReviewSessionModel.dayKey($0.creationDate) }
         if fromDay != nil, toDay != nil, fromDay != toDay { ReviewHaptics.tick() }
         releasePlayback(after: DarkroomMotion.medium)
@@ -1325,7 +1347,8 @@ struct ReviewView: View {
                 decorateUndo(for: photo, trash: !up)
                 lastActed = (photo, kind, target)
             }
-            dy = 0; dx = 0; axis = nil
+            dy = 0; axis = nil
+            drag.set(0)
             past = false; pastAnim = 0; popScale = 1
             if !reduceMotion, let next = session.pages.indices.contains(session.index) ? session.pages[session.index] : nil {
                 entry = EntryAnim(pageId: next.id, start: now)
@@ -1388,7 +1411,8 @@ struct ReviewView: View {
                     if axis == .horizontal || axis == .vertical {
                         // 拖动中第二根手指落下：取消拖动，切到缩放。缩放本身不暂停。
                         if past { setPast(false) }
-                        withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dx = 0; dy = 0 }
+                        drag.settle(from: drag.dx, velocity: 0, snappy: false, reduce: reduceMotion)
+                        withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { dy = 0 }
                         withAnimation(.timingCurve(0.2, 0, 0, 1, duration: DarkroomMotion.short)) { chromeAlpha = 1 }
                         releasePlayback(after: DarkroomMotion.long)
                     }
@@ -1473,11 +1497,9 @@ struct ReviewView: View {
                 detailsOpen: showDetails
             ) {
             case .toggleTransport(let show):
-                withAnimation(DarkroomMotion.shortCurve) { transportShown = show }
+                transportShown = show
             case .toggleDetails(let show):
-                withAnimation(.timingCurve(0.2, 0, 0, 1, duration: showDetails ? DarkroomMotion.micro : DarkroomMotion.short)) {
-                    showDetails = show
-                }
+                showDetails = show
             case nil:
                 break
             }
@@ -1909,5 +1931,82 @@ private struct StageAccessibility: ViewModifier {
                 @unknown default: break
                 }
             }
+    }
+}
+
+/// 左右跟手。只这一层订阅 `drag`：位移是渲染期平移，不触发布局，也不让清理页 body 重算。
+private struct HorizontalFollow<Content: View>: View {
+    @ObservedObject var drag: ReviewDragModel
+    var role: Int
+    var width: CGFloat
+    var baseX: CGFloat
+    /// 离场层自己有位姿，不再加手指位移。
+    var active: Bool
+    var content: Content
+
+    init(drag: ReviewDragModel, role: Int, width: CGFloat, baseX: CGFloat, active: Bool, @ViewBuilder content: () -> Content) {
+        self.drag = drag
+        self.role = role
+        self.width = width
+        self.baseX = baseX
+        self.active = active
+        self.content = content()
+    }
+
+    var body: some View {
+        let dx = active ? drag.dx : 0
+        let veil: Double = {
+            guard active, role != 0, width > 0 else { return 0 }
+            let towards = role > 0 ? min(0, dx) : max(0, dx)
+            return Double(max(0, 1 - ReviewMath.enteringBrightness(towards, width: width)))
+        }()
+        content
+            .overlay {
+                if veil > 0.001 {
+                    Color.black.opacity(veil).allowsHitTesting(false)
+                }
+            }
+            .visualEffect { view, _ in
+                view.offset(x: (active ? baseX : 0) + dx)
+            }
+    }
+}
+
+/// 旧路径对照（-cpLegacy）：位移仍每帧重算页树。
+private struct LegacyDragPages<Content: View>: View {
+    @ObservedObject var drag: ReviewDragModel
+    @ViewBuilder var content: (CGFloat) -> Content
+    var body: some View { content(drag.dx) }
+}
+
+/// 会话首尾的「第一张 / 最后一张」。跟着位移走，不把清理页 body 拉进每一帧。
+private struct EdgeHint: View {
+    @ObservedObject var drag: ReviewDragModel
+    var tracking: Bool
+    var hasPrev: Bool
+    var hasNext: Bool
+    var width: CGFloat
+    var first: String
+    var last: String
+
+    var body: some View {
+        let dx = drag.dx
+        let atStart = tracking && dx > 0 && !hasPrev
+        let atEnd = tracking && dx < 0 && !hasNext
+        if atStart || atEnd {
+            HStack {
+                if atEnd { Spacer() }
+                Text(atStart ? first : last)
+                    .font(Font.custom("NotoSansSC-Regular", size: 13))
+                    .foregroundStyle(DarkroomColors.paper)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(DarkroomColors.tray.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .opacity(Double(min(1, abs(dx) / (width * 0.3 * 0.5))))
+                if atStart { Spacer() }
+            }
+            .padding(.horizontal, 16)
+            .allowsHitTesting(false)
+        }
     }
 }

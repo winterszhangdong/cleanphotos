@@ -8,6 +8,8 @@ struct OdometerText: View {
     var font: Font
     var color: Color
     var tracking: CGFloat = 0
+    /// 藏着的时候只换字，不启动逐位滚动。滚动用 TimelineView，藏着空转会占掉翻页弹簧的帧。
+    var rolls: Bool = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lastValue: Int64?
@@ -20,7 +22,7 @@ struct OdometerText: View {
     var body: some View {
         let chars = Array(text)
         let old = Array(oldText)
-        TimelineView(.animation(paused: change == nil)) { tl in
+        TimelineView(.animation(paused: !rolls || change == nil)) { tl in
             let t = change.map { tl.date.timeIntervalSince($0) } ?? 10
             let q = change == nil ? 1 : SpringToken.settle.value(at: t)
             let fade = change == nil ? 1 : CubicBezier.standard(min(1, t / DarkroomMotion.short))
@@ -39,8 +41,11 @@ struct OdometerText: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(text))
         .onAppear { lastValue = value }
+        .onChange(of: rolls) { _, on in
+            if !on { change = nil }
+        }
         .onChange(of: text) { previous, _ in
-            guard !reduceMotion else { lastValue = value; return }
+            guard rolls, !reduceMotion else { lastValue = value; change = nil; return }
             let before = lastValue ?? value
             direction = value > before ? 1 : (value < before ? -1 : 0)
             oldText = previous

@@ -36,6 +36,13 @@ final class GestureRulesTests: XCTestCase {
 
     // MARK: I2 松手合并最终 translation
 
+    func testReviewPageShiftKeepsTheIncomingPageStill() {
+        // 下一张原先在 width + dx，接上后当前页的位移等于这个位置。
+        XCTAssertEqual(ReviewPageShift.connectedOffset(dx: -180, direction: -1, width: 400), 220)
+        XCTAssertEqual(ReviewPageShift.connectedOffset(dx: 180, direction: 1, width: 400), -220)
+        XCTAssertEqual(ReviewPageShift.connectedOffset(dx: 0, direction: -1, width: 390), 390)
+    }
+
     func testFinalSegmentCrossesVerticalThreshold() {
         let slop: CGFloat = 8
         let stale = ReviewGestureEnd.displacement(raw: 108, slop: slop)

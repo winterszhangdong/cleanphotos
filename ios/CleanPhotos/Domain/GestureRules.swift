@@ -77,6 +77,14 @@ enum ReviewGestureEnd {
     }
 }
 
+/// 左右翻页时先把位移接上，再把位移弹回 0。画面停在松手那一帧，不跳。
+enum ReviewPageShift {
+    /// direction -1 下一张：加上屏宽。direction +1 上一张：减去屏宽。
+    static func connectedOffset(dx: CGFloat, direction: Int, width: CGFloat) -> CGFloat {
+        dx + CGFloat(direction < 0 ? 1 : -1) * width
+    }
+}
+
 /// 放大后拖动的边界。fit 用扣除上下安全区后的方框，和清理页照片的实际矩形一致。
 enum ZoomClamp {
     struct Fit: Equatable {

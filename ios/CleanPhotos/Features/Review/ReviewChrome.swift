@@ -88,6 +88,112 @@ struct ReviewProgressBar: View {
     }
 }
 
+/// 清理页返回。模糊圆在进入时就建好，藏着（`isHidden`，不采样后面的照片）。
+/// 点开详情只改这颗的透明度，不再在那一帧创建 `UIVisualEffectView`。
+struct ReviewBackButton: UIViewRepresentable {
+    var shown: Bool
+    var action: () -> Void
+
+    func makeUIView(context: Context) -> ReviewBackControl {
+        let view = ReviewBackControl()
+        view.addTarget(context.coordinator, action: #selector(Coordinator.tap), for: .touchUpInside)
+        return view
+    }
+
+    func updateUIView(_ uiView: ReviewBackControl, context: Context) {
+        context.coordinator.action = action
+        let animated = uiView.hasAppeared && !context.transaction.disablesAnimations
+        uiView.setShown(shown, animated: animated)
+        uiView.hasAppeared = true
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: ReviewBackControl, context: Context) -> CGSize? {
+        CGSize(width: 40, height: 40)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(action) }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        init(_ action: @escaping () -> Void) { self.action = action }
+        @objc func tap() { action() }
+    }
+}
+
+final class ReviewBackControl: UIControl {
+    var hasAppeared = false
+    private var shown = false
+    private let blur: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        view.isUserInteractionEnabled = false
+        view.clipsToBounds = true
+        return view
+    }()
+    private let tint: UIView = {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = DarkroomUIColors.glass
+        return view
+    }()
+    private let icon: UIImageView = {
+        let view = UIImageView(image: DarkroomIcons.template(.back, size: 18))
+        view.tintColor = DarkroomUIColors.paper
+        view.contentMode = .center
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        alpha = 0
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        blur.contentView.addSubview(tint)
+        blur.layer.borderWidth = 1
+        blur.layer.borderColor = DarkroomUIColors.glassRim.cgColor
+        addSubview(blur)
+        addSubview(icon)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let side = min(bounds.width, bounds.height)
+        let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+        blur.frame = rect
+        blur.layer.cornerRadius = side / 2
+        tint.frame = blur.contentView.bounds
+        icon.frame = rect
+    }
+
+    func setShown(_ next: Bool, animated: Bool) {
+        guard next != shown else { return }
+        shown = next
+        isUserInteractionEnabled = next
+        isAccessibilityElement = next
+        if !animated {
+            alpha = next ? 1 : 0
+            isHidden = !next
+            return
+        }
+        if next {
+            isHidden = false
+            UIView.animate(withDuration: DarkroomMotion.short, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+                self.alpha = 1
+            }
+        } else {
+            UIView.animate(withDuration: DarkroomMotion.micro, delay: 0, options: [.curveEaseIn, .allowUserInteraction, .beginFromCurrentState]) {
+                self.alpha = 0
+            } completion: { finished in
+                if finished, !self.shown { self.isHidden = true }
+            }
+        }
+    }
+}
+
 /// 40pt 玻璃圆钮（.rv-top 返回）：#141210 56% + 14% 描边 + 模糊。
 struct GlassCircleButton: View {
     var icon: DarkroomIcon

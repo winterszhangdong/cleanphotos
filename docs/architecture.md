@@ -467,6 +467,7 @@ ReviewPagerLayout
 * `ReviewPagerLayout` 是 deprecated shim，直接委托给共享 `buildPhotoPagerPages`。
 * `ReviewViewModel` 在当前页变化时算出 `PlaybackTarget?` 和本次进入的静音状态，放进 `ReviewUiState`。视频立刻给出地址；图片先清空再异步识别，识别完若已不是当前页则丢弃。读失败打日志并当成静态图。ExoPlayer 留在 `ReviewScreen`。离场飞行和左右翻页都用 `playbackPinnedKey` 把播放器留在离开的那一页（左右滑时这一页会变成 Previous / Next，弹簧落定前继续画定格帧）。离场主体结束或横向弹簧落定后再交给新的当前页。没钉住时，只有 `engine.media` 和 `uiState.playback` 是同一个目标、并且地址就是这一页，才把 TextureView 挂上去。
 * 压缩挂在进程级控制器和前台服务上，不跟清理页 ViewModel 一起取消。API 35+ 的前台服务类型是 `mediaProcessing`，API 34 是 `dataSync`，更低版本是普通前台服务。清单声明 `FOREGROUND_SERVICE` 以及 34/35 的类型权限。轨道信息在开压时用提取器读，不进网格的 `PhotoItem` 查询。成功后账本原位换成新视频。
+* iOS 清理页左右位移在 `ReviewDragModel`，不写在 `ReviewView` 的 `@State` 上。手指移动和落定弹簧只让 `HorizontalFollow` 改已经画好的图层（`visualEffect` 平移 + 邻页亮度），进度条和顶栏不跟着重算。翻页先换下标，再用 `ReviewPageShift` 把位移接上，弹簧收回 0。返回钮的模糊在进入清理页时建好并 `isHidden`，点开详情只改透明度；文件名和大小在翻到这张时预取。单击仍等 280ms，避免双击缩放先闪出详情。
 
 ### favorites
 
