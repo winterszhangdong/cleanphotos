@@ -286,3 +286,220 @@ enum PhotosLeave {
         }
     }
 }
+
+/// 范围横滑分页的纯数学规则：切页阈值（三成慢滑 / 速度甩页）与带初速度的阻尼弹簧解析解。
+enum ScopePagerMath {
+    static let flickVelocity: CGFloat = 600
+
+    /// 以 `contentOffset.x` 坐标系计算松手目标页：正位移/正速度表示向下一页翻，负值表示向上一页翻。
+    static func targetPage(
+        startPage: Int,
+        currentOffsetX: CGFloat,
+        pageWidth: CGFloat,
+        velocityPtsPerSec: CGFloat,
+        pageCount: Int,
+        snapFraction: CGFloat = ScopeDialMath.snapFraction,
+        flickVelocity: CGFloat = flickVelocity
+    ) -> Int {
+        guard pageCount > 1 else { return 0 }
+        let clampedStart = min(max(0, startPage), pageCount - 1)
+        guard pageWidth > 0 else { return clampedStart }
+        let offsetDelta = currentOffsetX - CGFloat(clampedStart) * pageWidth
+        var dest = clampedStart
+        if abs(velocityPtsPerSec) > flickVelocity {
+            dest += velocityPtsPerSec > 0 ? 1 : -1
+        } else if abs(offsetDelta) > pageWidth * snapFraction {
+            dest += offsetDelta > 0 ? 1 : -1
+        }
+        return min(max(0, dest), pageCount - 1)
+    }
+
+    /// 质量 m = 1 的弹簧阻尼谐振解析步进（默认 ζ = 0.75, k = 400 对应 SpringToken.settle）。
+    static func springStep(
+        from: CGFloat,
+        to: CGFloat,
+        initialVelocity: CGFloat,
+        elapsed: Double,
+        dampingRatio: Double = 0.75,
+        stiffness: Double = 400
+    ) -> (x: CGFloat, v: CGFloat, settled: Bool) {
+        if elapsed >= 1.2 {
+            return (to, 0, true)
+        }
+        let t = max(0, elapsed)
+        let x0 = Double(from - to)
+        let v0 = Double(initialVelocity)
+        if abs(x0) < 0.25 && abs(v0) < 5 {
+            return (to, 0, true)
+        }
+        let w0 = sqrt(max(1e-6, stiffness))
+        let z = max(1e-4, dampingRatio)
+        let displaced: Double
+        let vel: Double
+        if z < 1 {
+            let wd = w0 * sqrt(1 - z * z)
+            let a = x0
+            let b = (v0 + z * w0 * x0) / wd
+            let env = exp(-z * w0 * t)
+            let c = cos(wd * t)
+            let s = sin(wd * t)
+            displaced = env * (a * c + b * s)
+            vel = env * ((b * wd - a * z * w0) * c - (a * wd + b * z * w0) * s)
+        } else if z == 1 {
+            let env = exp(-w0 * t)
+            let c2 = v0 + w0 * x0
+            displaced = env * (x0 + c2 * t)
+            vel = env * (v0 - w0 * c2 * t)
+        } else {
+            let root = w0 * sqrt(z * z - 1)
+            let r1 = -z * w0 + root
+            let r2 = -z * w0 - root
+            let c1 = (v0 - r2 * x0) / (r1 - r2)
+            let c2 = x0 - c1
+            let e1 = exp(r1 * t)
+            let e2 = exp(r2 * t)
+            displaced = c1 * e1 + c2 * e2
+            vel = c1 * r1 * e1 + c2 * r2 * e2
+        }
+        let x = to + CGFloat(displaced)
+        let v = CGFloat(vel)
+        let settled = abs(x - to) < 0.25 && abs(v) < 5
+        if settled {
+            return (to, 0, true)
+        }
+        return (x, v, false)
+    }
+}
+
+/// UIKit 照片网格自定义布局的纯几何与 O(log S) 切片区间查找，与 `PhotosLeave` 像素级对齐。
+enum PhotosGridGeometry {
+    struct SectionSpec: Equatable {
+        enum Kind: Equatable {
+            case year
+            case dayHeader(id: String)
+            case monthHeader
+            case tiles(count: Int, dayId: String?)
+            case more
+        }
+        var kind: Kind
+    }
+
+    struct LayoutSlice: Equatable {
+        var yStart: CGFloat
+        var height: CGFloat
+        var itemCount: Int
+        var kind: SectionSpec.Kind
+    }
+
+    struct BuiltLayout: Equatable {
+        var width: CGFloat
+        var tileSide: CGFloat
+        var rowPitch: CGFloat
+        var slices: [LayoutSlice]
+        var totalHeight: CGFloat
+        var dayMarks: [ScrollChrome.DayMark]
+        var dayAnchors: [CGFloat]
+    }
+
+    static func build(
+        width: CGFloat,
+        chromeHeight: CGFloat,
+        bottomReserve: CGFloat,
+        yearHeight: CGFloat,
+        headerHeight: CGFloat,
+        moreHeight: CGFloat,
+        gridGap: CGFloat,
+        columns: Int,
+        specs: [SectionSpec]
+    ) -> BuiltLayout {
+        let safeCols = max(columns, 1)
+        let safeWidth = max(width, 1)
+        let tileSide = (safeWidth - gridGap * CGFloat(safeCols - 1)) / CGFloat(safeCols)
+        let rowPitch = tileSide + gridGap
+
+        var slices: [LayoutSlice] = []
+        slices.reserveCapacity(specs.count)
+        var dayMarks: [ScrollChrome.DayMark] = []
+        var dayAnchors: [CGFloat] = []
+        var dayIndexById: [String: Int] = [:]
+
+        var cursorY = chromeHeight
+        for spec in specs {
+            switch spec.kind {
+            case .year:
+                slices.append(LayoutSlice(yStart: cursorY, height: yearHeight, itemCount: 1, kind: spec.kind))
+                cursorY += yearHeight
+            case .dayHeader(let id):
+                slices.append(LayoutSlice(yStart: cursorY, height: headerHeight, itemCount: 1, kind: spec.kind))
+                dayIndexById[id] = dayMarks.count
+                dayMarks.append(ScrollChrome.DayMark(id: id, headerY: cursorY, headerHeight: headerHeight, lastY: nil, lastHeight: nil))
+                dayAnchors.append(cursorY)
+                cursorY += headerHeight
+            case .monthHeader:
+                slices.append(LayoutSlice(yStart: cursorY, height: headerHeight, itemCount: 1, kind: spec.kind))
+                cursorY += headerHeight
+            case .tiles(let count, let dayId):
+                let rows = count > 0 ? (count + safeCols - 1) / safeCols : 0
+                let height = CGFloat(rows) * rowPitch
+                slices.append(LayoutSlice(yStart: cursorY, height: height, itemCount: count, kind: spec.kind))
+                if rows > 0, let dayId, let idx = dayIndexById[dayId] {
+                    dayMarks[idx].lastY = cursorY + CGFloat(rows - 1) * rowPitch
+                    dayMarks[idx].lastHeight = tileSide
+                }
+                cursorY += height
+            case .more:
+                slices.append(LayoutSlice(yStart: cursorY, height: moreHeight, itemCount: 1, kind: spec.kind))
+                cursorY += moreHeight
+            }
+        }
+
+        return BuiltLayout(
+            width: safeWidth,
+            tileSide: tileSide,
+            rowPitch: rowPitch,
+            slices: slices,
+            totalHeight: cursorY + bottomReserve,
+            dayMarks: dayMarks,
+            dayAnchors: dayAnchors
+        )
+    }
+
+    static func immersiveDayAnchors(
+        dayItemCounts: [Int],
+        chromeHeight: CGFloat,
+        rowPitch: CGFloat,
+        columns: Int
+    ) -> [CGFloat] {
+        let safeCols = max(columns, 1)
+        var anchors: [CGFloat] = []
+        anchors.reserveCapacity(dayItemCounts.count)
+        var before = 0
+        for count in dayItemCounts {
+            let row = before / safeCols
+            anchors.append(chromeHeight + CGFloat(row) * rowPitch)
+            before += count
+        }
+        return anchors
+    }
+
+    static func sliceRange(in slices: [LayoutSlice], minY: CGFloat, maxY: CGFloat) -> Range<Int> {
+        guard !slices.isEmpty, maxY >= minY else { return 0..<0 }
+        var lo = 0
+        var hi = slices.count
+        while lo < hi {
+            let mid = (lo + hi) >> 1
+            let s = slices[mid]
+            if s.yStart + s.height >= minY {
+                hi = mid
+            } else {
+                lo = mid + 1
+            }
+        }
+        let start = lo
+        var end = start
+        while end < slices.count && slices[end].yStart <= maxY {
+            end += 1
+        }
+        return start..<end
+    }
+}

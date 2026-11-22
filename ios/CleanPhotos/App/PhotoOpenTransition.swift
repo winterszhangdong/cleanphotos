@@ -4,27 +4,22 @@ import SwiftUI
 /// - 展开：0–80ms 停在缩略图（按压档），80–400ms 按 settle 弹簧曲线（asEasing，400ms 准时收住）放大到大图的 fit 位置；
 ///   网格同段 Standard 退到 0.96 / 亮度 0.25，清理页底色同段淡入；返回 / 日期 / 进度条 400–520ms 淡入。
 /// - 收回：先停 80ms，再 320ms Standard 回到网格瓦片；网格 400ms 从 0.96 / 0.25 回来；清理页 400ms 淡出，控件先 100ms 淡出。
-/// 网格瓦片把自己的全局 frame 与已显示缩略图登记在这里（不触发刷新）；飞行期间对应瓦片和大图都隐藏，只画飞行层。
+/// 网格通过按需 provider 在打开 / 关闭瞬间查询当前可见瓦片坐标与已解码缩略图，零常驻坐标字典。
 @MainActor
 final class PhotoOpenTransition: ObservableObject {
     static let shared = PhotoOpenTransition()
 
-    var tileFrames: [String: CGRect] = [:]
-    var tileImages: [String: UIImage] = [:]
     private var frameProviders: [String: (String) -> CGRect?] = [:]
     private var imageProviders: [String: (String) -> UIImage?] = [:]
     private var flyingObservers: [String: (String?) -> Void] = [:]
-    /// 飞行中的照片 id。网格瓦片不观察这个对象：只有被藏的那一格自己的 flag 会刷新。
+    /// 飞行中的照片 id，仅通过 provider 通知各网格隐藏 / 恢复单格。
     private(set) var flyingId: String? {
         didSet {
             guard oldValue != flyingId else { return }
-            if let oldValue { hideFlags[oldValue]?.hidden = false }
-            if let flyingId { hideFlag(for: flyingId).hidden = true }
             for observer in flyingObservers.values { observer(flyingId) }
             objectWillChange.send()
         }
     }
-    private var hideFlags: [String: TileHideFlag] = [:]
 
     static let press: Double = 0.08
     static let expandEnd: Double = 0.40
@@ -41,13 +36,6 @@ final class PhotoOpenTransition: ObservableObject {
         let s = SpringToken.settle
         let span = log(1000) / (min(s.damping, 1) * sqrt(s.stiffness))
         return s.value(at: f * span) / s.value(at: span)
-    }
-
-    func register(_ id: String, frame: CGRect) { tileFrames[id] = frame }
-    func unregister(_ id: String) {
-        tileFrames[id] = nil
-        tileImages[id] = nil
-        if flyingId != id { hideFlags[id] = nil }
     }
 
     func registerProvider(
@@ -71,31 +59,17 @@ final class PhotoOpenTransition: ObservableObject {
         for provider in frameProviders.values {
             if let rect = provider(id) { return rect }
         }
-        return tileFrames[id]
+        return nil
     }
 
     func image(for id: String) -> UIImage? {
         for provider in imageProviders.values {
             if let img = provider(id) { return img }
         }
-        return tileImages[id]
-    }
-
-    /// 这一格是否在飞行。别的格子不订阅。
-    func hideFlag(for id: String) -> TileHideFlag {
-        if let flag = hideFlags[id] { return flag }
-        let flag = TileHideFlag()
-        flag.hidden = flyingId == id
-        hideFlags[id] = flag
-        return flag
+        return nil
     }
 
     func setFlying(_ id: String?) { flyingId = id }
-}
-
-/// 只有飞行涉及的那一格会发布。
-final class TileHideFlag: ObservableObject {
-    @Published var hidden = false
 }
 
 /// 飞行层：在 from → to 之间按阶段曲线插值，内容按 fill 裁进当前矩形（网格方块 ↔ 大图 fit）。

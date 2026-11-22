@@ -11,7 +11,7 @@ struct SimilarThumbView: View {
 
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var image: UIImage?
-    @State private var requestID: PHImageRequestID?
+    @State private var token: ThumbnailToken?
 
     var body: some View {
         Button(action: onTap) {
@@ -46,15 +46,18 @@ struct SimilarThumbView: View {
 
     private func load() {
         guard image == nil else { return }
-        requestID = library.requestThumbnail(for: item.asset, side: side) { img in
-            Task { @MainActor in
-                if let img { self.image = img }
-            }
+        if let hit = library.thumbnails.cached(id: item.id, side: side, style: .normal) {
+            self.image = hit
+            return
+        }
+        token = library.thumbnails.request(asset: item.asset, side: side, style: .normal) { img, _ in
+            self.image = img
         }
     }
 
     private func cancel() {
-        if let requestID { library.cancelThumbnail(requestID) }
+        token?.cancel()
+        token = nil
     }
 }
 

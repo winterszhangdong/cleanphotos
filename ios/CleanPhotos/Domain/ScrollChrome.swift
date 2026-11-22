@@ -41,7 +41,7 @@ enum ScrollChrome {
         var y: CGFloat
     }
 
-    /// `days` 按列表顺序。只在吸住的那一天变了的时候才需要改 SwiftUI。
+    /// `days` 按列表顺序（可能含未测量的 `headerY == nil`）。用于兼容与通用场景。
     static func stuck(pinY: CGFloat, scrollY: CGFloat, days: [DayMark]) -> Stuck? {
         guard let lastId = days.last?.id else { return nil }
         for i in days.indices {
@@ -69,13 +69,57 @@ enum ScrollChrome {
         return nil
     }
 
-    /// 滑块当前落在哪一天。`anchors` 是各天在内容坐标里的落点。
-    static func scrubIndex(scrollY: CGFloat, pinY: CGFloat, anchors: [CGFloat]) -> Int {
-        var index = 0
-        for (i, anchor) in anchors.enumerated() {
-            if anchor - scrollY <= pinY + 1 { index = i }
+    /// `days` 已按 `headerY` 升序排列且均已布局得到 `headerY`。用 O(log D) 二分查找当前吸顶天。
+    static func stuckSorted(pinY: CGFloat, scrollY: CGFloat, days: [DayMark]) -> Stuck? {
+        guard !days.isEmpty else { return nil }
+        var lo = 0
+        var hi = days.count - 1
+        var candidate = -1
+        while lo <= hi {
+            let mid = (lo + hi) >> 1
+            guard let hy = days[mid].headerY else {
+                return stuck(pinY: pinY, scrollY: scrollY, days: days)
+            }
+            if hy - scrollY < pinY {
+                candidate = mid
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
         }
-        return index
+        guard candidate >= 0 else { return nil }
+        let day = days[candidate]
+        guard let headerY = day.headerY else { return nil }
+        let isLast = candidate == days.count - 1
+        let nextTop: CGFloat? = isLast ? nil : days[candidate + 1].headerY.map { $0 - scrollY }
+        guard let y = DateStick.stickY(
+            pinY: pinY,
+            headerHeight: day.headerHeight,
+            headerTop: headerY - scrollY,
+            nextHeaderTop: nextTop,
+            lastItemTop: isLast ? day.lastY.map { $0 - scrollY } : nil,
+            lastItemHeight: isLast ? day.lastHeight : nil,
+            sectionVisible: true
+        ) else { return nil }
+        return Stuck(id: day.id, y: y)
+    }
+
+    /// 滑块当前落在哪一天。`anchors` 是各天在内容坐标里的升序落点，用 O(log D) 二分查找。
+    static func scrubIndex(scrollY: CGFloat, pinY: CGFloat, anchors: [CGFloat]) -> Int {
+        guard !anchors.isEmpty else { return 0 }
+        var lo = 0
+        var hi = anchors.count - 1
+        var result = 0
+        while lo <= hi {
+            let mid = (lo + hi) >> 1
+            if anchors[mid] - scrollY <= pinY + 1 {
+                result = mid
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        return result
     }
 
     static func scrubThumbY(index: Int, count: Int, top: CGFloat, bottom: CGFloat, thumbHeight: CGFloat) -> CGFloat {

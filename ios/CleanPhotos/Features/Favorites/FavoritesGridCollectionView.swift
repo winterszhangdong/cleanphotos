@@ -517,65 +517,6 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
     }
 }
 
-/// 年份 / 已冲洗分隔行：左标题 + 右侧 1pt 细线（纯 frame 布局，零约束解算）。
-final class DarkroomDividerCell: UICollectionViewCell {
-    static let reuseIdentifier = "DarkroomDividerCell"
-
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = DarkroomUIFonts.plexMono(size: 11)
-        l.textColor = DarkroomUIColors.dim
-        l.numberOfLines = 1
-        return l
-    }()
-
-    private let lineView: UIView = {
-        let v = UIView()
-        v.backgroundColor = DarkroomUIColors.rim
-        return v
-    }()
-
-    private var topPadding: CGFloat = 0
-    private var currentTitle: String?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.backgroundColor = .clear
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(lineView)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        layoutAttributes
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let b = contentView.bounds
-        let availH = max(0, b.height - topPadding)
-        let maxLabelW = max(0, b.width - 32 - 20)
-        let labelSize = titleLabel.sizeThatFits(CGSize(width: maxLabelW, height: availH))
-        let lw = min(maxLabelW, ceil(labelSize.width))
-        titleLabel.frame = CGRect(x: 16, y: topPadding, width: lw, height: availH)
-        let lineX = 16 + lw + 12
-        let lineW = max(0, b.width - 16 - lineX)
-        lineView.frame = CGRect(x: lineX, y: topPadding + (availH - 1) / 2, width: lineW, height: 1)
-    }
-
-    func configure(title: String, topPadding: CGFloat) {
-        guard title != currentTitle || abs(topPadding - self.topPadding) > 0.5 else { return }
-        currentTitle = title
-        self.topPadding = topPadding
-        titleLabel.text = title
-        setNeedsLayout()
-    }
-}
-
 /// 收藏页待整理天头：日号 + 月·星期 + 张数 + 「整理」玻璃胶囊（纯 frame 布局 + 进程级缓存图标）。
 final class FavoriteDayHeaderCell: UICollectionViewCell {
     static let reuseIdentifier = "FavoriteDayHeaderCell"

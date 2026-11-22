@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// 滚动位移和顶栏收起量。不发 SwiftUI 通知。
-/// 吸顶日期、顶栏、滑块拇指的位置在 UIKit 上改 transform。
+/// 吸顶日期、顶栏、滑块拇指的位置在 UIKit 上改 transform，吸顶与滑块均用 O(log D) 查找。
 @MainActor
 final class ScrollChromeDriver: NSObject {
     var chromeHeight: CGFloat = 96
@@ -19,11 +19,7 @@ final class ScrollChromeDriver: NSObject {
     private(set) var collapse: CGFloat = 0
     var pinY: CGFloat { chromeHeight - collapse }
 
-    private var order: [String] = []
-    private var headerY: [String: CGFloat] = [:]
-    private var headerH: [String: CGFloat] = [:]
-    private var lastY: [String: CGFloat] = [:]
-    private var lastH: [String: CGFloat] = [:]
+    private var sortedDayMarks: [ScrollChrome.DayMark] = []
     private var anchors: [CGFloat] = []
     private var lastOffset: CGFloat = 0
     private var skipDelta = false
@@ -54,47 +50,12 @@ final class ScrollChromeDriver: NSObject {
     /// 吸住的日期变了才调用。滚动的中间帧不调用。
     var onStuckDay: ((String?) -> Void)?
 
-    func headerTop(_ id: String) -> CGFloat? { headerY[id] }
-    func headerHeight(_ id: String) -> CGFloat { headerH[id] ?? DarkroomDimens.dayHeight }
-
-    func forgetMeasurements() {
-        headerY.removeAll()
-        lastY.removeAll()
-        lastH.removeAll()
-    }
-
-    func replaceDays(order: [String], anchors: [CGFloat], defaultHeight: CGFloat) {
-        self.order = order
+    /// 直接接收按 `headerY` 升序排列的列表布局切片元数据（零每帧字典分配与重建）。
+    func replaceLayout(dayMarks: [ScrollChrome.DayMark], anchors: [CGFloat]) {
+        sortedDayMarks = dayMarks
         self.anchors = anchors
-        let alive = Set(order)
-        headerY = headerY.filter { alive.contains($0.key) }
-        headerH = headerH.filter { alive.contains($0.key) }
-        lastY = lastY.filter { alive.contains($0.key) }
-        lastH = lastH.filter { alive.contains($0.key) }
-        for id in order where headerH[id] == nil { headerH[id] = defaultHeight }
-        apply()
+        applyAndPublish()
         updateThumb()
-        publishStuck()
-    }
-
-    func noteHeader(id: String, y: CGFloat, height: CGFloat, scrubAnchor: Bool) {
-        if let old = headerY[id], abs(old - y) < 0.5, abs((headerH[id] ?? 0) - height) < 0.5 { return }
-        headerY[id] = y
-        headerH[id] = height
-        if scrubAnchor, let i = order.firstIndex(of: id), anchors.indices.contains(i) {
-            anchors[i] = y
-        }
-        apply()
-        updateThumb()
-        publishStuck()
-    }
-
-    func noteLastItem(id: String, y: CGFloat, height: CGFloat) {
-        if let old = lastY[id], abs(old - y) < 0.5, abs((lastH[id] ?? 0) - height) < 0.5 { return }
-        lastY[id] = y
-        lastH[id] = height
-        apply()
-        publishStuck()
     }
 
     /// 切范围时对齐到那一页已经记住的偏移，下一次增量不算进收起。
@@ -104,9 +65,8 @@ final class ScrollChromeDriver: NSObject {
         lastOffset = scrollY
         self.scrollY = scrollY
         collapse = 0
-        apply()
+        applyAndPublish()
         updateThumb()
-        publishStuck()
     }
 
     func setCollapse(_ value: CGFloat, animated: Bool) {
@@ -122,9 +82,8 @@ final class ScrollChromeDriver: NSObject {
         lastOffset = y
         if skipped || programmatic {
             if programmatic { cancelSnap() }
-            apply()
+            applyAndPublish()
             updateThumb()
-            publishStuck()
             if ScrollProbe.enabled { ScrollProbe.shared.ingest(CACurrentMediaTime() - t0) }
             return
         }
@@ -132,9 +91,8 @@ final class ScrollChromeDriver: NSObject {
         collapse = ScrollChrome.collapseWhileMoving(
             current: collapse, delta: delta, scrollY: y, chromeHeight: chromeHeight, forceOpen: forceOpen
         )
-        apply()
+        applyAndPublish()
         updateThumb()
-        publishStuck()
         if ScrollProbe.enabled { ScrollProbe.shared.ingest(CACurrentMediaTime() - t0) }
     }
 
@@ -166,7 +124,7 @@ final class ScrollChromeDriver: NSObject {
         case .scrubThumb: scrubThumb = view
         case .scrubHit: scrubHit = view
         }
-        apply()
+        applyAndPublish()
         updateThumb()
         if slot == .scrubThumb || slot == .scrubHit {
             scrubThumb?.alpha = scrubShown ? 1 : 0
@@ -179,18 +137,16 @@ final class ScrollChromeDriver: NSObject {
     private func jumpCollapse(_ value: CGFloat) {
         cancelSnap()
         collapse = value
-        apply()
+        applyAndPublish()
         updateThumb()
-        publishStuck()
     }
 
     private func animateCollapse(to target: CGFloat) {
         cancelSnap()
         guard abs(collapse - target) > 0.5 else {
             collapse = target
-            apply()
+            applyAndPublish()
             updateThumb()
-            publishStuck()
             return
         }
         if reduceMotion {
@@ -204,6 +160,7 @@ final class ScrollChromeDriver: NSObject {
         proxy.driver = self
         snapProxy = proxy
         let link = CADisplayLink(target: proxy, selector: #selector(SnapProxy.tick))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         self.link = link
     }
@@ -214,14 +171,12 @@ final class ScrollChromeDriver: NSObject {
         let t = CACurrentMediaTime() - snapStart
         let p = min(1, spring.value(at: t))
         collapse = snapFrom + (snapTo - snapFrom) * CGFloat(p)
-        apply()
+        applyAndPublish()
         updateThumb()
-        publishStuck()
         if t >= span {
             collapse = snapTo
-            apply()
+            applyAndPublish()
             updateThumb()
-            publishStuck()
             cancelSnap()
         }
     }
@@ -232,21 +187,14 @@ final class ScrollChromeDriver: NSObject {
         snapProxy = nil
     }
 
-    private func dayMarks() -> [ScrollChrome.DayMark] {
-        order.map { id in
-            ScrollChrome.DayMark(
-                id: id,
-                headerY: headerY[id],
-                headerHeight: headerH[id] ?? DarkroomDimens.dayHeight,
-                lastY: lastY[id],
-                lastHeight: lastH[id]
-            )
-        }
-    }
-
-    private func apply() {
+    private func applyAndPublish() {
         chromeView?.transform = CGAffineTransform(translationX: 0, y: -collapse)
-        let stuck = sticks ? ScrollChrome.stuck(pinY: pinY, scrollY: scrollY, days: dayMarks()) : nil
+        let stuck = sticks ? ScrollChrome.stuckSorted(pinY: pinY, scrollY: scrollY, days: sortedDayMarks) : nil
+        let nextId = stuck?.id
+        if nextId != stuckId {
+            stuckId = nextId
+            onStuckDay?(nextId)
+        }
         if let stuck {
             stickyView?.isHidden = false
             stickyView?.transform = CGAffineTransform(translationX: 0, y: stuck.y)
@@ -264,13 +212,6 @@ final class ScrollChromeDriver: NSObject {
             index: index, count: anchors.count, top: top, bottom: bottom, thumbHeight: thumbHeight
         )
         scrubThumb?.transform = CGAffineTransform(translationX: 0, y: y)
-    }
-
-    private func publishStuck() {
-        let id = sticks ? ScrollChrome.stuck(pinY: pinY, scrollY: scrollY, days: dayMarks())?.id : nil
-        guard id != stuckId else { return }
-        stuckId = id
-        onStuckDay?(id)
     }
 }
 
@@ -299,26 +240,6 @@ struct OverlayAnchor: UIViewRepresentable {
         override func didMoveToSuperview() {
             super.didMoveToSuperview()
             onLayout?()
-        }
-    }
-}
-
-/// 内容坐标。只在这一帧的位置真正变化时回调，不走 PreferenceKey。
-struct ContentFrameReader: View {
-    var space: String
-    var onFrame: (CGRect) -> Void
-
-    var body: some View {
-        GeometryReader { g in
-            Color.clear
-                .onAppear {
-                    if ScrollProbe.enabled { ScrollProbe.shared.geometry() }
-                    onFrame(g.frame(in: .named(space)))
-                }
-                .onChange(of: g.frame(in: .named(space))) { _, frame in
-                    if ScrollProbe.enabled { ScrollProbe.shared.geometry() }
-                    onFrame(frame)
-                }
         }
     }
 }

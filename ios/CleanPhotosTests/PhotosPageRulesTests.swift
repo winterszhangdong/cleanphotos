@@ -102,4 +102,79 @@ final class PhotosPageRulesTests: XCTestCase {
             header: .day
         )
     }
+
+    // MARK: 阶段二：范围分页与网格布局几何
+
+    func testScopePagerTargetPage() {
+        let w: CGFloat = 400
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 1, currentOffsetX: 400 + 119, pageWidth: w, velocityPtsPerSec: 0, pageCount: 5), 1)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 1, currentOffsetX: 400 + 121, pageWidth: w, velocityPtsPerSec: 0, pageCount: 5), 2)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 1, currentOffsetX: 400 - 119, pageWidth: w, velocityPtsPerSec: 0, pageCount: 5), 1)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 1, currentOffsetX: 400 - 121, pageWidth: w, velocityPtsPerSec: 0, pageCount: 5), 0)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 1, currentOffsetX: 410, pageWidth: w, velocityPtsPerSec: 700, pageCount: 5), 2)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 1, currentOffsetX: 550, pageWidth: w, velocityPtsPerSec: -700, pageCount: 5), 0)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 0, currentOffsetX: -100, pageWidth: w, velocityPtsPerSec: -900, pageCount: 5), 0)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 4, currentOffsetX: 1800, pageWidth: w, velocityPtsPerSec: 900, pageCount: 5), 4)
+        XCTAssertEqual(ScopePagerMath.targetPage(startPage: 0, currentOffsetX: 0, pageWidth: w, velocityPtsPerSec: 900, pageCount: 1), 0)
+    }
+
+    func testScopePagerSpringStep() {
+        let t0 = ScopePagerMath.springStep(from: 120, to: 400, initialVelocity: 900, elapsed: 0)
+        XCTAssertEqual(t0.x, 120, accuracy: 0.01)
+        XCTAssertEqual(t0.v, 900, accuracy: 0.5)
+        XCTAssertFalse(t0.settled)
+
+        let end = ScopePagerMath.springStep(from: 120, to: 400, initialVelocity: 900, elapsed: 0.8)
+        XCTAssertTrue(end.settled)
+        XCTAssertEqual(end.x, 400, accuracy: 0.01)
+        XCTAssertEqual(end.v, 0, accuracy: 0.01)
+    }
+
+    func testPhotosGridGeometryMatchesPhotosLeave() {
+        let width: CGFloat = 390
+        let gap: CGFloat = 2
+        let side = (width - gap * 3) / 4
+        let pitch = side + gap
+        let leaveMetrics = PhotosLeave.Metrics(chrome: 96, year: 32, header: 50, more: 48, tilePitch: pitch, columns: 4)
+        let sections = [day("a", 1...8, overflow: 9...10, year: 2025), day("b", 11...13)]
+
+        let specs: [PhotosGridGeometry.SectionSpec] = [
+            .init(kind: .year),
+            .init(kind: .dayHeader(id: "a")),
+            .init(kind: .tiles(count: 8, dayId: "a")),
+            .init(kind: .more),
+            .init(kind: .dayHeader(id: "b")),
+            .init(kind: .tiles(count: 3, dayId: "b")),
+        ]
+        let built = PhotosGridGeometry.build(
+            width: width,
+            chromeHeight: 96,
+            bottomReserve: 176,
+            yearHeight: 32,
+            headerHeight: 50,
+            moreHeight: 48,
+            gridGap: gap,
+            columns: 4,
+            specs: specs
+        )
+
+        let keys = PhotosLeave.gridKeys(sections, expandedDayKey: nil)
+        XCTAssertEqual(built.slices[0].yStart, PhotosLeave.contentTop(index: 0, sections: sections, expandedDayKey: nil, metrics: leaveMetrics)!, accuracy: 0.01)
+        XCTAssertEqual(built.slices[1].yStart, PhotosLeave.contentTop(index: 1, sections: sections, expandedDayKey: nil, metrics: leaveMetrics)!, accuracy: 0.01)
+        XCTAssertEqual(built.slices[2].yStart, PhotosLeave.contentTop(index: 2, sections: sections, expandedDayKey: nil, metrics: leaveMetrics)!, accuracy: 0.01)
+        let moreIndex = keys.firstIndex(of: .more(PhotosLeave.moreKey(dayKey: "a")))!
+        XCTAssertEqual(built.slices[3].yStart, PhotosLeave.contentTop(index: moreIndex, sections: sections, expandedDayKey: nil, metrics: leaveMetrics)!, accuracy: 0.01)
+        let bHeader = keys.firstIndex(of: .header("b"))!
+        XCTAssertEqual(built.slices[4].yStart, PhotosLeave.contentTop(index: bHeader, sections: sections, expandedDayKey: nil, metrics: leaveMetrics)!, accuracy: 0.01)
+        let bFirstPhoto = keys.firstIndex(of: .photo("11"))!
+        XCTAssertEqual(built.slices[5].yStart, PhotosLeave.contentTop(index: bFirstPhoto, sections: sections, expandedDayKey: nil, metrics: leaveMetrics)!, accuracy: 0.01)
+
+        XCTAssertEqual(built.dayMarks.count, 2)
+        XCTAssertEqual(built.dayMarks[1].id, "b")
+        XCTAssertEqual(built.dayMarks[1].lastY ?? -1, built.slices[5].yStart, accuracy: 0.01)
+        XCTAssertEqual(built.dayMarks[1].lastHeight ?? -1, side, accuracy: 0.01)
+
+        let range = PhotosGridGeometry.sliceRange(in: built.slices, minY: built.slices[3].yStart + 5, maxY: built.slices[4].yStart + 10)
+        XCTAssertEqual(range, 3..<5)
+    }
 }

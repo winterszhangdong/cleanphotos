@@ -146,3 +146,78 @@ final class DarkroomGlassCapsuleView: UIView {
         }
     }
 }
+
+/// 年份 / 已冲洗分隔行：左标题 + 右侧 1pt 细线（纯 frame 布局，零约束解算）。
+final class DarkroomDividerCell: UICollectionViewCell {
+    static let reuseIdentifier = "DarkroomDividerCell"
+
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = DarkroomUIFonts.plexMono(size: 11)
+        l.textColor = DarkroomUIColors.dim
+        l.numberOfLines = 1
+        return l
+    }()
+
+    private let lineView: UIView = {
+        let v = UIView()
+        v.backgroundColor = DarkroomUIColors.rim
+        return v
+    }()
+
+    private var topPadding: CGFloat = 0
+    private var currentTitle: String?
+    private var currentTracking: CGFloat = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.backgroundColor = .clear
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(lineView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
+        layoutAttributes
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let b = contentView.bounds
+        let availH = max(0, b.height - topPadding)
+        let maxLabelW = max(0, b.width - 32 - 20)
+        let labelSize = titleLabel.sizeThatFits(CGSize(width: maxLabelW, height: availH))
+        let lw = min(maxLabelW, ceil(labelSize.width))
+        titleLabel.frame = CGRect(x: 16, y: topPadding, width: lw, height: availH)
+        let lineX = 16 + lw + 12
+        let lineW = max(0, b.width - 16 - lineX)
+        lineView.frame = CGRect(x: lineX, y: topPadding + (availH - 1) / 2, width: lineW, height: 1)
+    }
+
+    func configure(title: String, topPadding: CGFloat, tracking: CGFloat = 0) {
+        guard title != currentTitle
+                || abs(topPadding - self.topPadding) > 0.5
+                || abs(tracking - currentTracking) > 0.01 else { return }
+        currentTitle = title
+        self.topPadding = topPadding
+        currentTracking = tracking
+        if tracking != 0 {
+            titleLabel.attributedText = NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: DarkroomUIFonts.plexMono(size: 11),
+                    .foregroundColor: DarkroomUIColors.dim,
+                    .kern: tracking,
+                ]
+            )
+        } else {
+            titleLabel.attributedText = nil
+            titleLabel.text = title
+        }
+        setNeedsLayout()
+    }
+}

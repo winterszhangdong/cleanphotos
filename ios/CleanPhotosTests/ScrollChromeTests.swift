@@ -68,4 +68,33 @@ final class ScrollChromeTests: XCTestCase {
         XCTAssertEqual(ScrollChrome.scrubThumbY(index: 2, count: 3, top: 96, bottom: 496, thumbHeight: 36), 496 - 36)
         XCTAssertEqual(ScrollChrome.scrubThumbY(index: 0, count: 1, top: 96, bottom: 400, thumbHeight: 36), 96)
     }
+
+    func testStuckSortedMatchesLinear() {
+        XCTAssertNil(ScrollChrome.stuckSorted(pinY: 96, scrollY: 0, days: []))
+        let days = [
+            ScrollChrome.DayMark(id: "d0", headerY: 96, headerHeight: 50, lastY: 200, lastHeight: 80),
+            ScrollChrome.DayMark(id: "d1", headerY: 420, headerHeight: 50, lastY: 600, lastHeight: 80),
+            ScrollChrome.DayMark(id: "d2", headerY: 900, headerHeight: 50, lastY: 1080, lastHeight: 80),
+        ]
+        let scrollYs: [CGFloat] = [0, 1, 120, 324, 325, 804, 805, 950, 1080, 1180]
+        for y in scrollYs {
+            for pin: CGFloat in [40, 96] {
+                XCTAssertEqual(
+                    ScrollChrome.stuckSorted(pinY: pin, scrollY: y, days: days),
+                    ScrollChrome.stuck(pinY: pin, scrollY: y, days: days),
+                    "Mismatch at scrollY=\(y), pinY=\(pin)"
+                )
+            }
+        }
+    }
+
+    func testScrubIndexBinarySearchEdgeCases() {
+        XCTAssertEqual(ScrollChrome.scrubIndex(scrollY: 100, pinY: 96, anchors: []), 0)
+        let anchors: [CGFloat] = [120, 300, 300, 640, 1200]
+        XCTAssertEqual(ScrollChrome.scrubIndex(scrollY: 0, pinY: 96, anchors: anchors), 0)
+        XCTAssertEqual(ScrollChrome.scrubIndex(scrollY: 23, pinY: 96, anchors: anchors), 0) // 120 - 23 == 97 <= 97
+        XCTAssertEqual(ScrollChrome.scrubIndex(scrollY: 202, pinY: 96, anchors: anchors), 0) // 300 - 202 = 98 > 97
+        XCTAssertEqual(ScrollChrome.scrubIndex(scrollY: 203, pinY: 96, anchors: anchors), 2) // duplicate 300 -> last index 2
+        XCTAssertEqual(ScrollChrome.scrubIndex(scrollY: 2000, pinY: 96, anchors: anchors), 4)
+    }
 }
