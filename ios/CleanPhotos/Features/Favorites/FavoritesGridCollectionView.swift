@@ -43,6 +43,14 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
         coordinator.configureDataSource(cv)
         coordinator.applySnapshot(from: self, animated: false)
         coordinator.registerSharedTransitionProvider()
+        if AuditHooks.enabled {
+            NotificationCenter.default.addObserver(
+                coordinator,
+                selector: #selector(Coordinator.scrollToFiled),
+                name: .cleanphotosContactSheetAudit,
+                object: nil
+            )
+        }
         return cv
     }
 
@@ -124,6 +132,13 @@ struct FavoritesGridCollectionView: UIViewRepresentable {
                     }
                 }
             )
+        }
+
+        @objc func scrollToFiled(_ note: Notification) {
+            guard (note.object as? String) == "scroll-filed", let cv = collectionView else { return }
+            let bottom = CGPoint(x: 0, y: max(0, cv.contentSize.height - cv.bounds.height + cv.contentInset.bottom))
+            cv.setContentOffset(bottom, animated: false)
+            AuditHooks.mark("filed")
         }
 
         func teardown() {
@@ -751,21 +766,45 @@ final class FiledDayRowCell: UICollectionViewCell {
             $0.removeFromSuperview()
         }
         for chip in day.albums.prefix(2) {
-            let label = PaddingLabel()
-            label.text = FilingCopy.chip(chip.name, count: chip.count)
-            label.font = DarkroomUIFonts.notoSC(size: 11, weight: .medium)
-            label.textColor = DarkroomUIColors.paper
-            label.backgroundColor = DarkroomUIColors.tray2
-            label.layer.cornerRadius = 3
-            label.layer.cornerCurve = .continuous
-            label.clipsToBounds = true
-            label.horizontalPadding = 8
-            label.heightAnchor.constraint(equalToConstant: 22).isActive = true
-            chipsStack.addArrangedSubview(label)
+            let chipView = KraftChip(name: chip.name, count: chip.count)
+            chipsStack.addArrangedSubview(chipView)
         }
 
         chevronView.transform = open ? CGAffineTransform(rotationAngle: .pi / 2) : .identity
     }
+}
+
+/// 已冲洗分节的牛皮纸小标签：名称 + mono `+N`。
+private final class KraftChip: UIView {
+    init(name: String, count: Int) {
+        super.init(frame: .zero)
+        backgroundColor = DarkroomUIColors.kraft
+        layer.cornerRadius = 3
+        layer.cornerCurve = .continuous
+        let nameLabel = UILabel()
+        nameLabel.text = name
+        nameLabel.font = DarkroomUIFonts.notoSC(size: 11, weight: .medium)
+        nameLabel.textColor = DarkroomUIColors.label
+        let countLabel = UILabel()
+        countLabel.text = "+\(count)"
+        countLabel.font = DarkroomUIFonts.plexMono(size: 11, weight: .medium)
+        countLabel.textColor = DarkroomUIColors.label
+        let row = UIStackView(arrangedSubviews: [nameLabel, countLabel])
+        row.axis = .horizontal
+        row.spacing = 4
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            heightAnchor.constraint(equalToConstant: 22),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 private final class PaddingLabel: UILabel {

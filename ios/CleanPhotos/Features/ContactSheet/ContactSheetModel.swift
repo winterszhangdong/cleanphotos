@@ -1,5 +1,6 @@
-import Foundation
 import Combine
+import Foundation
+import Photos
 
 struct FilingSummary {
     struct Line: Identifiable {
@@ -8,6 +9,8 @@ struct FilingSummary {
         var added: Int
         var total: Int
         var created: Bool
+        /// 迷你袋子露角。装完之后这个相册按拍摄时间最新的一张。
+        var coverId: String?
     }
 
     var lines: [Line]
@@ -28,6 +31,26 @@ struct FilingNotice: Identifiable, Equatable {
     var text: String
 }
 
+/// 写入成功后交给视图播飞入。托盘顺序和小结要等 `finishFlight`。
+struct FilingFlightEvent: Identifiable, Equatable {
+    let id = UUID()
+    var albumId: String
+    var title: String
+    var photoIds: [String]
+    var fromMore: Bool
+    var created: Bool
+    var fromDrag: Bool
+    var intoSheet: Bool
+
+    static func == (lhs: FilingFlightEvent, rhs: FilingFlightEvent) -> Bool { lhs.id == rhs.id }
+}
+
+/// 写入失败或取消。拖放落回格子；面板里点的行收回高亮、面板留着。
+struct FilingBounceEvent: Identifiable, Equatable {
+    let id = UUID()
+    var keepsSheet: Bool
+}
+
 /// 印样表：圈选这一天还在收藏里的照片，放进一个 Photos 相册（或只取消收藏）。
 /// 放进相册 = 把 PHAsset 加进 PHAssetCollection，并从 FavoriteStore 移除。不搬文件，localIdentifier 不变。
 @MainActor
@@ -44,6 +67,11 @@ final class ContactSheetModel: ObservableObject {
     @Published private(set) var busy = false
     /// 只在这一次进入有效，默认关。下一天会清掉。
     @Published var systemFavorite = false
+    /// 合盖之前停住的张数和露角。视图用 `HeldEnvelope.shown`。
+    @Published private(set) var heldPick: HeldAlbumSnap?
+    @Published private(set) var heldFlight: HeldAlbumSnap?
+    @Published private(set) var flightEvent: FilingFlightEvent?
+    @Published private(set) var bounceEvent: FilingBounceEvent?
 
     let filingLog: FilingLog
 
@@ -60,6 +88,10 @@ final class ContactSheetModel: ObservableObject {
     private var optimistic: [PhotoItem] = []
     private var undoTask: Task<Void, Never>?
     private var payload: UndoPayload?
+    /// 飞入没播完时，这些照片已经不在收藏里，格子仍留着。
+    private var flightHold: [PhotoItem] = []
+    private var flightActive = false
+    private var pendingUndo: (UndoPayload, Locale)?
 
     private struct UndoPayload {
         enum Kind { case filed, unfavorited }
@@ -88,6 +120,9 @@ final class ContactSheetModel: ObservableObject {
         let have = Set(fromSections.map(\.id))
         var list = fromSections
         for item in optimistic where !have.contains(item.id) && library.favorites.contains(item.id) && DayKeyRule.key(item.creationDate) == dayId {
+            list.append(item)
+        }
+        for item in flightHold where !have.contains(item.id) {
             list.append(item)
         }
         photos = list.sorted { a, b in
@@ -139,6 +174,11 @@ final class ContactSheetModel: ObservableObject {
         promoted = []
         systemFavorite = false
         optimistic = []
+        flightHold = []
+        flightActive = false
+        heldPick = nil
+        heldFlight = nil
+        flightEvent = nil
         summary = nil
         notice = nil
         clearUndo()
@@ -150,19 +190,65 @@ final class ContactSheetModel: ObservableObject {
         if notice?.id == id { notice = nil }
     }
 
-    func fileExisting(id: String, fromMore: Bool, locale: Locale) async {
-        guard let album = allAlbums.first(where: { $0.id == id }) else { return }
-        await commit(albumId: id, title: album.title, create: false, fromMore: fromMore, locale: locale)
+    func fileExisting(id: String, fromMore: Bool, fromDrag: Bool, intoSheet: Bool, locale: Locale) async {
+        guard let album = allAlbums.first(where: { $0.id == id }) ?? tray.first(where: { $0.id == id }) else { return }
+        await commit(albumId: id, title: album.title, create: false, fromMore: fromMore, fromDrag: fromDrag, intoSheet: intoSheet, locale: locale)
     }
 
-    func fileNew(name: String, locale: Locale) async {
+    func fileNew(name: String, fromDrag: Bool, locale: Locale) async {
         let trimmed = AlbumNameRules.sanitize(name).trimmingCharacters(in: .whitespacesAndNewlines)
         guard AlbumNameRules.isValid(trimmed) else { return }
         if let existing = AlbumNameRules.existing(name: trimmed, albums: allAlbums) {
-            await commit(albumId: existing.id, title: existing.title, create: false, fromMore: true, locale: locale)
+            await commit(albumId: existing.id, title: existing.title, create: false, fromMore: true, fromDrag: fromDrag, intoSheet: false, locale: locale)
             return
         }
-        await commit(albumId: nil, title: trimmed, create: true, fromMore: true, locale: locale)
+        await commit(albumId: nil, title: trimmed, create: true, fromMore: true, fromDrag: fromDrag, intoSheet: false, locale: locale)
+    }
+
+    func recentAssets(for albumId: String) -> [PHAsset] {
+        membership[albumId]?.recentAssets ?? []
+    }
+
+    func asset(id: String) -> PHAsset? {
+        if let item = photos.first(where: { $0.id == id }) { return item.asset }
+        for album in membership.values {
+            if let asset = album.recentAssets.first(where: { $0.localIdentifier == id }) { return asset }
+        }
+        return library?.item(id: id)?.asset
+    }
+
+    /// 封口合上：放开停住的张数和露角，撤回胶囊出现。托盘顺序仍等到飞入结束。
+    func markFlightReleased() {
+        heldFlight = nil
+        heldPick = nil
+        patchDisplayedCounts()
+        if let pending = pendingUndo {
+            pendingUndo = nil
+            armUndo(pending.0, locale: pending.1)
+        }
+    }
+
+    /// 飞入整段结束：插队、重排、允许小结。
+    func finishFlight(albumId: String, fromMore: Bool) async {
+        flightHold = []
+        flightEvent = nil
+        flightActive = false
+        busy = false
+        libraryDidChange()
+        if fromMore {
+            promoteIfNeeded(albumId)
+        } else {
+            realign()
+        }
+        refreshSummary()
+        let createdTitle = createdIds.contains(albumId) ? filedNames[albumId] : nil
+        await reloadMembership()
+        if let createdTitle, membership[albumId] == nil,
+           let match = membership.values.first(where: { AlbumNameRules.normalize($0.title) == AlbumNameRules.normalize(createdTitle) }) {
+            remap(from: albumId, to: match.id)
+            realign()
+        }
+        refreshSummary()
     }
 
     func unfavoriteCircled(locale: Locale) {
@@ -234,15 +320,20 @@ final class ContactSheetModel: ObservableObject {
         }
     }
 
-    private func commit(albumId: String?, title: String, create: Bool, fromMore: Bool, locale: Locale) async {
+    private func commit(albumId: String?, title: String, create: Bool, fromMore: Bool, fromDrag: Bool, intoSheet: Bool, locale: Locale) async {
         guard !busy, let library else { return }
         let selected = photos.filter { circled.contains($0.id) }
         guard !selected.isEmpty else { return }
         busy = true
-        defer { busy = false }
+        var flying = false
+        defer { if !flying { busy = false } }
 
         let members = albumId.flatMap { membership[$0]?.memberIds } ?? []
         let split = FilingPartition.split(selected: selected.map(\.id), members: members)
+        let before = albumId.flatMap { membership[$0] }
+        let frozen = HeldAlbumSnap(id: albumId ?? "", count: before?.count ?? 0, coverId: before?.recentIds.first)
+        heldPick = albumId == nil ? nil : frozen
+        heldFlight = heldPick
 
         var resultAlbum = albumId ?? ""
         var added: [String] = []
@@ -254,6 +345,7 @@ final class ContactSheetModel: ObservableObject {
                 let result = try await AlbumLibrary.create(title: title, assetIds: split.toAdd)
                 guard !result.albumId.isEmpty, !result.added.isEmpty else {
                     notice = FilingNotice(text: FilingCopy.filingFailed(max(split.toAdd.count, 1), locale: locale))
+                    failCommit(keepsSheet: intoSheet)
                     return
                 }
                 resultAlbum = result.albumId
@@ -261,6 +353,7 @@ final class ContactSheetModel: ObservableObject {
                 failed = result.failed
             } catch {
                 notice = FilingNotice(text: FilingCopy.filingFailed(max(split.toAdd.count, 1), locale: locale))
+                failCommit(keepsSheet: intoSheet)
                 return
             }
         } else if !split.toAdd.isEmpty {
@@ -269,8 +362,8 @@ final class ContactSheetModel: ObservableObject {
                 added = result.added
                 failed = result.failed
             } catch {
-                // 整批没放进去：已经在相册里的也不算装好，圈选留着，可以再点一次。
                 notice = FilingNotice(text: FilingCopy.filingFailed(split.toAdd.count, locale: locale))
+                failCommit(keepsSheet: intoSheet)
                 return
             }
         }
@@ -278,6 +371,7 @@ final class ContactSheetModel: ObservableObject {
         let filedIds = split.already + added
         guard !filedIds.isEmpty else {
             if !failed.isEmpty { notice = FilingNotice(text: FilingCopy.filingFailed(failed.count, locale: locale)) }
+            failCommit(keepsSheet: intoSheet)
             return
         }
 
@@ -292,41 +386,83 @@ final class ContactSheetModel: ObservableObject {
         filedCounts[resultAlbum, default: 0] += filedIds.count
         filedNames[resultAlbum] = title
         if didCreate { createdIds.insert(resultAlbum) }
-        rememberMembers(albumId: resultAlbum, title: title, added: added, created: didCreate)
+        rememberMembers(albumId: resultAlbum, title: title, added: items.filter { Set(added).contains($0.id) }, created: didCreate)
+        let held = HeldAlbumSnap(id: resultAlbum, count: frozen.count, coverId: frozen.coverId)
+        heldPick = held
+        heldFlight = held
 
         circled.subtract(filedSet)
-        armUndo(UndoPayload(
+        flightHold = items
+        pendingUndo = (UndoPayload(
             kind: .filed, items: items, addedIds: added, alreadyIds: split.already,
             entries: entries, albumId: resultAlbum, albumTitle: title
-        ), locale: locale)
+        ), locale)
         if !failed.isEmpty {
             notice = FilingNotice(text: FilingCopy.filingFailed(failed.count, locale: locale))
         }
         libraryDidChange()
-        if fromMore { promoteIfNeeded(resultAlbum) } else { realign() }
+        flying = true
+        flightActive = true
+        flightEvent = FilingFlightEvent(
+            albumId: resultAlbum, title: title, photoIds: items.map(\.id),
+            fromMore: fromMore, created: didCreate, fromDrag: fromDrag, intoSheet: intoSheet
+        )
 
         if systemFavorite {
             _ = await AlbumLibrary.markSystemFavorite(filedIds)
         }
-        let createdId = didCreate ? resultAlbum : nil
-        await reloadMembership()
-        if let createdId, membership[createdId] == nil,
-           let match = membership.values.first(where: { AlbumNameRules.normalize($0.title) == AlbumNameRules.normalize(title) }) {
-            remap(from: createdId, to: match.id)
-            realign()
-            refreshSummary()
-        }
     }
 
-    private func rememberMembers(albumId: String, title: String, added: [String], created: Bool) {
+    private func failCommit(keepsSheet: Bool) {
+        heldPick = nil
+        heldFlight = nil
+        bounceEvent = FilingBounceEvent(keepsSheet: keepsSheet)
+    }
+
+    /// 合盖后把托盘上看得见的张数和露角换成装完的，不改顺序。
+    private func patchDisplayedCounts() {
+        func patch(_ album: FilingAlbumRef) -> FilingAlbumRef {
+            guard let current = membership[album.id] else { return album }
+            var copy = album
+            copy.count = current.count
+            copy.recentIds = current.recentIds
+            return copy
+        }
+        tray = tray.map(patch)
+        allAlbums = allAlbums.map(patch)
+    }
+
+    private func rememberMembers(albumId: String, title: String, added: [PhotoItem], created: Bool) {
         if created {
-            membership[albumId] = AlbumMembership(id: albumId, title: title, count: added.count, memberIds: Set(added))
+            let recent = SheetPrints.of(added.map { SheetPrintRef(id: $0.id, taken: $0.creationDate.timeIntervalSince1970) }, limit: 5)
+            let assets = recent.compactMap { ref in added.first { $0.id == ref.id }?.asset }
+            membership[albumId] = AlbumMembership(
+                id: albumId, title: title, count: added.count, memberIds: Set(added.map(\.id)),
+                recentIds: assets.map(\.localIdentifier), recentAssets: assets
+            )
             return
         }
         guard var current = membership[albumId] else { return }
-        current.memberIds.formUnion(added)
+        current.memberIds.formUnion(added.map(\.id))
         current.count = current.memberIds.count
+        let merged = mergedRecent(existing: current.recentAssets, added: added)
+        current.recentIds = merged.map(\.localIdentifier)
+        current.recentAssets = merged
         membership[albumId] = current
+    }
+
+    private func mergedRecent(existing: [PHAsset], added: [PhotoItem]) -> [PHAsset] {
+        var byId: [String: (Date, PHAsset)] = [:]
+        for asset in existing {
+            byId[asset.localIdentifier] = (asset.creationDate ?? .distantPast, asset)
+        }
+        for item in added {
+            byId[item.id] = (item.creationDate, item.asset)
+        }
+        return byId.sorted { a, b in
+            if a.value.0 != b.value.0 { return a.value.0 > b.value.0 }
+            return SheetPrints.idIsAfter(a.key, b.key)
+        }.prefix(5).map(\.value.1)
     }
 
     private func restore(_ items: [PhotoItem], entries: [FavoriteEntry], library: PhotoLibraryService) {
@@ -364,7 +500,8 @@ final class ContactSheetModel: ObservableObject {
                 id: album.id,
                 title: album.title,
                 count: album.count,
-                lastFiledAt: last[AlbumNameRules.normalize(album.title)]
+                lastFiledAt: last[AlbumNameRules.normalize(album.title)],
+                recentIds: album.recentIds
             )
         }
         let sorted = TrayRules.sorted(refs)
@@ -399,7 +536,8 @@ final class ContactSheetModel: ObservableObject {
                 name: filedNames[id] ?? membership[id]?.title ?? "",
                 added: added,
                 total: membership[id]?.count ?? added,
-                created: createdIds.contains(id)
+                created: createdIds.contains(id),
+                coverId: membership[id]?.recentIds.first
             )
         }
         var days: [FavoriteDayRef] = []

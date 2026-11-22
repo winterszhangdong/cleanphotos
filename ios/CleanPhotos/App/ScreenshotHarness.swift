@@ -1,5 +1,7 @@
-import SwiftUI
 import Foundation
+import Photos
+import SwiftUI
+import UIKit
 
 /// Launch with env CLEANPHOTOS_SHOTS=1 to auto-drive tabs/review for simulator screenshots.
 /// Handshake: writes phase name into Documents/cp_shot_phase; waits until
@@ -127,6 +129,110 @@ enum ScreenshotHarness {
         await waitForShot(named: "done")
     }
 
+    /// 印样表第 4 部分截图。CLEANPHOTOS_PART4=1，只在模拟器上改收藏日期和相册。
+    @MainActor
+    static func runPart4IfNeeded(tab: Binding<AppTab>, library: PhotoLibraryService) async {
+        guard AuditHooks.enabled, ProcessInfo.processInfo.environment["CLEANPHOTOS_PART4"] == "1" else { return }
+        for _ in 0..<80 where library.isLoading || library.photosOrdered.isEmpty {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        await seedPart4(library: library)
+        tab.wrappedValue = .favorites
+        try? await Task.sleep(nanoseconds: 800_000_000)
+        NotificationCenter.default.post(name: .cleanphotosHarnessFiling, object: nil)
+        _ = await AuditHooks.waitUI("sheet-ready", timeout: 15)
+        try? await Task.sleep(nanoseconds: 900_000_000)
+        await waitForShot(named: "01-film-sheet")
+
+        await command("circle", ready: "circled")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await waitForShot(named: "02-circled-tray")
+
+        await command("drag", ready: "drag")
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        await waitForShot(named: "03-drag-hover-tag")
+
+        await command("undrag", ready: "undrag")
+        await command("sheet", ready: "sheet")
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        await waitForShot(named: "04-album-sheet")
+
+        await command("new", ready: "new")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await waitForShot(named: "05-new-album")
+
+        await command("dismiss", ready: "dismissed")
+        NotificationCenter.default.post(name: .cleanphotosContactSheetAudit, object: "file-all")
+        _ = await AuditHooks.waitUI("summary", timeout: 25)
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        await waitForShot(named: "06-summary")
+
+        NotificationCenter.default.post(name: .cleanphotosHarnessFiling, object: "close")
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        NotificationCenter.default.post(name: .cleanphotosContactSheetAudit, object: "scroll-filed")
+        _ = await AuditHooks.waitUI("filed", timeout: 8)
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        await waitForShot(named: "07-favorites-filed")
+        await waitForShot(named: "done")
+    }
+
+    @MainActor
+    private static func command(_ name: String, ready: String) async {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("cp_shot_ui")
+        try? Data().write(to: url)
+        NotificationCenter.default.post(name: .cleanphotosContactSheetAudit, object: name)
+        _ = await AuditHooks.waitUI(ready)
+    }
+
+    @MainActor
+    private static func seedPart4(library: PhotoLibraryService) async {
+        if library.photosOrdered.count < 6 {
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 600))
+            for index in library.photosOrdered.count..<6 {
+                let image = renderer.image { ctx in
+                    UIColor(hue: CGFloat(index) / 8, saturation: 0.35, brightness: 0.55, alpha: 1).setFill()
+                    ctx.fill(CGRect(x: 0, y: 0, width: 800, height: 600))
+                }
+                guard let data = image.jpegData(compressionQuality: 0.8) else { continue }
+                try? await PHPhotoLibrary.shared().performChanges {
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .photo, data: data, options: nil)
+                }
+            }
+            await library.reload(fresh: true)
+        }
+        let picks = Array(library.photosOrdered.prefix(6))
+        guard picks.count >= 5 else { return }
+        let favoriteIds = picks.map(\.id).filter { library.favorites.contains($0) }
+        let days = Set(favoriteIds.compactMap { id in picks.first { $0.id == id }.map { DayKeyRule.key($0.creationDate) } })
+        if favoriteIds.count < 5 || days.count < 2 {
+            try? await PHPhotoLibrary.shared().performChanges {
+                for (index, item) in picks.enumerated() {
+                    let request = PHAssetChangeRequest(for: item.asset)
+                    let shift: TimeInterval = index < 3 ? 0 : -2 * 86_400
+                    request.creationDate = Date().addingTimeInterval(shift)
+                }
+            }
+            await library.reload(fresh: true)
+            let ids = Array(library.photosOrdered.prefix(6).map(\.id))
+            let missing = ids.filter { !library.favorites.contains($0) }
+            if !missing.isEmpty { _ = library.favorite(ids: missing, showUndo: false) }
+        }
+        var albums = await AlbumLibrary.fetchUserAlbums()
+        var serial = 1
+        let seedId = library.photosOrdered.first?.id
+        while albums.count < 10 && serial < 30 {
+            let title = String(format: "Sleeve %02d", serial)
+            serial += 1
+            if albums.contains(where: { $0.title == title }) { continue }
+            guard let seedId else { break }
+            _ = try? await AlbumLibrary.create(title: title, assetIds: [seedId])
+            albums = await AlbumLibrary.fetchUserAlbums()
+        }
+        try? await Task.sleep(nanoseconds: 400_000_000)
+    }
+
     @MainActor
     private static func showScope(_ raw: String, library: PhotoLibraryService, settle: UInt64, shot: String, untilSizes: Bool = false) async {
         NotificationCenter.default.post(name: .cleanphotosHarnessScope, object: raw)
@@ -181,4 +287,31 @@ extension Notification.Name {
     static let cleanphotosHarnessTrashPreview = Notification.Name("cleanphotosHarnessTrashPreview")
     /// 截图钩子：清理页打开全部照片里的第一段视频。不进 CLEANPHOTOS_SHOTS 那条序列。
     static let cleanphotosHarnessReviewVideo = Notification.Name("cleanphotosHarnessReviewVideo")
+    /// 印样表审计。object 为 circle / drag / undrag / sheet / new / dismiss / file-all。只在模拟器生效。
+    static let cleanphotosContactSheetAudit = Notification.Name("cleanphotosContactSheetAudit")
+}
+
+extension AuditHooks {
+    static func mark(_ name: String) {
+        guard enabled else { return }
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("cp_shot_ui")
+        try? name.data(using: .utf8)?.write(to: url, options: .atomic)
+    }
+
+    @MainActor
+    static func waitUI(_ name: String, timeout: TimeInterval = 20) async -> Bool {
+        guard enabled else { return false }
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("cp_shot_ui")
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let text = try? String(contentsOf: url, encoding: .utf8),
+               text.trimmingCharacters(in: .whitespacesAndNewlines) == name {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
 }

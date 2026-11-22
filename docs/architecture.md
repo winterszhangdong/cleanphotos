@@ -504,6 +504,7 @@ SheetSummaryPage
 
 * ViewModel 的 `Pending`（File / Undo）在授权回来之前保存要做的事；`busy` 期间不接受新的装袋，Screen 另外用 `launch` 挡住第二次点击。
 * 照片从收藏里出去后由仓库 Flow 驱动：飞入效果先到，格子 `animateItem` 补位。
+* iOS 同一页在 `ios/CleanPhotos/Features/ContactSheet/`。底片袋是系统用户相册（`PHAssetCollection`），由 `AlbumLibrary` 读写，不走 MediaStore 路径。几何、贴边滚动、名签位置、露角选取和拿起进度在 `Domain/ContactSheetRules.swift`（纯 Foundation，单元测试可编）。胶片是 `UICollectionView`（`ContactSheetGridView` + `FilmStripCell`）。拖动、名签和飞入是 `FilingStageView`，`CADisplayLink` 每帧写 layer，跟随 120Hz；袋子的倾斜、扇形和封口留在 SwiftUI，只吃离散的悬停 / 打开状态。PhotoKit 写入成功后发 `FilingFlightEvent`，飞完才 `finishFlight`（插队、重排、小结）。
 
 ### trash
 
@@ -691,7 +692,7 @@ SystemMediaActionRequest(
 
 ## 印样表装袋设计
 
-装袋 = 真的移动照片文件到另一个相册文件夹，同一 MediaStore 行，_ID 不变，所以收藏 / 看过 / 垃圾桶记录不受影响。
+装袋 = 真的移动照片文件到另一个相册文件夹，同一 MediaStore 行，_ID 不变，所以收藏 / 看过 / 垃圾桶记录不受影响。iOS 不移动文件：底片袋是系统用户相册，`AlbumLibrary` 用 PhotoKit 把 `PHAsset` 加进 `PHAssetCollection`，同时移出 App 内收藏。
 
 ```text
 Android 11+（30+）：createWriteRequest 按最多 2000 张依次确认（只含还没写授权的 uri）；全部同意后才 update RELATIVE_PATH → 读回确认。任一批拒绝则整次取消，不移动文件

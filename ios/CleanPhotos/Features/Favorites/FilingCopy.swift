@@ -112,6 +112,24 @@ enum FilingCopy {
         return n == 1 ? "\(n) photo" : "\(n) photos"
     }
 
+    static func sleeveHint(_ locale: Locale) -> String {
+        chinese(locale) ? "袋子 = 系统相册" : "Sleeves are Photos albums"
+    }
+
+    static func albumTotal(_ n: Int, locale: Locale) -> String {
+        if chinese(locale) { return "共 \(n) 个" }
+        return n == 1 ? "\(n) album" : "\(n) albums"
+    }
+
+    static func searchCount(_ n: Int, locale: Locale) -> String {
+        if chinese(locale) { return "\(n) 个结果" }
+        return n == 1 ? "\(n) result" : "\(n) results"
+    }
+
+    static func searchWord(_ locale: Locale) -> String { chinese(locale) ? "搜索" : "Search" }
+
+    static func cancel(_ locale: Locale) -> String { chinese(locale) ? "取消" : "Cancel" }
+
     static func emptyDay(_ locale: Locale) -> String {
         chinese(locale) ? "这一天没有待整理的照片" : "Nothing left to sort this day"
     }

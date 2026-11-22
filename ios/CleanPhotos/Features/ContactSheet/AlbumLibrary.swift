@@ -2,11 +2,27 @@ import Foundation
 import Photos
 
 /// 用户自建相册（PHAssetCollectionType.album / .albumRegular）。智能相册加不进去，不列在托盘里。
-struct AlbumMembership: Hashable, Sendable {
+struct AlbumMembership: Hashable {
     var id: String
     var title: String
     var count: Int
     var memberIds: Set<String>
+    /// 按拍摄时间降序，最新在前，最多 5 张。
+    var recentIds: [String] = []
+    var recentAssets: [PHAsset] = []
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(title)
+        hasher.combine(count)
+        hasher.combine(memberIds)
+        hasher.combine(recentIds)
+    }
+
+    static func == (lhs: AlbumMembership, rhs: AlbumMembership) -> Bool {
+        lhs.id == rhs.id && lhs.title == rhs.title && lhs.count == rhs.count
+            && lhs.memberIds == rhs.memberIds && lhs.recentIds == rhs.recentIds
+    }
 }
 
 struct AlbumAddResult: Sendable {
@@ -26,12 +42,14 @@ enum AlbumLibrary {
             let collections = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil)
             let box = MembershipBox()
             collections.enumerateObjects { collection, _, _ in
-                let ids = Self.memberIds(in: collection)
+                let members = Self.members(in: collection)
                 box.albums.append(AlbumMembership(
                     id: collection.localIdentifier,
                     title: collection.localizedTitle ?? "",
-                    count: ids.count,
-                    memberIds: ids
+                    count: members.ids.count,
+                    memberIds: members.ids,
+                    recentIds: members.recent.map(\.localIdentifier),
+                    recentAssets: members.recent
                 ))
             }
             return box.albums
@@ -49,8 +67,19 @@ enum AlbumLibrary {
         }.value
     }
 
-    private static func memberIds(in collection: PHAssetCollection) -> Set<String> {
-        identifiers(PHAsset.fetchAssets(in: collection, options: nil))
+    /// 全量成员 id，另按 creationDate 降序留前 5 张资产。
+    private static func members(in collection: PHAssetCollection) -> (ids: Set<String>, recent: [PHAsset]) {
+        let opts = PHFetchOptions()
+        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        let result = PHAsset.fetchAssets(in: collection, options: opts)
+        var ids = Set<String>()
+        var recent: [PHAsset] = []
+        recent.reserveCapacity(5)
+        result.enumerateObjects { asset, _, _ in
+            ids.insert(asset.localIdentifier)
+            if recent.count < 5 { recent.append(asset) }
+        }
+        return (ids, recent)
     }
 
     static func add(assetIds: [String], albumId: String) async throws -> AlbumAddResult {

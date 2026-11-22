@@ -37,4 +37,17 @@ enum DarkroomColors {
     static let menuItemOn = paper.opacity(0.10)
     static let menuScrim = Color(red: 0x0A/255, green: 0x09/255, blue: 0x08/255).opacity(0.48)
     static let amberGlow = amber.opacity(0.6)
+    /// 印样表胶片与牛皮纸（docs/ui-design.md 3.20，数值同 Android DarkroomColors）。
+    static let film = Color(red: 0x06/255, green: 0x06/255, blue: 0x05/255)
+    static let filmHole = Color(red: 0x1E/255, green: 0x1B/255, blue: 0x18/255)
+    static let filmEdgeText = paper.opacity(0.42)
+    static let pen = paper.opacity(0.94)
+    static let kraftHigh = Color(red: 0x8A/255, green: 0x71/255, blue: 0x52/255)
+    static let kraft = Color(red: 0x7C/255, green: 0x65/255, blue: 0x49/255)
+    static let kraftInside = Color(red: 0x4A/255, green: 0x3C/255, blue: 0x2C/255)
+    static let kraftFlapHigh = Color(red: 0x6B/255, green: 0x56/255, blue: 0x40/255)
+    static let kraftFlap = Color(red: 0x5F/255, green: 0x4C/255, blue: 0x37/255)
+    static let label = Color(red: 0xD8/255, green: 0xCD/255, blue: 0xBA/255)
+    static let labelInk = Color(red: 0x2A/255, green: 0x22/255, blue: 0x1A/255)
+    static let printBorder = Color(red: 0xE6/255, green: 0xE0/255, blue: 0xD6/255)
 }

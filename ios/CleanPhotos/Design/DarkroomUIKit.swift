@@ -25,6 +25,18 @@ enum DarkroomUIColors {
     static let unseenDot = UIColor(red: 1, green: 251/255, blue: 245/255, alpha: 1)
     static let unseenRing = UIColor(red: 0x0F/255, green: 0x0E/255, blue: 0x0D/255, alpha: 0.5)
     static let unseenGlow = UIColor(red: 1, green: 246/255, blue: 232/255, alpha: 0.7)
+    static let film = UIColor(red: 0x06/255, green: 0x06/255, blue: 0x05/255, alpha: 1)
+    static let filmHole = UIColor(red: 0x1E/255, green: 0x1B/255, blue: 0x18/255, alpha: 1)
+    static let filmEdgeText = UIColor(red: 0xEE/255, green: 0xE9/255, blue: 0xE2/255, alpha: 0.42)
+    static let pen = UIColor(red: 0xEE/255, green: 0xE9/255, blue: 0xE2/255, alpha: 0.94)
+    static let kraftHigh = UIColor(red: 0x8A/255, green: 0x71/255, blue: 0x52/255, alpha: 1)
+    static let kraft = UIColor(red: 0x7C/255, green: 0x65/255, blue: 0x49/255, alpha: 1)
+    static let kraftInside = UIColor(red: 0x4A/255, green: 0x3C/255, blue: 0x2C/255, alpha: 1)
+    static let kraftFlapHigh = UIColor(red: 0x6B/255, green: 0x56/255, blue: 0x40/255, alpha: 1)
+    static let kraftFlap = UIColor(red: 0x5F/255, green: 0x4C/255, blue: 0x37/255, alpha: 1)
+    static let label = UIColor(red: 0xD8/255, green: 0xCD/255, blue: 0xBA/255, alpha: 1)
+    static let labelInk = UIColor(red: 0x2A/255, green: 0x22/255, blue: 0x1A/255, alpha: 1)
+    static let printBorder = UIColor(red: 0xE6/255, green: 0xE0/255, blue: 0xD6/255, alpha: 1)
 }
 
 /// UIKit 侧字体 token，PostScript 名称与 DarkroomType / Info.plist 注册一致。

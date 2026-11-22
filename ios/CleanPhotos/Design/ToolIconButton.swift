@@ -6,6 +6,8 @@ struct ToolIconButton: View {
     var icon: DarkroomIcon
     var inverted: Bool = false
     var pip: Bool = false
+    var glass: Bool = false
+    var diameter: CGFloat = DarkroomDimens.toolButton
     var rotation: Angle = .zero
     var action: () -> Void
 
@@ -14,11 +16,11 @@ struct ToolIconButton: View {
             DarkroomIconView(icon: icon, size: DarkroomDimens.toolIcon)
                 .rotationEffect(rotation)
                 .foregroundStyle(inverted ? DarkroomColors.room : DarkroomColors.paper)
-                .frame(width: DarkroomDimens.toolButton, height: DarkroomDimens.toolButton)
+                .frame(width: diameter, height: diameter)
                 .background(
                     Circle()
-                        .fill(inverted ? DarkroomColors.paper : DarkroomColors.tray)
-                        .overlay(Circle().strokeBorder(inverted ? Color.clear : DarkroomColors.rim, lineWidth: 1))
+                        .fill(inverted ? DarkroomColors.paper : (glass ? DarkroomColors.glass : DarkroomColors.tray))
+                        .overlay(Circle().strokeBorder(inverted ? Color.clear : (glass ? DarkroomColors.glassRim : DarkroomColors.rim), lineWidth: 1))
                 )
                 .overlay(alignment: .topTrailing) {
                     if pip {

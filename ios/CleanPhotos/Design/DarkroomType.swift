@@ -37,4 +37,14 @@ enum DarkroomType {
     static let body = Font.custom("NotoSansSC-Regular", size: 14)
     static let title = Font.custom("NotoSansSC-SemiBold", size: 18)
     static let permTitle = Font.custom("NotoSansSC-SemiBold", size: 24)
+    /// 印样表 3.20。
+    static let frameNo = DarkroomFonts.plexMono(size: 6.5)
+    static let trayTitle = Font.custom("NotoSansSC-SemiBold", size: 15)
+    static let traySwitch = Font.custom("NotoSansSC-Medium", size: 12)
+    static let envelopeName = Font.custom("NotoSansSC-SemiBold", size: 11.5)
+    static let envelopeCount = DarkroomFonts.plexMono(size: 10)
+    static let peekName = Font.custom("NotoSansSC-SemiBold", size: 17)
+    static let sheetRowName = Font.custom("NotoSansSC-Medium", size: 15)
+    static let newAlbumInput = Font.custom("NotoSansSC-SemiBold", size: 22)
+    static let newAlbumPath = DarkroomFonts.plexMono(size: 10.5)
 }

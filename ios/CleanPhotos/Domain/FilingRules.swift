@@ -8,6 +8,8 @@ struct FilingAlbumRef: Hashable {
     var title: String
     var count: Int
     var lastFiledAt: TimeInterval?
+    /// 按拍摄时间最新在前，最多 5 张。
+    var recentIds: [String] = []
 }
 
 struct FilingLogRow: Codable, Hashable {

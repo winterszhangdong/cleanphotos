@@ -106,6 +106,7 @@ struct MainTabView: View {
             .presentationBackground(.clear)
         }
         .task { await ScreenshotHarness.runIfNeeded(tab: $tab, reviewLaunch: launchBinding, library: library) }
+        .task { await ScreenshotHarness.runPart4IfNeeded(tab: $tab, library: library) }
         .task {
             // 徽标对照截图：-cpBadgeShot N 把垃圾桶数量调到 N（不足从最前面挪进来、多了按最早放进去的还原；N=0 全部还原），
             // -cpTab trash|photos|favorites 选中项。只改 App 自己的垃圾桶状态，不动系统相册。
