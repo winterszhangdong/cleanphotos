@@ -22,6 +22,35 @@ enum TrashPreviewWindow {
     }
 }
 
+/// 垃圾桶预览的照片槽。状态栏之下 144pt 起的正方形，宽 = 安全区宽。
+/// 文件信息在方框下沿再往下 16pt，所以 Fit 进去的照片碰不到字。
+enum TrashPreviewWell {
+    static let top: CGFloat = 144
+    static let metaGap: CGFloat = 16
+    static let hintBottom: CGFloat = 100
+    static let actionBottom: CGFloat = 40
+    static let side: CGFloat = 24
+
+    struct Box: Equatable {
+        var top: CGFloat
+        var size: CGFloat
+        var metaTop: CGFloat
+        var bottom: CGFloat { top + size }
+    }
+
+    static func box(width: CGFloat) -> Box {
+        Box(top: top, size: width, metaTop: top + width + metaGap)
+    }
+
+    /// Fit 在方框里的照片底边。方框比照片高时，底边停在方框内。
+    static func photoBottom(pixelWidth: CGFloat, pixelHeight: CGFloat, well: Box) -> CGFloat {
+        guard pixelWidth > 0, pixelHeight > 0, well.size > 0 else { return well.top }
+        let scale = min(well.size / pixelWidth, well.size / pixelHeight)
+        let height = pixelHeight * scale
+        return well.top + (well.size - height) / 2 + height
+    }
+}
+
 /// 清理页松手时要不要用最终 translation。捏合单独收尾，不并进平移或上下滑。
 enum ReviewGestureEnd {
     enum Axis: Equatable { case horizontal, vertical, pan }

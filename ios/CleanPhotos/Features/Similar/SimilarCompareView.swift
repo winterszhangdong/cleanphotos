@@ -46,8 +46,13 @@ struct SimilarCompareView: View {
     }
 
     var body: some View {
+        // 阅读器自己留在安全区里，inset 才不是 0。铺满屏的是内层；忽略安全区加在阅读器上时，顶栏会贴到物理左上角。
         GeometryReader { proxy in
             let insets = proxy.safeAreaInsets
+            let size = CGSize(
+                width: proxy.size.width + insets.leading + insets.trailing,
+                height: proxy.size.height + insets.top + insets.bottom
+            )
             VStack(spacing: 0) {
                 header
                     .padding(.top, insets.top)
@@ -72,9 +77,10 @@ struct SimilarCompareView: View {
                     Color.clear.frame(height: insets.bottom)
                 }
             }
+            .frame(width: size.width, height: size.height, alignment: .top)
             .background(DarkroomColors.room)
+            .ignoresSafeArea()
         }
-        .ignoresSafeArea()
         .preferredColorScheme(.dark)
         .onChange(of: livePhotos.map(\.id)) { old, new in
             if new.isEmpty {

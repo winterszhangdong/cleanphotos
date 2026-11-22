@@ -12,6 +12,21 @@ final class GestureRulesTests: XCTestCase {
         XCTAssertEqual(TrashPreviewWindow.span(index: 5, count: 0, radius: 2), [])
     }
 
+    func testTrashWellKeepsMetaBelowThePhoto() {
+        let well = TrashPreviewWell.box(width: 402)
+        XCTAssertEqual(well.top, 144)
+        XCTAssertEqual(well.size, 402)
+        XCTAssertEqual(well.metaTop, 144 + 402 + 16)
+        let portrait = TrashPreviewWell.photoBottom(pixelWidth: 3000, pixelHeight: 4000, well: well)
+        let landscape = TrashPreviewWell.photoBottom(pixelWidth: 4000, pixelHeight: 3000, well: well)
+        let screenshot = TrashPreviewWell.photoBottom(pixelWidth: 1170, pixelHeight: 2532, well: well)
+        XCTAssertLessThanOrEqual(portrait, well.bottom)
+        XCTAssertLessThanOrEqual(landscape, well.bottom)
+        XCTAssertLessThanOrEqual(screenshot, well.bottom)
+        XCTAssertGreaterThanOrEqual(well.metaTop, well.bottom + TrashPreviewWell.metaGap)
+        XCTAssertEqual(portrait, well.bottom, accuracy: 0.01)
+    }
+
     func testNeighborsForOrdinaryPaging() {
         XCTAssertEqual(TrashPreviewWindow.neighbors(index: 0, count: 6), [0, 1])
         XCTAssertEqual(TrashPreviewWindow.neighbors(index: 3, count: 6), [2, 3, 4])

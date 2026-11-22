@@ -484,9 +484,9 @@ private struct TrashDissolveTile: View {
     }
 }
 
-/// 垃圾桶全屏预览：黑底；照片按原始宽高比居中（fit），不大方框、不去色。
-/// 顶栏玻璃返回 +「垃圾桶 / i / N」；下方两行等宽元信息；
-/// 底部「移出后回到照片页的 9月21日」+ 52pt 相纸白胶囊「移出垃圾桶」（没有分享图标）。左右滑切换，双击放大。
+/// 垃圾桶全屏预览：黑底。照片 Fit 在状态栏下 144pt 的正方形里（宽 = 屏宽），不去色。
+/// 文件信息在方框下 16pt，不压在照片上。顶栏玻璃返回 +「垃圾桶 / i / N」。
+/// 距底 100pt 是提示，距底 40pt 是 52pt 相纸白胶囊「移出垃圾桶」。左右滑切换，双击放大。
 struct TrashPreview: View {
     let startId: String
     @Binding var muted: Bool
@@ -528,18 +528,19 @@ struct TrashPreview: View {
             GeometryReader { geo in
                 let pageW = geo.size.width
                 let pageH = geo.size.height
+                // 阅读器已经在安全区里，144 是状态栏之下的距离，不要再加一遍 inset。
+                let well = TrashPreviewWell.box(width: pageW)
                 ZStack(alignment: .top) {
-                    // 照片铺满这一页再 aspect fit，黑边是这一页的底，不是正方形裁框。
                     ZStack {
                         // 列表被外部一次删短时，先夹到有效下标再取邻页。不能用旧 index 拼闭区间，onChange 来不及挡住这次 body。
                         let shown = TrashPreviewWindow.clampedIndex(index, count: items.count)
                         ForEach(TrashPreviewWindow.neighbors(index: index, count: items.count), id: \.self) { i in
-                            photo(items[i], width: pageW, height: pageH)
+                            photo(items[i], width: well.size, height: well.size)
                                 .scaleEffect(i == shown ? zoom : 1)
                                 .offset(x: CGFloat(i - (shown ?? 0)) * pageW + dx)
                         }
                     }
-                    .frame(width: pageW, height: pageH)
+                    .frame(width: pageW, height: well.size)
                     .clipped()
                     .contentShape(Rectangle())
                     .gesture(drag(width: pageW).updating($dragLive) { _, live, _ in live = true })
@@ -559,8 +560,9 @@ struct TrashPreview: View {
                         withAnimation(reduceMotion ? nil : SpringToken.settle.animation()) { zoom = zoom > 1.01 ? 1 : 2 }
                     }
                     .onTapGesture(count: 1) { scheduleTap() }
-                    if let photo = currentItem {
-                        let decision = playbackChrome(for: photo)
+                    .padding(.top, well.top)
+                    if let item = currentItem {
+                        let decision = playbackChrome(for: item)
                         PlaybackCenterButton(
                             visible: decision.showCenter,
                             showPause: decision.showPauseIcon,
@@ -569,52 +571,58 @@ struct TrashPreview: View {
                             playback.togglePlay()
                             transportShown = false
                         }
-                        .position(x: pageW / 2, y: pageH / 2)
+                        .position(x: pageW / 2, y: well.top + well.size / 2)
                     }
                     topBar
                         .padding(.top, 12)
                         .padding(.horizontal, 12)
-                    VStack(spacing: 0) {
-                        Spacer()
-                        if let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) {
-                            let photo = items[shown]
-                            let decision = playbackChrome(for: photo)
-                            if decision.showProgress {
-                                PlaybackProgressRow(engine: playback, muted: muted, zh: language.isChineseUI, onMute: {
-                                    muted.toggle()
-                                }, onSeeked: {
-                                    transportShown = false
-                                })
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, DarkroomDimens.playbackGap)
+                    if let shown = TrashPreviewWindow.clampedIndex(index, count: items.count) {
+                        let item = items[shown]
+                        let decision = playbackChrome(for: item)
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: well.metaTop)
+                                .allowsHitTesting(false)
+                            VStack(spacing: 0) {
+                                if decision.showProgress {
+                                    PlaybackProgressRow(engine: playback, muted: muted, zh: language.isChineseUI, onMute: {
+                                        muted.toggle()
+                                    }, onSeeked: {
+                                        transportShown = false
+                                    })
+                                    .padding(.bottom, DarkroomDimens.playbackGap)
+                                }
+                                meta(item)
+                                    .allowsHitTesting(false)
                             }
-                            meta(photo)
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, 16)
-                                .allowsHitTesting(false)
-                            Text(L10n.format("trash_restore_hint", locale: loc, cleanDate(photo.creationDate)))
-                                .font(Font.custom("NotoSansSC-Regular", size: 11))
-                                .foregroundStyle(DarkroomColors.faint)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, 8)
-                                .allowsHitTesting(false)
+                            .padding(.horizontal, TrashPreviewWell.side)
                         }
-                        Button { restore() } label: {
-                            Text(L10n.string("restore_from_trash", locale: loc))
-                                .font(Font.custom("NotoSansSC-SemiBold", size: 15))
-                                .foregroundStyle(DarkroomColors.room)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 52)
-                                .background(DarkroomColors.paper, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("trash-preview-restore")
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 40)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        Text(L10n.format("trash_restore_hint", locale: loc, cleanDate(item.creationDate)))
+                            .font(Font.custom("NotoSansSC-Regular", size: 11))
+                            .foregroundStyle(DarkroomColors.faint)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, TrashPreviewWell.side)
+                            .padding(.bottom, TrashPreviewWell.hintBottom)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .allowsHitTesting(false)
                     }
                 }
                 .frame(width: pageW, height: pageH)
+                .overlay(alignment: .bottom) {
+                    Button { restore() } label: {
+                        Text(L10n.string("restore_from_trash", locale: loc))
+                            .font(Font.custom("NotoSansSC-SemiBold", size: 15))
+                            .foregroundStyle(DarkroomColors.room)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(DarkroomColors.paper, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("trash-preview-restore")
+                    .padding(.horizontal, TrashPreviewWell.side)
+                    .padding(.bottom, TrashPreviewWell.actionBottom)
+                }
             }
         }
         .environment(\.locale, loc)
@@ -687,7 +695,7 @@ struct TrashPreview: View {
         .frame(height: 40)
     }
 
-    /// 整页里 aspect fit，保持原色。黑边来自背后的全屏黑底，不另套方框。
+    /// 正方形槽里 aspect fit，保持原色。槽外的黑是全屏底，不是另一层裁框。
     private func photo(_ item: PhotoItem, width: CGFloat, height: CGFloat) -> some View {
         let shown = zoom > 1.01 ? (zoomed[item.id] ?? images[item.id]) : images[item.id]
         return ZStack {
