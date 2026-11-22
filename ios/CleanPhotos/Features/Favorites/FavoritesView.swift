@@ -72,7 +72,10 @@ struct FavoritesView: View {
             }
         }
         .environment(\.locale, language.effectiveLocale)
-        .onAppear { seed(); Task { await pruneIfNeeded() } }
+        .onAppear {
+            if ScrollProbe.enabled { ScrollProbe.shared.page = "favorites" }
+            seed(); Task { await pruneIfNeeded() }
+        }
         .onChange(of: library.favoriteSections) { _, _ in seed() }
         .onChange(of: library.isLoading) { _, loading in
             if !loading { Task { await pruneIfNeeded() } }

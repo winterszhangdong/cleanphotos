@@ -123,6 +123,7 @@ struct TrashView: View {
         .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessTrashPreview)) { _ in
             if previewId == nil { previewId = library.trashItems.first?.id }
         }
+        .onAppear { if ScrollProbe.enabled { ScrollProbe.shared.page = "trash" } }
         .onDisappear { dimTabBar = false }
         .fullScreenCover(isPresented: Binding(
             get: { previewId != nil },

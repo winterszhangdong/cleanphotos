@@ -114,6 +114,7 @@ final class ScrollChromeDriver: NSObject {
     }
 
     func ingest(y: CGFloat, moving: Bool, programmatic: Bool, forceOpen: Bool) {
+        let t0 = ScrollProbe.enabled ? CACurrentMediaTime() : 0
         scrollY = y
         let delta = y - lastOffset
         let skipped = skipDelta
@@ -124,6 +125,7 @@ final class ScrollChromeDriver: NSObject {
             apply()
             updateThumb()
             publishStuck()
+            if ScrollProbe.enabled { ScrollProbe.shared.ingest(CACurrentMediaTime() - t0) }
             return
         }
         if moving { cancelSnap() }
@@ -133,6 +135,7 @@ final class ScrollChromeDriver: NSObject {
         apply()
         updateThumb()
         publishStuck()
+        if ScrollProbe.enabled { ScrollProbe.shared.ingest(CACurrentMediaTime() - t0) }
     }
 
     func snap(forceOpen: Bool) {
@@ -308,8 +311,14 @@ struct ContentFrameReader: View {
     var body: some View {
         GeometryReader { g in
             Color.clear
-                .onAppear { onFrame(g.frame(in: .named(space))) }
-                .onChange(of: g.frame(in: .named(space))) { _, frame in onFrame(frame) }
+                .onAppear {
+                    if ScrollProbe.enabled { ScrollProbe.shared.geometry() }
+                    onFrame(g.frame(in: .named(space)))
+                }
+                .onChange(of: g.frame(in: .named(space))) { _, frame in
+                    if ScrollProbe.enabled { ScrollProbe.shared.geometry() }
+                    onFrame(frame)
+                }
         }
     }
 }

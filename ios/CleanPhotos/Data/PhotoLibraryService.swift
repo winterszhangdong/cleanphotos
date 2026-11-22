@@ -648,7 +648,11 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     }
 
     func requestThumbnail(for asset: PHAsset, side: CGFloat, completion: @escaping (UIImage?) -> Void) -> PHImageRequestID {
-        imageManager.requestImage(for: asset, targetSize: thumbTarget(side: side), contentMode: .aspectFill, options: thumbOptions) { image, _ in
+        imageManager.requestImage(for: asset, targetSize: thumbTarget(side: side), contentMode: .aspectFill, options: thumbOptions) { image, info in
+            if ScrollProbe.enabled {
+                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                ScrollProbe.shared.thumb(main: Thread.isMainThread, degraded: degraded)
+            }
             completion(image)
         }
     }

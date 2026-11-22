@@ -1,5 +1,6 @@
 import SwiftUI
 import Photos
+import QuartzCore
 
 struct PhotoTileView: View {
     let item: PhotoItem
@@ -237,16 +238,25 @@ private struct TileFrameSink: UIViewRepresentable {
         private var observations: [NSKeyValueObservation] = []
         private weak var watched: UIScrollView?
 
+        private var counted = false
+
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if window != nil, !counted {
+                counted = true
+                ScrollProbe.shared.sinkAlive(1)
+            } else if window == nil, counted {
+                counted = false
+                ScrollProbe.shared.sinkAlive(-1)
+            }
             watchScroll()
-            publish()
+            publish(fromOffset: false)
         }
 
         override func layoutSubviews() {
             super.layoutSubviews()
             if observations.isEmpty { watchScroll() }
-            publish()
+            publish(fromOffset: false)
         }
 
         private func watchScroll() {
@@ -266,7 +276,7 @@ private struct TileFrameSink: UIViewRepresentable {
                 sv.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
                     guard Thread.isMainThread else { return }
                     MainActor.assumeIsolated {
-                        self?.publish()
+                        self?.publish(fromOffset: true)
                         ListScrollGate.shared.note(sv)
                     }
                 },
@@ -283,11 +293,17 @@ private struct TileFrameSink: UIViewRepresentable {
             ]
         }
 
-        private func publish() {
+        private func publish(fromOffset: Bool) {
             guard window != nil else { return }
             let host: UIView = bounds.width > 1 ? self : (superview ?? self)
             guard host.bounds.width > 1 else { return }
+            let t0 = ScrollProbe.enabled ? CACurrentMediaTime() : 0
             let frame = host.convert(host.bounds, to: nil)
+            if ScrollProbe.enabled {
+                let dt = CACurrentMediaTime() - t0
+                if fromOffset { ScrollProbe.shared.tileFromOffset(convert: dt) }
+                else { ScrollProbe.shared.tileFromLayout(convert: dt) }
+            }
             if PhotoOpenTransition.shared.tileFrames[id] != frame {
                 PhotoOpenTransition.shared.register(id, frame: frame)
             }

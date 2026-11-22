@@ -120,6 +120,7 @@ struct DragSelectProbe: UIViewRepresentable {
         private func emitScroll(_ sv: UIScrollView) {
             let programmatic = adjusting
             adjusting = false
+            if ScrollProbe.enabled { ScrollProbe.shared.offsetCallback() }
             handlers.onScroll?(sv.contentOffset.y, sv.isDragging, sv.isDecelerating, programmatic)
         }
 

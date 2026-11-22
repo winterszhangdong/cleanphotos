@@ -123,6 +123,15 @@ struct MainTabView: View {
             default: tab = .photos
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessTab)) { note in
+            guard ScrollProbe.enabled, let name = note.object as? String else { return }
+            switch name {
+            case "favorites": tab = .favorites
+            case "trash": tab = .trash
+            default: tab = .photos
+            }
+        }
+        .task { ScrollProbeSweep.start() }
         .onReceive(NotificationCenter.default.publisher(for: .cleanphotosHarnessReviewVideo)) { _ in
             guard AuditHooks.enabled else { return }
             Task { await openFirstVideo() }

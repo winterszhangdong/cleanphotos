@@ -641,6 +641,7 @@ struct PhotosView: View {
     }
 
     private func noteScroll(_ y: CGFloat, dragging: Bool, decelerating: Bool, programmatic: Bool) {
+        if ScrollProbe.enabled { ScrollProbe.shared.page = "photos-\(scope.rawValue)" }
         let moving = dragging || decelerating
         if isScrolling != moving { isScrolling = moving }
         if !moving && !isScrolling { GridDevelopSession.markPlayed(.photos) }
@@ -663,6 +664,7 @@ struct PhotosView: View {
         }
         // 松手后 contentOffset 不再变，KVO 不会再来。停一下再看列表是不是已经不动了。
         settleTask?.cancel()
+        if ScrollProbe.enabled { ScrollProbe.shared.taskSpawn() }
         settleTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
