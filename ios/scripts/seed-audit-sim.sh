@@ -7,5 +7,6 @@ xcrun simctl shutdown "$UDID" 2>/dev/null || true
 xcrun simctl erase "$UDID"
 xcrun simctl boot "$UDID"
 xcrun simctl bootstatus "$UDID" -b >/dev/null
+"$(dirname "$0")/quiet-sim.sh" "$UDID"
 xcrun simctl addmedia "$UDID" build/audit/seed/p*.jpg
 echo "seeded $UDID"
