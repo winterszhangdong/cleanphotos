@@ -7,6 +7,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.7.12] - 2026-11-23
+
 ### 新增
 
 - 安卓和 iOS：清理页可以把一条普通视频压成 1080p。文件信息旁边有「压缩」；确认后才开始，确认钮用相纸白。原片移入垃圾桶，清空后才空出空间。进行中锁住这一页的上下滑和左右换页。安卓离开页面后通知里仍有进度和取消；iOS 没有这则通知。
@@ -14,6 +16,19 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### 修复
 
 - 安卓和 iOS：清理页视频的暂停键、播放键或进度行出现时，左上角返回一起出现。再点一下一起收回。日期和文件信息仍只在暂停时展开。
+- 安卓：离开照片页再回来，沉浸和「那年今天」里展开过的位置对回日期分组，不再停在更早的格子或列表末尾。
+- 安卓：清理页快滑跨天不再停在空白小结。撤回只撤胶囊上正在显示的那一次。
+- 安卓：照片网格刚出现、还没滚过时，点照片不再空等大约 300 毫秒。
+- 安卓：垃圾桶恢复时，系统弹出授权不算已经移出。没批下来就保持原样。
+- 安卓：相似组被扫描拿掉之后，最后一张仍能上滑改成留下。
+- iOS：清理页左右滑不再每帧重算整页。返回钮进入清理页就建好，点开详情只改透明度。单击仍等双击超时，双击缩放不会先闪出详情。
+
+### 变更
+
+- iOS：照片、收藏、垃圾桶、相似和印样表改成原生列表。范围左右滑跟着手指走。
+- iOS：图标、玻璃、首屏显影、印样表和底片袋对齐暗房。相似对比的返回避开安全区。垃圾桶预览用状态栏下面的方槽，文件名在方槽下面。
+- iOS：日期滑块气泡改成固定宽度的一行。离开照片页再回来停在对应的日期分组位置。厂商动态照片按和安卓同一套规则识别。相似对比下滑过阈值，立刻把眼前这一张送进垃圾桶。
+- 这次只发安卓，不附 iOS 安装包。iOS 仍从源码编译。
 
 ---
 
@@ -24,6 +39,19 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 
 - Android and iOS: on the review page, the back button appears together with the video pause button, play button, or progress row. Another tap hides them together. The date and file info still open only when playback is paused.
+- Android: leaving the photos page and coming back maps immersive view, and a day expanded in On This Day, onto the date-grouped position, instead of an earlier cell or the end of the list.
+- Android: a fast swipe in review that crosses a day no longer stops on a blank summary. Undo only undoes the action the capsule is showing.
+- Android: tapping a photo on a grid that has just appeared, before any scroll, no longer waits about 300 milliseconds.
+- Android: restoring from the trash does not treat the system permission prompt as already done. If it is not approved, the photos stay.
+- Android: after a scan drops a similar group, swipe up can still mark the last photo to keep.
+- iOS: horizontal swipes on the review page no longer rebuild the whole page every frame. The back button is created when review opens, and opening the details only changes its opacity. A single tap still waits out the double-tap window, so double-tap zoom does not flash the details.
+
+### Changed
+
+- iOS: Photos, Favorites, Trash, Similar, and the contact sheet use native lists. Swiping between scopes follows the finger.
+- iOS: icons, glass, the opening develop, the contact sheet, and envelopes follow the darkroom. Similar compare keeps the back button clear of the safe area. Trash preview uses the square under the status bar, and the filename sits below that square.
+- iOS: the date scrubber bubble is one fixed-width line. Coming back to the photos page lands on the matching date-grouped position. Motion photos from the camera maker are recognized with the same rules as Android. On similar compare, swiping down past the threshold immediately moves the current photo to the trash.
+- This release is Android only and does not include an iOS build. iOS is still built from source.
 
 ## [1.7.11] - 2026-11-15
 
@@ -685,7 +713,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Dark "darkroom" design system with graceful degradation by API level and respect for the system animation scale.
 - No network permission; all state stored locally in DataStore.
 
-[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.11...HEAD
+[Unreleased]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.12...HEAD
+[1.7.12]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.11...v1.7.12
 [1.7.11]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.10...v1.7.11
 [1.7.10]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.9...v1.7.10
 [1.7.9]: https://github.com/winterszhangdong/cleanphotos/compare/v1.7.8...v1.7.9
