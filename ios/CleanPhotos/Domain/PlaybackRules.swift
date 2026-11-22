@@ -31,11 +31,14 @@ struct PlaybackChromeState: Equatable {
     var showProgress: Bool
     /// 中心键画暂停。否则画播放。
     var showPauseIcon: Bool
+    /// 左上角返回。跟中心键和进度行一起出现，不跟日期、文件信息走。
+    /// 清理页在 iOS 上是全屏盖层，没有系统边缘返回。
+    var showBack: Bool
     var details: PlaybackDetails
 }
 
 enum ReviewPlaybackTap: Equatable {
-    /// 视频播放中单击：只切换暂停键和进度行，不改播放。
+    /// 视频播放中单击：只切换暂停键、进度行和返回，不改播放。
     case toggleTransport(Bool)
     /// 静态图 / 动态照片单击：只切换详情。
     case toggleDetails(Bool)
@@ -101,6 +104,7 @@ enum PlaybackRules {
         let blocked = gestureActive || pinnedOrExiting
         let showPause = isVideo && !blocked && phase == .playing && transportShown
         let showPlay = isVideo && !blocked && phase != .playing && !warmingUp
+        let showTransport = showPause || showPlay
         let details: PlaybackDetails
         if !isVideo {
             details = .keep
@@ -114,9 +118,10 @@ enum PlaybackRules {
             details = .keep
         }
         return PlaybackChromeState(
-            showCenter: showPause || showPlay,
-            showProgress: showPause || showPlay,
+            showCenter: showTransport,
+            showProgress: showTransport,
             showPauseIcon: showPause,
+            showBack: showTransport,
             details: details
         )
     }

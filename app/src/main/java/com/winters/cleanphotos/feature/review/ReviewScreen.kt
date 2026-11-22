@@ -256,7 +256,7 @@ fun ReviewScreen(
         if (pageIsVideo && engine.playing) manualDetails = false
     }
     // 视频的详情跟阶段走：播放中收起，用户暂停展开，未开始 / 播完保持手动开关。
-    // 播放中的单击只打开暂停键和进度行。手势取消回弹后，用户暂停会把详情带回来。
+    // 播放中的单击打开暂停键、进度行和返回，日期和文件信息仍收着。手势取消回弹后，用户暂停会把详情带回来。
     val showDetails = when {
         !pageIsVideo -> manualDetails
         chrome.details == DetailsMode.Shown -> true
@@ -425,8 +425,9 @@ fun ReviewScreen(
             }
 
             // 进入时不显示。点一次照片才淡入返回和日期；再点一次收回。教学期间仍给出返回。
+            // 视频的返回跟暂停键、播放键、进度行一起出现，日期仍只在详情打开时画。
             AnimatedVisibility(
-                visible = currentPhoto != null && (showDetails || tutorial),
+                visible = currentPhoto != null && (showDetails || tutorial || chrome.showBack),
                 enter = fadeIn(tween(MotionDurations.SHORT)),
                 exit = fadeOut(tween(MotionDurations.MICRO)),
                 modifier = Modifier
@@ -447,6 +448,7 @@ fun ReviewScreen(
                 ReviewTopBar(
                     photo = currentPhoto,
                     onBack = onNavigateBack,
+                    showDate = showDetails || tutorial,
                     end = if (pageIsMotion && showDetails && !tutorial) {
                         {
                             MotionReplayPill(onClick = {

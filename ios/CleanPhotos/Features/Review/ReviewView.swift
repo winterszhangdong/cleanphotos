@@ -9,6 +9,7 @@ import os
 /// - 提示圆：上滑在底部、下滑在顶部；过阈值 32 → 56 实心 + 1.14 pop；
 /// - 过阈值松手：离场层 250ms 飞向导航「收藏 / 垃圾桶」位置，当前页立刻换下一张（0.94 / 亮度 0.6 升起），不锁输入。
 /// - 进入只留当天进度条。点一下照片才显示返回、日期、星期·时间、文件名 · 大小，再点一下收回。
+///   视频播放中点一下只出返回、暂停键和进度行；日期和文件名仍等暂停。
 ///   左右或上下一拖就收回，松手不自动再出现。进度条不跟这面旗子走（教学期间仍按原规则藏起来）。
 struct ReviewView: View {
     @EnvironmentObject private var library: PhotoLibraryService
@@ -644,11 +645,12 @@ struct ReviewView: View {
     static let warmBlack = Color(red: 0x0A/255, green: 0x09/255, blue: 0x08/255)
 
     /// 页面装饰（Android ReviewScreen）：进度条一直在（教学期间藏起，竖拖时跟 chromeAlpha 淡出再回来）。
-    /// 返回、日期、星期·时间、文件名只在点开详情或教学时出现。渐变只垫详情。
+    /// 返回、日期、星期·时间、文件名在点开详情或教学时出现。视频的返回跟播放控件一起出现，日期仍只在详情打开时画。渐变只垫详情。
     /// 横屏（mock 17）：顶部渐变 96、无底部渐变，进度条左 48 右 24，顶栏左 40 右 24，元信息左 48 底 20。
     private struct ChromeKey: Equatable {
         let photo: PhotoItem; let cells: [DayCellState]; let tutorial: Bool; let undoNil: Bool; let details: Bool
-        let showCenter: Bool; let showPause: Bool; let showProgress: Bool; let motion: Bool; let muted: Bool
+        let showCenter: Bool; let showPause: Bool; let showProgress: Bool; let showBack: Bool
+        let motion: Bool; let muted: Bool
         let fileDuration: Bool
         let compress: VideoCompressController.Phase
         let size: CGSize; let insets: EdgeInsets; let locale: String
@@ -662,16 +664,17 @@ struct ReviewView: View {
             let details = effectiveDetails(decision, photo: photo) || compress.keepsDetails
             let showCenter = decision.showCenter && !tutorialVisible && !compress.keepsDetails
             let showProgress = decision.showProgress && library.activeUndo == nil && !tutorialVisible && !compress.keepsDetails
+            let showBack = decision.showBack
             let motion = isCurrentMotion(photo) && details && !tutorialVisible && !compress.keepsDetails
             EquatableBox(key: ChromeKey(photo: photo, cells: cells, tutorial: tutorialVisible, undoNil: library.activeUndo == nil,
                                         details: details, showCenter: showCenter,
-                                        showPause: decision.showPauseIcon, showProgress: showProgress, motion: motion,
+                                        showPause: decision.showPauseIcon, showProgress: showProgress, showBack: showBack, motion: motion,
                                         muted: playbackMuted, fileDuration: photo.isVideo && details && !showProgress && !compress.keepsDetails,
                                         compress: compress.phase,
                                         size: size, insets: insets, locale: language.effectiveLocale.identifier)) {
                 chromeBody(photo, cells: cells, size: size, insets: insets, details: details,
                            showCenter: showCenter, showPause: decision.showPauseIcon,
-                           showProgress: showProgress, motion: motion)
+                           showProgress: showProgress, showBack: showBack, motion: motion)
             }
             .equatable()
             .opacity(chromeAlpha)
@@ -680,7 +683,7 @@ struct ReviewView: View {
     }
 
     private func chromeBody(_ photo: PhotoItem, cells: [DayCellState], size: CGSize, insets: EdgeInsets,
-                            details: Bool, showCenter: Bool, showPause: Bool, showProgress: Bool, motion: Bool) -> some View {
+                            details: Bool, showCenter: Bool, showPause: Bool, showProgress: Bool, showBack: Bool, motion: Bool) -> some View {
             let land = size.width > size.height
             let zh = language.isChineseUI
             let bottom = insets.bottom + (land ? 20 : 32)
@@ -708,8 +711,8 @@ struct ReviewView: View {
                         .padding(.top, insets.top + (land ? 12 : 8))
                         .opacity(tutorialVisible ? 0 : 1)
                         .allowsHitTesting(false)
-                    if details || tutorialVisible {
-                        topBar(photo, motion: motion)
+                    if details || tutorialVisible || showBack {
+                        topBar(photo, motion: motion, showDate: details || tutorialVisible)
                             .padding(.leading, land ? 40 - 12 + insets.leading : 0)
                             .padding(.trailing, land ? 24 - 12 + insets.trailing : 0)
                             .padding(.top, land ? 12 : 12)
@@ -869,7 +872,7 @@ struct ReviewView: View {
     }
 
     /// .rv-top：40pt 玻璃返回 + 日期 15/20 500 + mono 10.5「星期 · 时间」相纸白 66%。没有右上角菜单。
-    private func topBar(_ photo: PhotoItem, motion: Bool) -> some View {
+    private func topBar(_ photo: PhotoItem, motion: Bool, showDate: Bool) -> some View {
         ZStack {
             HStack {
                 GlassCircleButton(systemName: "chevron.left") { close() }
@@ -886,24 +889,26 @@ struct ReviewView: View {
                     }
                 }
             }
-            VStack(spacing: 0) {
-                // Android ReviewTopBar：日期走里程表，方向按「第几天」（epoch day）定
-                OdometerText(value: Int64(((photo.creationDate.timeIntervalSince1970 + Double(TimeZone.current.secondsFromGMT())) / 86400).rounded(.down)),
-                             text: dateTitle(photo.creationDate),
-                             font: Font.custom("NotoSansSC-Medium", size: 15), color: DarkroomColors.paper)
-                Text(timeLine(photo.creationDate))
-                    .font(DarkroomFonts.plexMono(size: 10.5))
-                    .tracking(0.42)
-                    .foregroundStyle(DarkroomColors.paper.opacity(0.66))
+            if showDate {
+                VStack(spacing: 0) {
+                    // Android ReviewTopBar：日期走里程表，方向按「第几天」（epoch day）定
+                    OdometerText(value: Int64(((photo.creationDate.timeIntervalSince1970 + Double(TimeZone.current.secondsFromGMT())) / 86400).rounded(.down)),
+                                 text: dateTitle(photo.creationDate),
+                                 font: Font.custom("NotoSansSC-Medium", size: 15), color: DarkroomColors.paper)
+                    Text(timeLine(photo.creationDate))
+                        .font(DarkroomFonts.plexMono(size: 10.5))
+                        .tracking(0.42)
+                        .foregroundStyle(DarkroomColors.paper.opacity(0.66))
+                }
+                // 翻页在 snappy 弹簧事务里换 index：不让这里的文字跟着做隐式插值（带阴影的文字组每帧都要在主线程 CPU 重画）。
+                // 日期里程表自己按时间轴滚动，不受影响；时间行与 Android 一样直接换字。
+                // 日期不吃点击，点在字上也能收回详情；返回钮自己可点。
+                .allowsHitTesting(false)
+                .transaction { if !PerfLegacy.on { $0.animation = nil } }
+                .shadow(color: .black.opacity(0.4), radius: 10, y: 2.6)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("review-date")
             }
-            // 翻页在 snappy 弹簧事务里换 index：不让这里的文字跟着做隐式插值（带阴影的文字组每帧都要在主线程 CPU 重画）。
-            // 日期里程表自己按时间轴滚动，不受影响；时间行与 Android 一样直接换字。
-            // 日期不吃点击，点在字上也能收回详情；返回钮自己可点。
-            .allowsHitTesting(false)
-            .transaction { if !PerfLegacy.on { $0.animation = nil } }
-            .shadow(color: .black.opacity(0.4), radius: 10, y: 2.6)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("review-date")
         }
         .frame(height: 40)
         .padding(.horizontal, 12)

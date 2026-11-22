@@ -227,13 +227,14 @@ internal fun ReviewTopBar(
     photo: PhotoItem?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    showDate: Boolean = true,
     end: (@Composable () -> Unit)? = null,
 ) {
     Box(modifier.fillMaxWidth().height(Dimens.GlassButton)) {
         GlassIconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(DarkroomIcons.Back, contentDescription = stringResource(R.string.cd_back), tint = DarkroomColors.Paper, modifier = Modifier.size(20.dp))
         }
-        if (photo != null) {
+        if (showDate && photo != null) {
             val locale = currentLocale()
             val unknownDate = stringResource(R.string.date_unknown)
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {

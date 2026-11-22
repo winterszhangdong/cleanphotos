@@ -25,10 +25,12 @@ class PlaybackChromeTest {
         for (phase in PlaybackPhase.entries) {
             val dragging = playbackChrome(isVideo = true, phase = phase, gestureActive = true, pinnedOrExiting = false)
             assertFalse(dragging.showCenter)
+            assertFalse(dragging.showBack)
             assertEquals(DetailsMode.Hidden, dragging.details)
 
             val exiting = playbackChrome(isVideo = true, phase = phase, gestureActive = false, pinnedOrExiting = true)
             assertFalse(exiting.showCenter)
+            assertFalse(exiting.showBack)
             assertEquals(DetailsMode.Hidden, exiting.details)
         }
 
@@ -36,29 +38,33 @@ class PlaybackChromeTest {
         assertFalse(playing.showCenter)
         assertFalse(playing.showProgress)
         assertFalse(playing.showPauseIcon)
+        assertFalse(playing.showBack)
         assertEquals(DetailsMode.Hidden, playing.details)
 
         val paused = playbackChrome(isVideo = true, phase = PlaybackPhase.UserPaused, gestureActive = false, pinnedOrExiting = false)
         assertTrue(paused.showCenter)
         assertTrue(paused.showProgress)
         assertFalse(paused.showPauseIcon)
+        assertTrue(paused.showBack)
         assertEquals(DetailsMode.Shown, paused.details)
 
         val notStarted = playbackChrome(isVideo = true, phase = PlaybackPhase.NotStarted, gestureActive = false, pinnedOrExiting = false)
         assertTrue(notStarted.showCenter)
         assertTrue(notStarted.showProgress)
         assertFalse(notStarted.showPauseIcon)
+        assertTrue(notStarted.showBack)
         assertEquals(DetailsMode.Keep, notStarted.details)
 
         val ended = playbackChrome(isVideo = true, phase = PlaybackPhase.Ended, gestureActive = false, pinnedOrExiting = false)
         assertTrue(ended.showCenter)
         assertTrue(ended.showProgress)
         assertFalse(ended.showPauseIcon)
+        assertTrue(ended.showBack)
         assertEquals(DetailsMode.Keep, ended.details)
     }
 
     @Test
-    fun `播放中单击只唤出暂停键和进度行，拖动时收回`() {
+    fun `播放中单击唤出暂停键、进度行和返回，日期仍收着，拖动时收回`() {
         val shown = playbackChrome(
             isVideo = true,
             phase = PlaybackPhase.Playing,
@@ -69,6 +75,7 @@ class PlaybackChromeTest {
         assertTrue(shown.showCenter)
         assertTrue(shown.showProgress)
         assertTrue(shown.showPauseIcon)
+        assertTrue(shown.showBack)
         assertEquals(DetailsMode.Hidden, shown.details)
 
         val dragging = playbackChrome(
@@ -166,6 +173,7 @@ class PlaybackChromeTest {
         )
         assertFalse(waiting.showCenter)
         assertFalse(waiting.showProgress)
+        assertFalse(waiting.showBack)
         assertEquals(DetailsMode.Keep, waiting.details)
 
         val animationsOff = playbackChrome(
@@ -177,6 +185,7 @@ class PlaybackChromeTest {
         )
         assertTrue(animationsOff.showCenter)
         assertTrue(animationsOff.showProgress)
+        assertTrue(animationsOff.showBack)
         assertFalse(animationsOff.showPauseIcon)
 
         val ended = playbackChrome(
@@ -202,6 +211,7 @@ class PlaybackChromeTest {
         val chrome = playbackChrome(isVideo = false, phase = PlaybackPhase.UserPaused, gestureActive = true, pinnedOrExiting = true)
         assertFalse(chrome.showCenter)
         assertFalse(chrome.showProgress)
+        assertFalse(chrome.showBack)
         assertEquals(DetailsMode.Keep, chrome.details)
     }
 

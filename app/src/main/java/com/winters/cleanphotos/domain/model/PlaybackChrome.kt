@@ -21,6 +21,11 @@ data class PlaybackChrome(
     val showProgress: Boolean,
     /** 中心键画暂停。否则画播放。 */
     val showPauseIcon: Boolean,
+    /**
+     * 左上角返回。跟中心键和进度行一起出现，不跟日期、文件信息走。
+     * 清理页在 iOS 上是全屏盖层，没有系统边缘返回。
+     */
+    val showBack: Boolean,
     val details: DetailsMode,
 )
 
@@ -64,6 +69,7 @@ fun playbackChrome(
     val blocked = gestureActive || pinnedOrExiting
     val showPause = isVideo && !blocked && phase == PlaybackPhase.Playing && transportShown
     val showPlay = isVideo && !blocked && phase != PlaybackPhase.Playing && !warmingUp
+    val showTransport = showPause || showPlay
     val details = when {
         !isVideo -> DetailsMode.Keep
         blocked -> DetailsMode.Hidden
@@ -72,15 +78,16 @@ fun playbackChrome(
         else -> DetailsMode.Keep
     }
     return PlaybackChrome(
-        showCenter = showPause || showPlay,
-        showProgress = showPause || showPlay,
+        showCenter = showTransport,
+        showProgress = showTransport,
         showPauseIcon = showPause,
+        showBack = showTransport,
         details = details,
     )
 }
 
 sealed interface ReviewPhotoTap {
-    /** 视频播放中单击：只切换暂停键和进度行，不改播放。 */
+    /** 视频播放中单击：只切换暂停键、进度行和返回，不改播放。 */
     data class ToggleTransport(val show: Boolean) : ReviewPhotoTap
 
     /** 静态图 / 动态照片单击：只切换详情。 */

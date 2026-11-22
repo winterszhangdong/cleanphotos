@@ -21,9 +21,11 @@ final class PlaybackRulesTests: XCTestCase {
         for phase in [PlaybackPhase.playing, .userPaused, .notStarted, .ended] {
             let dragging = PlaybackRules.chrome(isVideo: true, phase: phase, gestureActive: true, pinnedOrExiting: false)
             XCTAssertFalse(dragging.showCenter)
+            XCTAssertFalse(dragging.showBack)
             XCTAssertEqual(dragging.details, .hidden)
             let exiting = PlaybackRules.chrome(isVideo: true, phase: phase, gestureActive: false, pinnedOrExiting: true)
             XCTAssertFalse(exiting.showCenter)
+            XCTAssertFalse(exiting.showBack)
             XCTAssertEqual(exiting.details, .hidden)
         }
 
@@ -31,24 +33,28 @@ final class PlaybackRulesTests: XCTestCase {
         XCTAssertFalse(playing.showCenter)
         XCTAssertFalse(playing.showProgress)
         XCTAssertFalse(playing.showPauseIcon)
+        XCTAssertFalse(playing.showBack)
         XCTAssertEqual(playing.details, .hidden)
 
         let paused = PlaybackRules.chrome(isVideo: true, phase: .userPaused, gestureActive: false, pinnedOrExiting: false)
         XCTAssertTrue(paused.showCenter)
         XCTAssertTrue(paused.showProgress)
         XCTAssertFalse(paused.showPauseIcon)
+        XCTAssertTrue(paused.showBack)
         XCTAssertEqual(paused.details, .shown)
 
         let notStarted = PlaybackRules.chrome(isVideo: true, phase: .notStarted, gestureActive: false, pinnedOrExiting: false)
         XCTAssertTrue(notStarted.showCenter)
         XCTAssertTrue(notStarted.showProgress)
         XCTAssertFalse(notStarted.showPauseIcon)
+        XCTAssertTrue(notStarted.showBack)
         XCTAssertEqual(notStarted.details, .keep)
 
         let ended = PlaybackRules.chrome(isVideo: true, phase: .ended, gestureActive: false, pinnedOrExiting: false)
         XCTAssertTrue(ended.showCenter)
         XCTAssertTrue(ended.showProgress)
         XCTAssertFalse(ended.showPauseIcon)
+        XCTAssertTrue(ended.showBack)
         XCTAssertEqual(ended.details, .keep)
     }
 
@@ -59,6 +65,7 @@ final class PlaybackRulesTests: XCTestCase {
         XCTAssertTrue(shown.showCenter)
         XCTAssertTrue(shown.showProgress)
         XCTAssertTrue(shown.showPauseIcon)
+        XCTAssertTrue(shown.showBack)
         XCTAssertEqual(shown.details, .hidden)
 
         let dragging = PlaybackRules.chrome(
@@ -97,6 +104,7 @@ final class PlaybackRulesTests: XCTestCase {
         )
         XCTAssertFalse(waiting.showCenter)
         XCTAssertFalse(waiting.showProgress)
+        XCTAssertFalse(waiting.showBack)
         XCTAssertEqual(waiting.details, .keep)
 
         let animationsOff = PlaybackRules.chrome(
@@ -104,6 +112,7 @@ final class PlaybackRulesTests: XCTestCase {
         )
         XCTAssertTrue(animationsOff.showCenter)
         XCTAssertTrue(animationsOff.showProgress)
+        XCTAssertTrue(animationsOff.showBack)
 
         let ended = PlaybackRules.chrome(
             isVideo: true, phase: .ended, gestureActive: false, pinnedOrExiting: false, awaitingAutoplay: true
@@ -122,6 +131,7 @@ final class PlaybackRulesTests: XCTestCase {
         let chrome = PlaybackRules.chrome(isVideo: false, phase: .userPaused, gestureActive: true, pinnedOrExiting: true)
         XCTAssertFalse(chrome.showCenter)
         XCTAssertFalse(chrome.showProgress)
+        XCTAssertFalse(chrome.showBack)
         XCTAssertEqual(chrome.details, .keep)
     }
 
