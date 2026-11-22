@@ -106,6 +106,7 @@ struct PhotosView: View {
             library.setPage(scope: scope, unseenOnly: unseenOnly)
             refreshMounted(around: .all)
             if library.sections.isEmpty { await library.reload() }
+            if scope == .similar { similarSession.start(library) }
             seedDevelopIfNeeded()
             syncOverlayDays()
         }
@@ -314,9 +315,6 @@ struct PhotosView: View {
             .background { if active { DragSelectProbe(handlers: configuredHandlers()) } }
         }
         .scrollIndicators(.hidden)
-        .onAppear {
-            if s == .similar { similarSession.start(library) }
-        }
     }
 
     private enum PageRow: Identifiable {
@@ -397,7 +395,7 @@ struct PhotosView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 4)
         case .similarSkeleton(let i):
-            SimilarSkeletonCard(delay: Double(i) * 0.2)
+            SimilarSkeletonCard(delay: Double(i) * 0.2, active: photosVisible && active)
                 .padding(.horizontal, 16)
         case .similarBanner:
             Text(SimilarCopy.comparing(done: similarSession.done, total: similarSession.total, zh: chinese))
@@ -629,6 +627,7 @@ struct PhotosView: View {
         h.onMove = { moveDrag(to: $0) }
         h.onEnd = { endDrag() }
         h.scopeDragEnabled = { scopeDragEnabled }
+        h.isActive = { photosVisible }
         h.onScopeDrag = { scopeDrag($0, $1, $2) }
         h.onScroll = { y, dragging, decelerating, programmatic in
             noteScroll(y, dragging: dragging, decelerating: decelerating, programmatic: programmatic)
@@ -641,6 +640,7 @@ struct PhotosView: View {
     }
 
     private func noteScroll(_ y: CGFloat, dragging: Bool, decelerating: Bool, programmatic: Bool) {
+        guard photosVisible else { return }
         if ScrollProbe.enabled { ScrollProbe.shared.page = "photos-\(scope.rawValue)" }
         let moving = dragging || decelerating
         if isScrolling != moving { isScrolling = moving }
@@ -720,15 +720,33 @@ struct PhotosView: View {
     /// 吸顶和滑块用的日期顺序。测量结果留在 driver 里，这里只更新顺序和还没量到时的估计落点。
     private func syncOverlayDays() {
         bindOverlay()
-        let days = pageData(scope).groups.flatMap(\.days).filter { $0.header == .day }
-        var anchors: [CGFloat] = []
-        var before = 0
+        let groups = pageData(scope).groups
+        let days = groups.flatMap(\.days).filter { $0.header == .day }
+        var estimatedById: [String: CGFloat] = [:]
         let grouped = viewMode == .dateGrouped
+        if grouped {
+            let side = tileSide(listWidth)
+            let gap = DarkroomDimens.gridGap
+            let cols = CGFloat(DarkroomDimens.gridColumns)
+            var y = chromeHeight
+            for year in groups {
+                if year.year > 0 { y += DarkroomDimens.yearHeight }
+                for day in year.days {
+                    estimatedById[day.id] = y
+                    y += DarkroomDimens.dayHeight
+                    let rows = ceil(CGFloat(max(day.allItems.count, 1)) / cols)
+                    y += rows * (side + gap)
+                }
+            }
+        }
+        var anchors: [CGFloat] = []
+        anchors.reserveCapacity(days.count)
+        var before = 0
         for day in days {
             if grouped, let y = overlay.headerTop(day.id) {
                 anchors.append(y)
             } else if grouped {
-                anchors.append(estimatedDateAnchor(day))
+                anchors.append(estimatedById[day.id] ?? chromeHeight)
             } else {
                 anchors.append(immersiveAnchor(itemsBefore: before))
             }

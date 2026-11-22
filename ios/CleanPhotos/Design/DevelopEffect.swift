@@ -48,25 +48,26 @@ struct DevelopModifier: ViewModifier {
     let delay: Double
     @State private var progress: CGFloat = 0
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .opacity(enabled ? (0.08 + 0.92 * progress) : 1)
-            .saturation(enabled ? progress : 1)
-            .brightness(enabled ? (-0.15 + 0.15 * progress) : 0)
-            .task(id: enabled) {
-                // 延迟动画会被父级刷新取消，progress 停在 0，格子就一直近乎透明。到点强制走完。
-                guard enabled else {
+        if enabled {
+            content
+                .opacity(0.08 + 0.92 * progress)
+                .saturation(progress)
+                .brightness(-0.15 + 0.15 * progress)
+                .task(id: enabled) {
+                    // 延迟动画会被父级刷新取消，progress 停在 0，格子就一直近乎透明。到点强制走完。
+                    progress = 0
+                    withAnimation(DarkroomMotion.developCurve.delay(delay)) {
+                        progress = 1
+                    }
+                    let wait = delay + DarkroomMotion.develop + 0.05
+                    try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
                     progress = 1
-                    return
                 }
-                progress = 0
-                withAnimation(DarkroomMotion.developCurve.delay(delay)) {
-                    progress = 1
-                }
-                let wait = delay + DarkroomMotion.develop + 0.05
-                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
-                progress = 1
-            }
+        } else {
+            content
+        }
     }
 }
 

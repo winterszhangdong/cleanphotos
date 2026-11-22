@@ -181,14 +181,14 @@ struct MainTabView: View {
         transitionToken += 1
         let token = transitionToken
         let id = launch.startPhotoId
-        let thumb = id.flatMap { shared.tileImages[$0] }
+        let thumb = id.flatMap { shared.image(for: $0) }
         seedImage = thumb
         if reduceMotion {
             clock = nil; flight = nil
             present(launch)
             return
         }
-        if let id, let thumb, let from = shared.tileFrames[id], let to = fitRect(for: id) {
+        if let id, let thumb, let from = shared.frame(for: id), let to = fitRect(for: id) {
             flight = SharedFlight(id: id, kind: .expand, image: thumb, from: from, to: to, start: Date())
             shared.setFlying(id)
         } else {
@@ -209,7 +209,7 @@ struct MainTabView: View {
         let token = transitionToken
         if reduceMotion { closeImmediately(); return }
         let now = Date()
-        if let id = photoId, let img = image ?? shared.tileImages[id], let from = fitRect(for: id), let to = shared.tileFrames[id] {
+        if let id = photoId, let img = image ?? shared.image(for: id), let from = fitRect(for: id), let to = shared.frame(for: id) {
             flight = SharedFlight(id: id, kind: .collapse, image: img, from: from, to: to, start: now)
             shared.setFlying(id)
         } else {
@@ -258,13 +258,7 @@ struct DarkroomTabBar: View {
         .overlay(alignment: .bottomLeading) { NavIndicator(selection: selection) }
         .padding(DarkroomDimens.navPadding)
         .frame(height: DarkroomDimens.navHeight)
-        .background {
-            Capsule()
-                .fill(DarkroomColors.navGlass)
-                .overlay(Capsule().strokeBorder(DarkroomColors.navRim, lineWidth: 1))
-                .shadow(color: DarkroomColors.navShadow, radius: 16, y: 12)
-                .background(.ultraThinMaterial, in: Capsule())
-        }
+        .background { DarkroomGlassCapsuleBackground() }
         .padding(.bottom, DarkroomDimens.navBottom - 8)
     }
 

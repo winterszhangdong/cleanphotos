@@ -74,25 +74,34 @@ struct TrashView: View {
                         }
                     }
                     .scrollDisabled(true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
                 }
                 .onAppear { startDissolve() }
             } else if library.trashItems.isEmpty && pendingDelete == nil {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        Color.clear.frame(height: DarkroomDimens.headerHeight)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in if w > 0 { listWidth = w } }
-                        if selecting { selectionSummary } else { freeCard(bytes: pendingDelete?.bytes ?? library.trashBytes, enabled: true, oldestDays: oldestDaysNow()) }
-                        let items = pendingDelete?.items ?? library.trashItems
-                        let starts = Array(stride(from: 0, to: items.count, by: 3))
-                        ForEach(starts, id: \.self) { start in
-                            trashRow(items: items, start: start, dissolve: nil)
+                TrashGridCollectionView(
+                    items: pendingDelete?.items ?? library.trashItems,
+                    selecting: selecting,
+                    selected: selected,
+                    totalBytes: pendingDelete?.bytes ?? library.trashBytes,
+                    oldestDays: oldestDaysNow(),
+                    selectedBytes: selectedBytes,
+                    locale: loc,
+                    pipeline: library.thumbnails,
+                    bytesProvider: { bytes(of: $0) },
+                    onTapItem: { item in
+                        if selecting {
+                            if selected.contains(item.id) { selected.remove(item.id) } else { selected.insert(item.id) }
+                        } else {
+                            previewId = item.id
                         }
-                        Color.clear.frame(height: DarkroomDimens.navBottom + DarkroomDimens.navHeight + 48)
+                    },
+                    onEmptyTap: {
+                        if pendingDelete == nil { confirmEmpty = true }
                     }
-                }
-                .scrollIndicators(.hidden)
+                )
+                .ignoresSafeArea(.container, edges: .bottom)
             }
 
             VStack(spacing: 0) {
@@ -224,68 +233,16 @@ struct TrashView: View {
                 .frame(height: DarkroomDimens.headerHeight, alignment: .bottom)
             }
         }
-        .background(DarkroomColors.room.opacity(0.92))
+        .background(DarkroomColors.room)
     }
 
     // MARK: - Grid header
 
     /// .free：「清空后可释放」卡片（外边距 4 16 16）。满 30 个 24 小时日才换副文字。
     private func freeCard(bytes: Int64, enabled: Bool, oldestDays: Int?) -> some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(L10n.string("free_label", locale: loc))
-                    .font(Font.custom("NotoSansSC-Regular", size: 12))
-                    .foregroundStyle(DarkroomColors.dim)
-                    .frame(height: 16)
-                let parts = FileSizeFormatter.parts(bytes)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(parts.number)
-                        .font(DarkroomFonts.schibsted(size: 32, weight: .semibold))
-                        .tracking(-0.64)
-                        .foregroundStyle(DarkroomColors.paper)
-                        .monospacedDigit()
-                    Text(parts.unit)
-                        .font(Font.custom("NotoSansSC-Medium", size: 14))
-                        .foregroundStyle(DarkroomColors.dim)
-                }
-                .frame(height: 36)
-                .padding(.top, 4)
-                Text(oldestDays.map { TrashCopy.oldestDays($0, locale: loc) } ?? L10n.string("free_sub", locale: loc))
-                    .font(Font.custom("NotoSansSC-Regular", size: 11))
-                    .foregroundStyle(DarkroomColors.faint)
-                    .lineLimit(2)
-                    .frame(minHeight: 16, alignment: .leading)
-                    .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            DeleteOutlineButton(title: L10n.string("empty_trash", locale: loc)) { if enabled { confirmEmpty = true } }
-                .accessibilityIdentifier("trash-empty")
+        TrashFreeCardView(bytes: bytes, enabled: enabled, oldestDays: oldestDays, locale: loc) {
+            if enabled { confirmEmpty = true }
         }
-        .padding(16)
-        .background(DarkroomColors.tray, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DarkroomColors.rim, lineWidth: 1))
-        .padding(.horizontal, DarkroomDimens.screenSide)
-        .padding(.top, 4)
-        .padding(.bottom, 16)
-    }
-
-    /// .sel-sum：40pt，左「点照片选中，再点取消」，右「<b>9.6 MB</b> · 回到相册」。
-    private var selectionSummary: some View {
-        HStack {
-            Text(L10n.string("sel_sum_hint", locale: loc))
-                .font(Font.custom("NotoSansSC-Regular", size: 12))
-                .foregroundStyle(DarkroomColors.dim)
-            Spacer()
-            (Text(FileSizeFormatter.format(selectedBytes))
-                .foregroundColor(DarkroomColors.paper)
-                .font(DarkroomFonts.plexMono(size: 12, weight: .medium))
-             + Text(L10n.string("sel_sum_back", locale: loc))
-                .foregroundColor(DarkroomColors.dim)
-                .font(DarkroomFonts.plexMono(size: 12)))
-        }
-        .padding(.horizontal, DarkroomDimens.screenSide)
-        .frame(height: 40 - DarkroomDimens.gridGap)
-        .padding(.bottom, DarkroomDimens.gridGap)
     }
 
     // MARK: - Grid
@@ -300,36 +257,17 @@ struct TrashView: View {
                 let i = start + offset
                 let isSel = selecting && selected.contains(item.id)
                 let p = dissolve?(i) ?? 0
-                ZStack(alignment: .bottomTrailing) {
-                    PhotoTileView(item: item, side: side, develop: false, developDelay: 0, showUnseen: false,
-                                  selecting: selecting, selected: isSel)
-                        // 3.5：饱和 70%、亮度 86%；选中恢复原色（160ms）
-                        .saturation(isSel ? 1 : 0.7)
-                        .colorMultiply(Color(white: isSel ? 1 : 0.86))
-                        .animation(.timingCurve(0.2, 0, 0, 1, duration: 0.16), value: isSel)
-                    if !isSel {
-                        Text(FileSizeFormatter.format(bytes(of: item.id)))
-                            .font(DarkroomFonts.plexMono(size: 10))
-                            .foregroundStyle(DarkroomColors.paper.opacity(0.88))
-                            .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
-                            .padding(6)
-                    }
-                }
-                .frame(width: side, height: side)
+                TrashDissolveTile(
+                    item: item,
+                    side: side,
+                    pipeline: library.thumbnails,
+                    sizeText: (item.isVideo || isSel) ? nil : FileSizeFormatter.format(bytes(of: item.id))
+                )
                 // 溶解：缩到 0.86、模糊 5、亮度 0.3、透明
                 .overlay(Color.black.opacity(0.7 * p))
                 .blur(radius: 5 * p)
                 .scaleEffect(1 - 0.14 * p)
                 .opacity(1 - p)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard dissolve == nil else { return }
-                    if selecting {
-                        if selected.contains(item.id) { selected.remove(item.id) } else { selected.insert(item.id) }
-                    } else {
-                        previewId = item.id
-                    }
-                }
                 .accessibilityIdentifier("trash-tile-\(i)")
             }
             if end - start < cols { Spacer(minLength: 0) }
@@ -500,6 +438,49 @@ struct TrashView: View {
         let token = toastToken
         toast = text
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { if token == toastToken { toast = nil } }
+    }
+}
+
+private struct TrashDissolveTile: View {
+    let item: PhotoItem
+    let side: CGFloat
+    let pipeline: ThumbnailPipeline
+    let sizeText: String?
+
+    @State private var image: UIImage?
+    @State private var token: ThumbnailToken?
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            DarkroomColors.tileFill
+            if let shown = image ?? pipeline.cached(id: item.id, side: side, style: .trashed) {
+                Image(uiImage: shown)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: side, height: side)
+                    .clipped()
+            }
+            if let label = item.isVideo ? ScopeRules.formatDuration(seconds: item.duration) : sizeText {
+                Text(label)
+                    .font(DarkroomFonts.plexMono(size: 10))
+                    .foregroundStyle(DarkroomColors.paper.opacity(item.isVideo ? 1 : 0.88))
+                    .padding(6)
+            }
+        }
+        .frame(width: side, height: side)
+        .onAppear {
+            if let cached = pipeline.cached(id: item.id, side: side, style: .trashed) {
+                image = cached
+                return
+            }
+            token = pipeline.request(asset: item.asset, side: side, style: .trashed) { img, _ in
+                image = img
+            }
+        }
+        .onDisappear {
+            token?.cancel()
+            token = nil
+        }
     }
 }
 

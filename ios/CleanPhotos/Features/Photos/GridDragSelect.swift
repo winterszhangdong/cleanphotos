@@ -28,6 +28,7 @@ final class DragSelectHandlers {
     /// 横滑换范围。translation、是否结束、水平速度（pt/s）。
     var onScopeDrag: ((CGFloat, Bool, CGFloat) -> Void)?
     var scopeDragEnabled: () -> Bool = { true }
+    var isActive: () -> Bool = { true }
     var readOffset: () -> CGFloat = { 0 }
     var writeOffset: (CGFloat) -> Void = { _ in }
     var readContentHeight: () -> CGFloat = { 0 }
@@ -88,6 +89,7 @@ struct DragSelectProbe: UIViewRepresentable {
         private let edge: CGFloat = 64
         private let maxStep: CGFloat = 14
         private var offsetObservation: NSKeyValueObservation?
+        private var lastObservedOffset = CGPoint(x: CGFloat.nan, y: CGFloat.nan)
         private var lastScroll: CFTimeInterval = 0
         private var scopePan: UIPanGestureRecognizer?
         private var adjusting = false
@@ -146,12 +148,22 @@ struct DragSelectProbe: UIViewRepresentable {
             guard let sv = v as? UIScrollView else { return }
             scrollView = sv
             // 只记一个时间戳（滚动时每帧一次，不触发任何 SwiftUI 刷新）
+            lastObservedOffset = sv.contentOffset
             offsetObservation = sv.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
-                self?.lastScroll = CACurrentMediaTime()
+                let handle = {
+                    guard let self, self.handlers.isActive() else { return }
+                    let offset = sv.contentOffset
+                    let dx = abs(offset.x - self.lastObservedOffset.x)
+                    let dy = abs(offset.y - self.lastObservedOffset.y)
+                    guard self.lastObservedOffset.x.isNaN || dx > 0.01 || dy > 0.01 else { return }
+                    self.lastObservedOffset = offset
+                    self.lastScroll = CACurrentMediaTime()
+                    self.emitScroll(sv)
+                }
                 if Thread.isMainThread {
-                    self?.emitScroll(sv)
+                    handle()
                 } else {
-                    DispatchQueue.main.async { self?.emitScroll(sv) }
+                    DispatchQueue.main.async(execute: handle)
                 }
             }
             wireScrollState()

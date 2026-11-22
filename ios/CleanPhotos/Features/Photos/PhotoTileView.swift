@@ -237,6 +237,7 @@ private struct TileFrameSink: UIViewRepresentable {
         var id = ""
         private var observations: [NSKeyValueObservation] = []
         private weak var watched: UIScrollView?
+        private var lastObservedOffset = CGPoint(x: CGFloat.nan, y: CGFloat.nan)
 
         private var counted = false
 
@@ -272,11 +273,18 @@ private struct TileFrameSink: UIViewRepresentable {
             if watched === sv, !observations.isEmpty { return }
             observations.forEach { $0.invalidate() }
             watched = sv
+            lastObservedOffset = sv.contentOffset
             observations = [
                 sv.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
                     guard Thread.isMainThread else { return }
                     MainActor.assumeIsolated {
-                        self?.publish(fromOffset: true)
+                        guard let self else { return }
+                        let offset = sv.contentOffset
+                        let dx = abs(offset.x - self.lastObservedOffset.x)
+                        let dy = abs(offset.y - self.lastObservedOffset.y)
+                        guard self.lastObservedOffset.x.isNaN || dx > 0.01 || dy > 0.01 else { return }
+                        self.lastObservedOffset = offset
+                        self.publish(fromOffset: true)
                         ListScrollGate.shared.note(sv)
                     }
                 },

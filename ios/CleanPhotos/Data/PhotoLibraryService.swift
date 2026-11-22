@@ -42,6 +42,7 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     let favorites = FavoriteStore()
     let trash = TrashStore()
     let imageManager = PHCachingImageManager()
+    lazy var thumbnails = ThumbnailPipeline(imageManager: imageManager)
 
     /// Flat cache of all library photos keyed by id (including favorited / trashed).
     private(set) var allById: [String: PhotoItem] = [:]

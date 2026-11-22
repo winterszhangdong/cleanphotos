@@ -11,12 +11,16 @@ final class PhotoOpenTransition: ObservableObject {
 
     var tileFrames: [String: CGRect] = [:]
     var tileImages: [String: UIImage] = [:]
+    private var frameProviders: [String: (String) -> CGRect?] = [:]
+    private var imageProviders: [String: (String) -> UIImage?] = [:]
+    private var flyingObservers: [String: (String?) -> Void] = [:]
     /// 飞行中的照片 id。网格瓦片不观察这个对象：只有被藏的那一格自己的 flag 会刷新。
     private(set) var flyingId: String? {
         didSet {
             guard oldValue != flyingId else { return }
             if let oldValue { hideFlags[oldValue]?.hidden = false }
             if let flyingId { hideFlag(for: flyingId).hidden = true }
+            for observer in flyingObservers.values { observer(flyingId) }
             objectWillChange.send()
         }
     }
@@ -44,6 +48,37 @@ final class PhotoOpenTransition: ObservableObject {
         tileFrames[id] = nil
         tileImages[id] = nil
         if flyingId != id { hideFlags[id] = nil }
+    }
+
+    func registerProvider(
+        key: String,
+        frame: @escaping (String) -> CGRect?,
+        image: @escaping (String) -> UIImage?,
+        onFlyingChange: @escaping (String?) -> Void
+    ) {
+        frameProviders[key] = frame
+        imageProviders[key] = image
+        flyingObservers[key] = onFlyingChange
+    }
+
+    func unregisterProvider(key: String) {
+        frameProviders.removeValue(forKey: key)
+        imageProviders.removeValue(forKey: key)
+        flyingObservers.removeValue(forKey: key)
+    }
+
+    func frame(for id: String) -> CGRect? {
+        for provider in frameProviders.values {
+            if let rect = provider(id) { return rect }
+        }
+        return tileFrames[id]
+    }
+
+    func image(for id: String) -> UIImage? {
+        for provider in imageProviders.values {
+            if let img = provider(id) { return img }
+        }
+        return tileImages[id]
     }
 
     /// 这一格是否在飞行。别的格子不订阅。

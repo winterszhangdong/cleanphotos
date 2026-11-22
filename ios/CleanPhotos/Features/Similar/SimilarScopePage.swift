@@ -75,6 +75,7 @@ struct SimilarCardRow: View {
 
 struct SimilarSkeletonCard: View {
     var delay: Double
+    var active: Bool = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var high = false
 
@@ -104,11 +105,20 @@ struct SimilarSkeletonCard: View {
                 )
         }
         .opacity(reduceMotion ? 1 : (high ? 1 : 0.55))
-        .onAppear {
-            guard !reduceMotion else { return }
+        .onAppear { syncAnimation() }
+        .onChange(of: active) { _, _ in syncAnimation() }
+    }
+
+    private func syncAnimation() {
+        if active && !reduceMotion {
+            guard !high else { return }
             withAnimation(.easeInOut(duration: 2.7).repeatForever(autoreverses: true).delay(delay)) {
                 high = true
             }
+        } else {
+            var tx = Transaction(animation: nil)
+            tx.disablesAnimations = true
+            withTransaction(tx) { high = false }
         }
     }
 }

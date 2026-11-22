@@ -9,8 +9,6 @@ struct ContactSheetScreen: View {
     @StateObject private var model: ContactSheetModel
     var onClose: () -> Void
 
-    @State private var frames: [String: CGRect] = [:]
-    @State private var suppressTap = false
     @State private var peek: PhotoItem?
     @State private var showNew = false
     @State private var showSearch = false
@@ -88,66 +86,29 @@ struct ContactSheetScreen: View {
         .background(DarkroomColors.room)
     }
 
+    @ViewBuilder
     private var photoScroll: some View {
-        ScrollView {
-            if model.photos.isEmpty {
+        if model.photos.isEmpty {
+            ScrollView {
                 Text(FilingCopy.emptyDay(locale))
                     .font(DarkroomType.body)
                     .foregroundStyle(DarkroomColors.dim)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 48)
-            } else {
-                grid
-                    .padding(.bottom, 12)
             }
+            .scrollIndicators(.hidden)
+        } else {
+            ContactSheetGridView(
+                photos: model.photos,
+                circled: model.circled,
+                busy: model.busy,
+                locale: locale,
+                pipeline: library.thumbnails,
+                onToggle: { model.toggle($0) },
+                onCircle: { model.circle($0) },
+                onPeek: { peek = $0 }
+            )
         }
-        .scrollIndicators(.hidden)
-        .simultaneousGesture(circleDrag)
-    }
-
-    private var grid: some View {
-        let cols = 3
-        let gap: CGFloat = 2
-        return GeometryReader { geo in
-            let side = (geo.size.width - gap * CGFloat(cols - 1)) / CGFloat(cols)
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: gap), count: cols), spacing: gap) {
-                ForEach(model.photos) { item in
-                    SheetTile(item: item, side: side, circled: model.circled.contains(item.id))
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames[item.id] = $0 }
-                        .onTapGesture {
-                            if suppressTap { return }
-                            model.toggle(item.id)
-                        }
-                        .onLongPressGesture(minimumDuration: 0.4, maximumDistance: 18, pressing: { down in
-                            if !down { peek = nil }
-                        }, perform: {
-                            guard !model.circled.contains(item.id), !model.busy else { return }
-                            peek = item
-                        })
-                }
-            }
-            .frame(height: gridHeight(count: model.photos.count, width: geo.size.width))
-        }
-        .frame(height: gridHeight(count: model.photos.count, width: nil))
-        .padding(.horizontal, 0)
-    }
-
-    private var circleDrag: some Gesture {
-        DragGesture(minimumDistance: 14, coordinateSpace: .global)
-            .onChanged { value in
-                let dx = value.translation.width
-                let dy = value.translation.height
-                guard abs(dx) > 12, abs(dx) > abs(dy) else { return }
-                suppressTap = true
-                let start = value.startLocation
-                let end = value.location
-                for (id, frame) in frames where hits(frame, start, end) {
-                    model.circle(id)
-                }
-            }
-            .onEnded { _ in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { suppressTap = false }
-            }
     }
 
     private var bottomChrome: some View {
@@ -367,70 +328,6 @@ struct ContactSheetScreen: View {
         let day = DateFormatCache.string(date, format: "d", locale: locale)
         let meta = DateFormatCache.string(date, format: language.isChineseUI ? "M月 · EEE" : "MMM · EEE", locale: locale)
         return day + "  " + meta
-    }
-
-    private func gridHeight(count: Int, width: CGFloat?) -> CGFloat {
-        let cols: CGFloat = 3
-        let rows = ceil(CGFloat(max(count, 1)) / cols)
-        let w = width ?? UIScreen.main.bounds.width
-        let side = (w - 2 * (cols - 1)) / cols
-        return rows * side + max(0, rows - 1) * 2
-    }
-
-    private func hits(_ rect: CGRect, _ a: CGPoint, _ b: CGPoint) -> Bool {
-        if rect.contains(a) || rect.contains(b) { return true }
-        let steps = max(1, Int(hypot(b.x - a.x, b.y - a.y) / 6))
-        for step in 1..<steps {
-            let t = CGFloat(step) / CGFloat(steps)
-            let p = CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
-            if rect.contains(p) { return true }
-        }
-        return false
-    }
-}
-
-private struct SheetTile: View {
-    let item: PhotoItem
-    let side: CGFloat
-    let circled: Bool
-    @EnvironmentObject private var library: PhotoLibraryService
-    @State private var image: UIImage?
-    @State private var requestID: PHImageRequestID?
-
-    var body: some View {
-        ZStack {
-            DarkroomColors.tileFill
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            }
-        }
-        .frame(width: side, height: side)
-        .clipped()
-        .overlay {
-            if circled {
-                Circle()
-                    .strokeBorder(DarkroomColors.paper, lineWidth: 2)
-                    .padding(7)
-                    .allowsHitTesting(false)
-            }
-        }
-        .contentShape(Rectangle())
-        .accessibilityAddTraits(circled ? .isSelected : [])
-        .onAppear { load() }
-        .onDisappear { cancel() }
-    }
-
-    private func load() {
-        guard image == nil else { return }
-        requestID = library.requestThumbnail(for: item.asset, side: side) { img in
-            Task { @MainActor in if let img { image = img } }
-        }
-    }
-
-    private func cancel() {
-        if let requestID { library.cancelThumbnail(requestID) }
     }
 }
 
