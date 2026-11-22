@@ -1,4 +1,5 @@
 import Photos
+import QuartzCore
 import SwiftUI
 
 struct SimilarCompareView: View {
@@ -10,6 +11,7 @@ struct SimilarCompareView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var session = SimilarSession.shared
     @StateObject private var motion: CompareDrag
+    @StateObject private var imageStore = CompareImageStore()
     /// 当前大图左下角。换张先清掉，读失败或不是动态照片就不写。
     @State private var motionMark: ComparePhotoMark?
     /// 下滑删成之后单独飞走的那一张。当前页已经换成下一张。
@@ -86,9 +88,16 @@ struct SimilarCompareView: View {
             } else {
                 motion.clampIndex(new.count)
             }
+            syncImages(box: stageSize)
         }
+        .onChange(of: displayIndex) { _, _ in syncImages(box: stageSize) }
+        .onChange(of: exits.count) { _, _ in syncImages(box: stageSize) }
         .onChange(of: session.phase) { _, phase in
             if phase == .ready { leaveIfGone() }
+        }
+        .onDisappear {
+            motion.stopAnimations()
+            imageStore.cancelAll()
         }
     }
 
@@ -178,9 +187,15 @@ struct SimilarCompareView: View {
                 _ = applyVertical(up: false, stage: stageSize)
             }
             .task(id: currentPhotoId) { await loadMotionMark() }
-            .onAppear { stageSize = geo.size }
+            .onAppear {
+                stageSize = geo.size
+                syncImages(box: geo.size)
+            }
             .onChange(of: geo.size) { _, newSize in
-                if stageSize != newSize { stageSize = newSize }
+                if stageSize != newSize {
+                    stageSize = newSize
+                    syncImages(box: newSize)
+                }
             }
         }
     }
@@ -192,15 +207,20 @@ struct SimilarCompareView: View {
             ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
                 let slot = index - current
                 if abs(slot) <= 1 {
-                    SimilarFitPhoto(item: photo)
+                    let b = pageBrightness(index: index, width: width)
+                    CompareFitPhoto(image: imageStore.image(photo.id))
                         .frame(width: width, height: height)
                         .scaleEffect(index == current ? motion.zoom : 1)
                         .offset(index == current ? motion.zoomOffset : .zero)
                         .offset(
-                            x: CGFloat(slot) * width + (index == current ? motion.dx : 0),
+                            x: CGFloat(slot) * width + motion.dx,
                             y: index == current ? motion.dy : 0
                         )
-                        .colorMultiply(Color(white: pageBrightness(index: index, width: width)))
+                        .overlay {
+                            if b < 0.999 {
+                                Color.black.opacity(max(0, 1 - b)).allowsHitTesting(false)
+                            }
+                        }
                 }
             }
         }
@@ -213,7 +233,7 @@ struct SimilarCompareView: View {
                 ZStack {
                     ForEach(exits) { exit in
                         CompareExitPhoto(
-                            item: exit.photo,
+                            image: imageStore.image(exit.photo.id),
                             flight: exit.flight,
                             zoomOffset: exit.zoomOffset,
                             now: timeline.date
@@ -278,12 +298,14 @@ struct SimilarCompareView: View {
     }
 
     private static func rawFile(_ asset: PHAsset) async -> Bool {
-        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            DispatchQueue.global(qos: .utility).async {
-                let name = AssetSizeCache.shared.info(for: asset).originalFilename
-                cont.resume(returning: ScopeRules.isRawFileName(name))
-            }
-        }
+        let name = await AssetSizeCache.shared.loadInfo(for: asset).originalFilename
+        return ScopeRules.isRawFileName(name)
+    }
+
+    private func syncImages(box: CGSize, extraKeep: Set<String> = []) {
+        var keep = Set(exits.map(\.photo.id))
+        keep.formUnion(extraKeep)
+        imageStore.ensure(heroPhotos, currentIndex: displayIndex, keep: keep, library: library, box: box)
     }
 
     private var filmstrip: some View {
@@ -399,6 +421,7 @@ struct SimilarCompareView: View {
             start: Date()
         )
         exits.append(CompareExit(photo: photo, flight: flight, zoomOffset: zoomOffset))
+        syncImages(box: stage, extraKeep: [photo.id])
         let token = flight.id
         let closeAfter = last
         DispatchQueue.main.asyncAfter(deadline: .now() + ReviewTokens.exitDuration + 0.02) {
@@ -444,7 +467,7 @@ private struct CompareExit: Identifiable {
 
 /// 离场只画在大图区域里，胶片条不被盖住。路径用清理页同一条下沉：250ms 加速，缩到 0.05，亮度收到 0.14，饱和收到 0。
 private struct CompareExitPhoto: View {
-    let item: PhotoItem
+    let image: UIImage?
     let flight: ExitFlight
     let zoomOffset: CGSize
     let now: Date
@@ -453,28 +476,17 @@ private struct CompareExitPhoto: View {
         let progress = flight.progress(now)
         let pose = flight.pose(progress)
         let remain = CGFloat(1 - progress)
-        Group {
-            if let image = CompareImageHold.image(item.id) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                SimilarFitPhoto(item: item)
+        CompareFitPhoto(image: image)
+            .scaleEffect(pose.scale)
+            .offset(x: pose.x + zoomOffset.width * remain, y: pose.y + zoomOffset.height * remain)
+            .saturation(Double(pose.saturation))
+            .overlay {
+                if pose.brightness < 0.999 {
+                    Color.black.opacity(max(0, 1 - Double(pose.brightness))).allowsHitTesting(false)
+                }
             }
-        }
-        .scaleEffect(pose.scale)
-        .offset(x: pose.x + zoomOffset.width * remain, y: pose.y + zoomOffset.height * remain)
-        .saturation(Double(pose.saturation))
-        .colorMultiply(Color(white: Double(pose.brightness)))
-        .opacity(Double(pose.alpha))
+            .opacity(Double(pose.alpha))
     }
-}
-
-/// 对比页大图刚解码的那张。飞出层和原来的那一页不是同一个视图，先拿这里的图，避免飞出去的是一块空白。
-private enum CompareImageHold {
-    static var images: [String: UIImage] = [:]
-    static func image(_ id: String) -> UIImage? { images[id] }
-    static func store(_ id: String, _ image: UIImage) { images[id] = image }
 }
 
 private struct ComparePhotoMark: Equatable {
@@ -503,45 +515,91 @@ private struct CompareMotionMark: View {
     }
 }
 
-private struct SimilarFitPhoto: View {
-    let item: PhotoItem
-    @EnvironmentObject private var library: PhotoLibraryService
-    @State private var image: UIImage?
-    @State private var requestID: PHImageRequestID?
+private struct CompareFitPhoto: View {
+    let image: UIImage?
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: geo.size.width, height: geo.size.height)
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .task(id: item.id) { load(maxSide: max(geo.size.width, geo.size.height)) }
-            .onDisappear { cancel() }
-        }
-    }
-
-    private func load(maxSide: CGFloat) {
-        cancel()
-        let side = max(maxSide, 1)
-        let id = item.id
-        requestID = library.requestFullImage(for: item.asset, maxSide: side) { img in
-            Task { @MainActor in
-                if let img {
-                    CompareImageHold.store(id, img)
-                    self.image = img
-                }
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
             }
         }
     }
+}
 
-    private func cancel() {
-        if let requestID { library.cancelThumbnail(requestID) }
-        requestID = nil
+/// 相似对比页有界离主线程预解码缓存：只请求并保留 `displayIndex ± 1` 与仍在飞行的离场张，
+/// 离开窗口立即离主线程取消并回收位图。
+@MainActor
+private final class CompareImageStore: ObservableObject {
+    @Published private(set) var images: [String: UIImage] = [:]
+    private var tokens: [String: ThumbnailToken] = [:]
+    private var requestedSide: [String: CGFloat] = [:]
+
+    func image(_ id: String) -> UIImage? { images[id] }
+
+    func ensure(
+        _ photos: [PhotoItem],
+        currentIndex: Int,
+        keep: Set<String>,
+        library: PhotoLibraryService,
+        box: CGSize
+    ) {
+        guard max(box.width, box.height) > 1 else { return }
+        let nearIndices: [Int]
+        if photos.isEmpty {
+            nearIndices = []
+        } else {
+            let cur = min(max(0, currentIndex), photos.count - 1)
+            nearIndices = [cur, cur - 1, cur + 1].filter { photos.indices.contains($0) }
+        }
+        var want = keep
+        for idx in nearIndices { want.insert(photos[idx].id) }
+
+        for (id, tok) in tokens where !want.contains(id) {
+            tok.cancel()
+            tokens[id] = nil
+            requestedSide[id] = nil
+            images[id] = nil
+        }
+        for id in Array(images.keys) where !want.contains(id) {
+            images[id] = nil
+        }
+
+        let scale = UIScreen.main.scale
+        for idx in nearIndices {
+            let item = photos[idx]
+            let id = item.id
+            let fit = ReviewMath.fitSize(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, in: box)
+            let fitSide = max(fit.width, fit.height)
+            if tokens[id] != nil, let prev = requestedSide[id], abs(prev - fitSide) <= 1 {
+                continue
+            }
+            tokens[id]?.cancel()
+            requestedSide[id] = fitSide
+            let px = CGSize(width: (fit.width * scale).rounded(.up), height: (fit.height * scale).rounded(.up))
+            let priority: Operation.QueuePriority = (idx == nearIndices.first) ? .veryHigh : .normal
+            tokens[id] = library.thumbnails.requestFitImage(
+                asset: item.asset,
+                maxSidePoints: fitSide,
+                fitPixels: px,
+                priority: priority
+            ) { [weak self] shown, _ in
+                guard let self, self.tokens[id] != nil else { return }
+                if let cur = self.images[id], shown.size.width * shown.scale < cur.size.width * cur.scale {
+                    return
+                }
+                self.images[id] = shown
+            }
+        }
+    }
+
+    func cancelAll() {
+        for tok in tokens.values { tok.cancel() }
+        tokens.removeAll()
+        requestedSide.removeAll()
+        images.removeAll()
     }
 }
 
@@ -658,16 +716,37 @@ final class CompareDrag: ObservableObject {
     @Published var heldProgress: CGFloat = 0
 
     private enum Axis { case horizontal, vertical, pan }
+    private struct ActiveSpring {
+        var fromX: CGFloat
+        var fromY: CGFloat
+        var toX: CGFloat
+        var toY: CGFloat
+        var vx: CGFloat
+        var vy: CGFloat
+        var damping: Double
+        var stiffness: Double
+        var start: CFTimeInterval
+    }
+
     private var axis: Axis?
     private var slop: CGFloat = 0
     private var baseX: CGFloat = 0
     private var baseY: CGFloat = 0
     private var baseZoomOffset: CGSize = .zero
     private var pinching = false
-    private var springTask: Task<Void, Never>?
-    private var cueTask: Task<Void, Never>?
+    private var activeSpring: ActiveSpring?
+    private var cueFadeStart: CFTimeInterval?
+    private lazy var displayLink = CompareDisplayLink { [weak self] in
+        self?.tick()
+    }
 
     init(index: Int) { self.index = index }
+
+    func stopAnimations() {
+        activeSpring = nil
+        cueFadeStart = nil
+        displayLink.stop()
+    }
 
     var cueUp: Bool { fingerVertical ? dy < 0 : heldUp }
     var cuePast: Bool { fingerVertical ? abs(dy) >= ReviewTokens.verticalThreshold : heldPast }
@@ -695,7 +774,8 @@ final class CompareDrag: ObservableObject {
 
     func pinchChanged(_ scale: CGFloat) {
         pinching = true
-        springTask?.cancel()
+        activeSpring = nil
+        syncDisplayLink()
         let raw = zoomBase * scale
         zoom = min(GestureTokensIOS.zoomMax, max(GestureTokensIOS.zoomMin, raw))
     }
@@ -713,8 +793,7 @@ final class CompareDrag: ObservableObject {
     }
 
     func jump(to next: Int) {
-        springTask?.cancel()
-        cueTask?.cancel()
+        stopAnimations()
         axis = nil
         fingerVertical = false
         cueHolding = false
@@ -781,10 +860,11 @@ final class CompareDrag: ObservableObject {
         let ax = abs(translation.width)
         let ay = abs(translation.height)
         if ax < ReviewTokens.touchSlop && ay < ReviewTokens.touchSlop { return }
-        springTask?.cancel()
+        activeSpring = nil
         if zoom > 1.01 {
             axis = .pan
             baseZoomOffset = zoomOffset
+            syncDisplayLink()
             return
         }
         if ax >= ay * ReviewTokens.directionRatio {
@@ -795,13 +875,15 @@ final class CompareDrag: ObservableObject {
             dismissCue()
         } else if ay >= ax * ReviewTokens.directionRatio {
             axis = .vertical
+            dx = 0
             slop = signedSlop(translation.height)
-            baseX = dx
+            baseX = 0
             baseY = dy
             fingerVertical = true
-            cueTask?.cancel()
+            cueFadeStart = nil
             cueHolding = false
             cueAlpha = 1
+            syncDisplayLink()
         }
     }
 
@@ -833,7 +915,8 @@ final class CompareDrag: ObservableObject {
         }
         if deleted {
             // 删成的这一张已经离开。位移立刻归零，不跟回弹弹簧走。
-            springTask?.cancel()
+            activeSpring = nil
+            syncDisplayLink()
             dx = 0
             dy = 0
             axis = nil
@@ -848,76 +931,98 @@ final class CompareDrag: ObservableObject {
         heldPast = abs(dy) >= ReviewTokens.verticalThreshold
         heldProgress = min(1, abs(dy) / ReviewTokens.verticalThreshold)
         fingerVertical = false
-        cueTask?.cancel()
+        cueFadeStart = nil
         if reduce {
             cueHolding = false
             cueAlpha = 0
+            syncDisplayLink()
             return
         }
         cueHolding = true
         cueAlpha = 1
-        cueTask = Task { @MainActor in
-            let steps = 12
-            let slice = ReviewTokens.releaseCueFade / Double(steps)
-            for step in 1...steps {
-                try? await Task.sleep(nanoseconds: UInt64(slice * 1_000_000_000))
-                if Task.isCancelled || fingerVertical { return }
-                cueAlpha = 1 - Double(step) / Double(steps)
-            }
-            if !fingerVertical {
-                cueAlpha = 0
-                cueHolding = false
-            }
-        }
+        cueFadeStart = CACurrentMediaTime()
+        syncDisplayLink()
     }
 
     private func dismissCue() {
-        cueTask?.cancel()
+        cueFadeStart = nil
         fingerVertical = false
         cueHolding = false
         cueAlpha = 0
+        syncDisplayLink()
     }
 
     private func spring(toX: CGFloat, toY: CGFloat, vx: CGFloat, vy: CGFloat, reduce: Bool, snappy: Bool) {
-        springTask?.cancel()
+        activeSpring = nil
         if reduce {
             dx = toX
             dy = toY
             axis = nil
+            syncDisplayLink()
             return
         }
         let token = snappy ? SpringToken.snappy : SpringToken.settle
-        let stiffness = token.stiffness
-        let damping = token.damping
-        var x = dx
-        var y = dy
-        var velocityX = vx
-        var velocityY = vy
-        springTask = Task { @MainActor in
-            var last = Date()
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 16_000_000)
-                if Task.isCancelled { return }
-                let now = Date()
-                let dt = min(0.032, now.timeIntervalSince(last))
-                last = now
-                let drag = 2 * damping * stiffness.squareRoot()
-                let ax = -stiffness * Double(x - toX) - drag * Double(velocityX)
-                let ay = -stiffness * Double(y - toY) - drag * Double(velocityY)
-                velocityX += CGFloat(ax * dt)
-                velocityY += CGFloat(ay * dt)
-                x += velocityX * CGFloat(dt)
-                y += velocityY * CGFloat(dt)
-                dx = x
-                dy = y
-                if hypot(x - toX, y - toY) < 0.5 && hypot(velocityX, velocityY) < 40 {
-                    dx = toX
-                    dy = toY
-                    axis = nil
-                    return
-                }
+        activeSpring = ActiveSpring(
+            fromX: dx,
+            fromY: dy,
+            toX: toX,
+            toY: toY,
+            vx: vx,
+            vy: vy,
+            damping: token.damping,
+            stiffness: token.stiffness,
+            start: CACurrentMediaTime()
+        )
+        syncDisplayLink()
+    }
+
+    private func syncDisplayLink() {
+        if activeSpring != nil || cueFadeStart != nil {
+            displayLink.start()
+        } else {
+            displayLink.stop()
+        }
+    }
+
+    private func tick() {
+        let now = CACurrentMediaTime()
+        if let s = activeSpring {
+            let elapsed = max(0, now - s.start)
+            let stepX = ScopePagerMath.springStep(
+                from: s.fromX,
+                to: s.toX,
+                initialVelocity: s.vx,
+                elapsed: elapsed,
+                dampingRatio: s.damping,
+                stiffness: s.stiffness
+            )
+            let stepY = ScopePagerMath.springStep(
+                from: s.fromY,
+                to: s.toY,
+                initialVelocity: s.vy,
+                elapsed: elapsed,
+                dampingRatio: s.damping,
+                stiffness: s.stiffness
+            )
+            dx = stepX.x
+            dy = stepY.x
+            if stepX.settled && stepY.settled {
+                dx = s.toX
+                dy = s.toY
+                activeSpring = nil
+                axis = nil
             }
         }
+        if let cueStart = cueFadeStart {
+            let progress = min(1, max(0, (now - cueStart) / ReviewTokens.releaseCueFade))
+            cueAlpha = 1 - progress
+            if progress >= 1 {
+                cueAlpha = 0
+                cueHolding = false
+                cueFadeStart = nil
+            }
+        }
+        syncDisplayLink()
     }
 
     private func clamp(_ proposed: CGSize, stage: CGSize) -> CGSize {
@@ -931,5 +1036,37 @@ final class CompareDrag: ObservableObject {
 
     private func signedSlop(_ along: CGFloat) -> CGFloat {
         (along < 0 ? -1 : 1) * min(ReviewTokens.touchSlop, abs(along))
+    }
+}
+
+@MainActor
+private final class CompareDisplayLink: NSObject {
+    private var link: CADisplayLink?
+    private let onFrame: @MainActor () -> Void
+
+    init(onFrame: @escaping @MainActor () -> Void) {
+        self.onFrame = onFrame
+        super.init()
+    }
+
+    deinit {
+        link?.invalidate()
+    }
+
+    func start() {
+        guard link == nil else { return }
+        let dl = CADisplayLink(target: self, selector: #selector(step))
+        dl.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        dl.add(to: .main, forMode: .common)
+        link = dl
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+    }
+
+    @objc private func step() {
+        onFrame()
     }
 }

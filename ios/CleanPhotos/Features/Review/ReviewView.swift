@@ -12,6 +12,8 @@ import os
 ///   左右或上下一拖就收回，松手不自动再出现。进度条不跟这面旗子走（教学期间仍按原规则藏起来）。
 struct ReviewView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    /// 撤回条在清理页里变化时敲这里。不走 library 的发布，底下的照片页就不会整棵重算。
+    @ObservedObject private var undoPulse: UndoPulse
     @EnvironmentObject private var language: LanguageStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.reviewClose) private var reviewClose
@@ -56,6 +58,8 @@ struct ReviewView: View {
     @State private var pinched = false
     /// 最后一张处理完、正在等离场播完回入口页。
     @State private var endingSession = false
+    /// 异步查询到的 RAW 标记刷新版本号（仅在发现新 RAW 资产时递增）。
+    @State private var rawFlagsRev = 0
     /// 拖动 / 捏合是否还在进行：系统打断手势（来电、通知中心、控制中心、多指系统手势）时 SwiftUI 不调 onEnded，
     /// 只把 GestureState 复位 —— 靠它把拎起一半 / 拖了一半的照片弹回原位。
     @GestureState private var dragLive = false
@@ -77,11 +81,13 @@ struct ReviewView: View {
         self.startPhotoId = launch.startPhotoId
         let (items, start) = library.reviewQueue(scope: launch.scope, startingAt: launch.startPhotoId, dayId: launch.dayId)
         _session = StateObject(wrappedValue: ReviewSessionModel(scope: launch.scope, items: items, startIndex: start, library: library))
+        _undoPulse = ObservedObject(wrappedValue: library.undoPulse)
     }
 
     private var animating: Bool { !flights.isEmpty || releaseCue != nil || entry != nil }
 
     var body: some View {
+        let _ = undoPulse.tick
         GeometryReader { outer in
             let insets = outer.safeAreaInsets
             let size = CGSize(width: outer.size.width + insets.leading + insets.trailing,
@@ -136,6 +142,10 @@ struct ReviewView: View {
                 if let id = startPhotoId { images.seed(id, seedImage) }
                 prepare(size: size, insets: insets); markSeenCurrent()
                 loadCurrentPlayback()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    ReviewHaptics.prepare()
+                    PlayerHostPool.warm()
+                }
                 if PerfAutoSwipe.count > 0 { runAutoSwipe(size: size, insets: insets) }
                 if sharedEntry {
                     let s = NavChromeFade.State(start: Date(), entering: true)
@@ -150,6 +160,9 @@ struct ReviewView: View {
                 compress.cancel()
                 playbackHoldToken += 1
                 playback.release()
+                EmbeddedMotionCache.cancelPrefetch()
+                LiveVideoCache.cancelPrefetch()
+                images.cancelAll(library: library)
                 FrameMonitor.shared.stop("review")
                 library.endReview()
             }
@@ -176,8 +189,17 @@ struct ReviewView: View {
             .onChange(of: zoom > 1.01) { _, z in
                 // 捏合或双击越过 1× 才解当前这一张。JPEG/HEIC 仍是屏幕长边；RAW/PNG 约 3 倍。不预取邻页。
                 guard z, let p = session.currentPhoto else { return }
-                let heavy = reviewFileFlags(p.asset).heavy
-                images.ensureZoom(p, library: library, side: max(size.width, size.height), sharpScale: heavy ? 3 : 1)
+                let side = max(size.width, size.height)
+                if let flags = ReviewFileFlagsCache.shared.cachedFlags(for: p.id) {
+                    images.ensureZoom(p, library: library, side: side, sharpScale: flags.heavy ? 3 : 1)
+                } else {
+                    let targetId = p.id
+                    Task { @MainActor in
+                        let flags = await ReviewFileFlagsCache.shared.loadFlags(for: p.asset)
+                        guard zoom > 1.01, session.currentPhoto?.id == targetId else { return }
+                        images.ensureZoom(p, library: library, side: side, sharpScale: flags.heavy ? 3 : 1)
+                    }
+                }
             }
             .onChange(of: session.pages.count) { _, _ in
                 prepareSoon(size: size, insets: insets)
@@ -204,14 +226,15 @@ struct ReviewView: View {
             if let p = page(at: i), case .photo(let ph) = p { return ph } else { return nil }
         }
         AssetSizeCache.shared.prefetch(window.map(\.asset))
-        ReviewFileFlagsCache.shared.prefetch(window.map(\.asset))
+        ReviewFileFlagsCache.shared.prefetch(window.map(\.asset)) {
+            rawFlagsRev += 1
+        }
         var keep = Set(flights.compactMap { f -> String? in if case .photo(let p) = f.page { return p.id } else { return nil } })
         // 还能撤回的那张：翻出去几页后它的图也别丢，撤回飞回来时才有画面
         if let acted = lastActed { keep.insert(acted.photo.id) }
-        images.ensure(window, keep: keep, library: library, page: size,
-                      box: CGSize(width: size.width, height: size.height - insets.top - insets.bottom))
-        // 收藏余影的琥珀光按照片尺寸预渲染（后台），松手时直接用
         let box = CGSize(width: size.width, height: size.height - insets.top - insets.bottom)
+        images.ensure(window, keep: keep, library: library, page: size, box: box, priorityId: session.currentPhoto?.id)
+        // 收藏余影的琥珀光按照片尺寸预渲染（后台），松手时直接用
         AfterimageGlow.shared.prepare(window.map { ReviewMath.fitSize(pixelWidth: $0.asset.pixelWidth, pixelHeight: $0.asset.pixelHeight, in: box) })
     }
 
@@ -347,13 +370,13 @@ struct ReviewView: View {
             sat = 1; corner = 0; scale = 1
             offset = CGSize(width: dx + CGFloat(item.role) * size.width, height: 0)
         }
-        return pageContent(item.page, size: size, insets: insets, rim: isCur && vertical && !isSummary)
+        let desaturate = CGFloat(max(0, min(1, 1 - sat)))
+        return pageContent(item.page, size: size, insets: insets, rim: isCur && vertical && !isSummary, desaturate: desaturate)
             .overlay { videoPlate(item.page, size: size, insets: insets) }
-            .saturation(sat)
             .overlay { Color.black.opacity(max(0, 1 - bright)).allowsHitTesting(false) }
             // RAW 在色调层外面：下滑去色压暗不把它带灰。详情 / 教学 / 撤回胶囊出现时自己淡出。
             .overlay(alignment: .bottomLeading) { rawMark(for: item.page, size: size, insets: insets) }
-            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .cornerRadius(corner)
             .scaleEffect(scale)
             .opacity(alpha)
             .offset(x: offset.width, y: offset.height)
@@ -400,7 +423,7 @@ struct ReviewView: View {
 
     private struct RimKey: Equatable { let lift: CGFloat; let up: Bool; let past: CGFloat }
     private struct PhotoPageKey: Equatable {
-        let id: String; let rev: Int; let size: CGSize; let insets: EdgeInsets; let rim: RimKey?; let flying: Bool; let zoomed: Bool
+        let id: String; let rev: Int; let size: CGSize; let insets: EdgeInsets; let rim: RimKey?; let flying: Bool; let zoomed: Bool; let desaturate: CGFloat
     }
     private struct SummaryPageKey: Equatable {
         let summary: DaySummary; let isCurrent: Bool; let size: CGSize; let insets: EdgeInsets; let locale: String
@@ -409,14 +432,14 @@ struct ReviewView: View {
     /// 页内容：照片按原比例 Fit 在安全区内居中；没铺满时环境光（放大 1.2、模糊 36、亮度 40%）铺满整页并随页移动缩放。
     /// 包在 EquatableBox 里：横向拖动时只有外层 offset 在变，页内容本身不重算。
     @ViewBuilder
-    private func pageContent(_ page: ReviewPage, size: CGSize, insets: EdgeInsets, rim: Bool) -> some View {
+    private func pageContent(_ page: ReviewPage, size: CGSize, insets: EdgeInsets, rim: Bool, desaturate: CGFloat = 0) -> some View {
         switch page {
         case .photo(let photo):
             let rimKey: RimKey? = rim ? RimKey(lift: ReviewMath.cueProgress(dy), up: dy < 0, past: pastAnim) : nil
             let useZoom = zoom > 1.01 && session.currentPhoto?.id == photo.id
             EquatableBox(key: PhotoPageKey(id: photo.id, rev: images.rev(photo.id), size: size, insets: insets, rim: rimKey,
-                                           flying: shared.flyingId == photo.id, zoomed: useZoom)) {
-                photoPage(photo, size: size, insets: insets, rim: rimKey, useZoom: useZoom)
+                                           flying: shared.flyingId == photo.id, zoomed: useZoom, desaturate: desaturate)) {
+                photoPage(photo, size: size, insets: insets, rim: rimKey, useZoom: useZoom, desaturate: desaturate)
             }
             .equatable()
         case .summary(let s):
@@ -438,7 +461,7 @@ struct ReviewView: View {
     }
 
     @ViewBuilder
-    private func photoPage(_ photo: PhotoItem, size: CGSize, insets: EdgeInsets, rim: RimKey?, useZoom: Bool) -> some View {
+    private func photoPage(_ photo: PhotoItem, size: CGSize, insets: EdgeInsets, rim: RimKey?, useZoom: Bool, desaturate: CGFloat) -> some View {
         let fitted = ZoomClamp.fit(pixelWidth: photo.asset.pixelWidth, pixelHeight: photo.asset.pixelHeight, screen: size, top: insets.top, bottom: insets.bottom)
         let fit = fitted.size
         let box = CGSize(width: size.width, height: size.height - insets.top - insets.bottom)
@@ -453,9 +476,15 @@ struct ReviewView: View {
                             .resizable()
                             .interpolation(.medium)
                             .frame(width: size.width, height: size.height)
+                            .overlay {
+                                if desaturate > 0 {
+                                    DarkroomColors.room.opacity(Double(desaturate) * 0.65).allowsHitTesting(false)
+                                }
+                            }
                             .accessibilityHidden(true)
-                    } else {
-                        // 预渲染的环境光还没到（刚打开的第一帧 / -cpLiveGlow）：实时模糊兜底
+                    } else if ReviewImageStore.liveGlow {
+                        // 只在 -cpLiveGlow / 旧路径对照时实时模糊。默认等后台那张环境光：
+                        // 整页 blur + saturation 是一次 5–7 遍离屏，快滑时每一张都会掉帧。
                         Image(uiImage: img)
                             .resizable()
                             .scaledToFill()
@@ -466,6 +495,11 @@ struct ReviewView: View {
                             .colorMultiply(Color(white: 0.4))
                             .frame(width: size.width, height: size.height)
                             .clipped()
+                            .overlay {
+                                if desaturate > 0 {
+                                    DarkroomColors.room.opacity(Double(desaturate) * 0.65).allowsHitTesting(false)
+                                }
+                            }
                             .accessibilityHidden(true)
                     }
                 }
@@ -474,6 +508,19 @@ struct ReviewView: View {
                     .accessibilityHidden(true)
                     .aspectRatio(contentMode: .fill)
                     .frame(width: fit.width, height: fit.height)
+                    .overlay {
+                        if desaturate > 0 {
+                            if let gray = images.gray(photo.id) {
+                                Image(uiImage: gray)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: fit.width, height: fit.height)
+                                    .opacity(Double(desaturate))
+                            } else {
+                                DarkroomColors.room.opacity(Double(desaturate) * 0.35)
+                            }
+                        }
+                    }
                     .clipped()
                     .opacity(shared.flyingId == photo.id ? 0 : 1)
                     .overlay {
@@ -614,9 +661,9 @@ struct ReviewView: View {
             let decision = playbackChrome(for: photo)
             let details = effectiveDetails(decision, photo: photo) || compress.keepsDetails
             let showCenter = decision.showCenter && !tutorialVisible && !compress.keepsDetails
-            let showProgress = decision.showProgress && library.undoBanner == nil && !tutorialVisible && !compress.keepsDetails
+            let showProgress = decision.showProgress && library.activeUndo == nil && !tutorialVisible && !compress.keepsDetails
             let motion = isCurrentMotion(photo) && details && !tutorialVisible && !compress.keepsDetails
-            EquatableBox(key: ChromeKey(photo: photo, cells: cells, tutorial: tutorialVisible, undoNil: library.undoBanner == nil,
+            EquatableBox(key: ChromeKey(photo: photo, cells: cells, tutorial: tutorialVisible, undoNil: library.activeUndo == nil,
                                         details: details, showCenter: showCenter,
                                         showPause: decision.showPauseIcon, showProgress: showProgress, motion: motion,
                                         muted: playbackMuted, fileDuration: photo.isVideo && details && !showProgress && !compress.keepsDetails,
@@ -679,7 +726,7 @@ struct ReviewView: View {
                         .padding(.trailing, land ? 16 + insets.trailing : 16)
                         .padding(.bottom, details ? DarkroomDimens.playbackGap : bottom)
                     }
-                    if details && library.undoBanner == nil {
+                    if details && library.activeUndo == nil {
                         VStack(alignment: .leading, spacing: 6) {
                             ReviewMetaRow(photo: photo, duration: fileDuration)
                                 .allowsHitTesting(false)
@@ -778,7 +825,7 @@ struct ReviewView: View {
                         let original = photo
                         compress.start(photo: photo, library: library) { item in
                             if let item {
-                                if library.undoBanner?.sampleId == original.id {
+                                if library.activeUndo?.sampleId == original.id {
                                     decorateUndo(for: original, trash: true)
                                 }
                                 session.replaceCurrent(with: item)
@@ -867,7 +914,7 @@ struct ReviewView: View {
     }
 
     private func undoLayer(size: CGSize, insets: EdgeInsets) -> some View {
-        let shown = (!session.isOnSummary && !vertical && !tutorialVisible) ? library.undoBanner : nil
+        let shown = (!session.isOnSummary && !vertical && !tutorialVisible) ? library.activeUndo : nil
         return EquatableBox(key: UndoKey(banner: shown, size: size, insets: insets,
                                          locale: language.effectiveLocale.identifier)) {
             undoBody(shown, size: size, insets: insets)
@@ -889,10 +936,9 @@ struct ReviewView: View {
                 .padding(.leading, land ? 0 : 16)
                 .padding(.trailing, land ? 24 + insets.trailing : 16)
                 .padding(.bottom, insets.bottom + (land ? 20 : 32))
-                .id(banner.id)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .animation(DarkroomMotion.standard, value: banner.id)
+            .animation(DarkroomMotion.standard, value: shown != nil)
         }
     }
 
@@ -1253,7 +1299,7 @@ struct ReviewView: View {
             target: target,
             start: now
         )
-        let bannerBefore = library.undoBanner?.shownAt
+        let bannerBefore = library.activeUndo?.shownAt
         var t = Transaction(); t.disablesAnimations = true
         withTransaction(t) {
             if !reduceMotion {
@@ -1270,7 +1316,7 @@ struct ReviewView: View {
                 session.applyVertical(favorite: false, unfavorite: false, trash: true, library: library)
             }
             // 只有这次真的出了新撤回条才认领它（收藏 / 移入没生效时不改上一条的文案，也不让撤回对错照片）
-            if let b = library.undoBanner, b.shownAt != bannerBefore, b.sampleId == photo.id {
+            if let b = library.activeUndo, b.shownAt != bannerBefore, b.sampleId == photo.id {
                 decorateUndo(for: photo, trash: !up)
                 lastActed = (photo, kind, target)
             }
@@ -1305,7 +1351,7 @@ struct ReviewView: View {
 
     /// 撤回：照片从去处减速飞回中央，后半段重新显影（Android ExitPath.undoPose）。
     private func undo(size: CGSize, insets: EdgeInsets) {
-        guard let banner = library.undoBanner else { return }
+        guard let banner = library.activeUndo else { return }
         // 撤回条不是这次清理页动作出的（或已对不上）：只撤图库状态，不往页序里插照片
         guard let acted = lastActed, banner.sampleId == acted.photo.id else { library.undoLast(); return }
         library.undoLast()
@@ -1515,6 +1561,8 @@ struct ReviewView: View {
         playbackUnsettled = true
         if playbackPinnedId == nil { playbackPinnedId = session.currentPhoto?.id }
         playback.pauseForGesture()
+        EmbeddedMotionCache.cancelPrefetch()
+        LiveVideoCache.cancelPrefetch()
         transportShown = false
     }
 
@@ -1551,9 +1599,10 @@ struct ReviewView: View {
     /// 照片左下角「RAW」。跟页面一起移动缩放，但不进饱和度 / 压暗。详情、教学或撤回胶囊占着底部时淡出。
     @ViewBuilder
     private func rawMark(for page: ReviewPage, size: CGSize, insets: EdgeInsets) -> some View {
-        if case .photo(let photo) = page, reviewFileFlags(photo.asset).raw {
+        let _ = rawFlagsRev
+        if case .photo(let photo) = page, ReviewFileFlagsCache.shared.cachedFlags(for: photo.id)?.raw == true {
             let land = size.width > size.height
-            let hidden = showDetails || tutorialVisible || library.undoBanner != nil
+            let hidden = showDetails || tutorialVisible || library.activeUndo != nil
             Text("RAW")
                 .font(DarkroomFonts.plexMono(size: 10.5))
                 .tracking(0.21)
@@ -1573,13 +1622,23 @@ struct ReviewView: View {
     /// 清理页撤回条：单张主文案 + 副文案（「可释放 2.4 MB」/「9月21日 · 第 3 张」）。
     private func decorateUndo(for photo: PhotoItem, trash: Bool) {
         let loc = language.effectiveLocale
-        let sub: String
-        if trash {
-            sub = L10n.format("undo_sub_freeable", locale: loc, FileSizeFormatter.format(photo.byteSize))
-        } else {
-            sub = L10n.format("undo_sub_position", locale: loc, dateTitle(photo.creationDate), session.positionInDay(photo))
+        if !trash {
+            let sub = L10n.format("undo_sub_position", locale: loc, dateTitle(photo.creationDate), session.positionInDay(photo))
+            library.decorateUndo(subtitle: sub)
+            return
         }
-        library.decorateUndo(subtitle: sub)
+        if let bytes = AssetSizeCache.shared.cachedBytes(photo.id) {
+            let sub = L10n.format("undo_sub_freeable", locale: loc, FileSizeFormatter.format(bytes))
+            library.decorateUndo(subtitle: sub)
+            return
+        }
+        let bannerId = library.activeUndo?.id
+        Task { @MainActor in
+            let info = await AssetSizeCache.shared.loadInfo(for: photo.asset)
+            guard let bannerId, library.activeUndo?.id == bannerId else { return }
+            let sub = L10n.format("undo_sub_freeable", locale: loc, FileSizeFormatter.format(info.bytes))
+            library.decorateUndo(subtitle: sub)
+        }
     }
 
     private func markSeenCurrent() {
@@ -1600,21 +1659,23 @@ struct ReviewView: View {
     }
 }
 
-/// 原始文件名的扩展名。只看最后一个扩展名，不看 UTI。没有扩展名就不是。
-private func reviewFileFlags(_ asset: PHAsset) -> ReviewFileFlags {
-    ReviewFileFlagsCache.shared.flags(for: asset)
-}
-
 private struct ReviewFileFlags: Equatable {
     var raw: Bool
     var heavy: Bool
 }
 
-/// 清理页判断 RAW / 大文件（RAW 或 PNG）。结果按 asset id 缓存，拖动的每一帧不再查 PHAssetResource。
+/// 清理页判断 RAW / 大文件（RAW 或 PNG）。结果按 asset id 缓存，body 与拖动手势零同步 PHAssetResource 调用。
 private final class ReviewFileFlagsCache: @unchecked Sendable {
     static let shared = ReviewFileFlagsCache()
     private let lock = NSLock()
     private var map: [String: ReviewFileFlags] = [:]
+
+    func cachedFlags(for id: String) -> ReviewFileFlags? {
+        lock.lock()
+        defer { lock.unlock() }
+        return map[id]
+    }
+
     func flags(for asset: PHAsset) -> ReviewFileFlags {
         let id = asset.localIdentifier
         lock.lock()
@@ -1628,10 +1689,28 @@ private final class ReviewFileFlagsCache: @unchecked Sendable {
         return computed
     }
 
-    func prefetch(_ assets: [PHAsset]) {
+    func loadFlags(for asset: PHAsset) async -> ReviewFileFlags {
+        if let cached = cachedFlags(for: asset.localIdentifier) {
+            return cached
+        }
+        return await Task.detached(priority: .userInitiated) {
+            self.flags(for: asset)
+        }.value
+    }
+
+    func prefetch(_ assets: [PHAsset], onNewRaw: (@MainActor () -> Void)? = nil) {
         guard !assets.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
-            for asset in assets { _ = self.flags(for: asset) }
+            var sawRaw = false
+            for asset in assets {
+                if self.cachedFlags(for: asset.localIdentifier) != nil { continue }
+                if self.flags(for: asset).raw { sawRaw = true }
+            }
+            if sawRaw, let onNewRaw {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { onNewRaw() }
+                }
+            }
         }
     }
 

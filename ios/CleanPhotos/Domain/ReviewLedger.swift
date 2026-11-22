@@ -107,7 +107,7 @@ enum DaySummaryRule {
     /// 2. 那一天会话内全部看过或处理过（跳过 = 保留）；
     /// 3. 那一天至少 6 张；4. 同一天一个会话最多一次；5. 未知日期不生成。
     /// 调用方先把 from 记为看过 / 处理过。
-    static func shouldInsert(_ ledger: ReviewLedger, from: String, to: String?) -> Bool {
+    static func shouldInsert(_ ledger: ReviewLedger, from: String, to: String?, assumingViewed: String? = nil) -> Bool {
         guard let f = ledger.photo(from), let fi = ledger.indexOf(from) else { return false }
         if let to {
             guard let t = ledger.photo(to), let ti = ledger.indexOf(to) else { return false }
@@ -119,7 +119,7 @@ enum DaySummaryRule {
         if ledger.summarized.contains(day) { return false }
         let photos = ledger.photosOfDay(day)
         if photos.count < ReviewRules.daySummaryMinPhotos { return false }
-        return photos.allSatisfy { ledger.isTouched($0.id) }
+        return photos.allSatisfy { $0.id == assumingViewed || ledger.isTouched($0.id) }
     }
 }
 
@@ -150,7 +150,7 @@ enum ReviewPagesBuilder {
         }
         if let current, !removed.contains(current), let at = remaining.firstIndex(where: { $0.id == current }) {
             let next = at + 1 < remaining.count ? remaining[at + 1].id : nil
-            if DaySummaryRule.shouldInsert(ledger.markingViewed(current), from: current, to: next),
+            if DaySummaryRule.shouldInsert(ledger, from: current, to: next, assumingViewed: current),
                let day = ledger.photo(current)?.day {
                 pages.insert(.summary(day), at: at + 1)
             }
@@ -159,31 +159,34 @@ enum ReviewPagesBuilder {
     }
 }
 
-/// 会话状态机（ReviewViewModel 的 act / onPageSettled / onUndo）。值类型，可单测。
+/// 会话状态机（ReviewViewModel 的 act / onPageSettled / onUndo）。增量维护页序，同天横滑 O(1) 零分配。
 struct ReviewSessionCore {
     private(set) var ledger: ReviewLedger
     private(set) var removed: Set<String> = []
     private(set) var currentKey: String?
     private(set) var activeSummaryDay: String?
     private(set) var pages: [LedgerPage] = []
+    private(set) var pagesRevision: Int = 0
+    private var summaryIndex: Int?
+    private var cachedCurrentIndex: Int?
 
     init(photos: [LedgerPhoto], startId: String?) {
         ledger = ReviewLedger(ordered: photos)
         let start = startId.flatMap { id in photos.contains { $0.id == id } ? id : nil } ?? photos.first?.id
         currentKey = start.map { LedgerPage.photo($0).key }
-        rebuild()
+        pages = photos.map { .photo($0.id) }
+        cachedCurrentIndex = start.flatMap { pages.firstIndex(of: .photo($0)) }
+        syncSummarySlot(countRevision: false)
     }
 
-    /// 按枚举比较（不为每一页拼 "p-…" 字符串）：会话几千张时每次收藏 / 翻页都要找一遍。
-    var currentIndex: Int? {
-        guard let k = currentKey else { return nil }
-        let target: LedgerPage
-        if let id = Self.photoId(of: k) { target = .photo(id) }
-        else if let d = Self.summaryDay(of: k) { target = .summary(d) }
-        else { return pages.firstIndex { $0.key == k } }
-        return pages.firstIndex(of: target)
-    }
+    var currentIndex: Int? { cachedCurrentIndex }
     var isCompleted: Bool { currentKey == nil }
+    var summaryDayInPages: String? {
+        guard let summaryIndex, pages.indices.contains(summaryIndex), case .summary(let day) = pages[summaryIndex] else {
+            return nil
+        }
+        return day
+    }
 
     static func photoId(of key: String?) -> String? {
         guard let key, key.hasPrefix("p-") else { return nil }
@@ -194,11 +197,93 @@ struct ReviewSessionCore {
         return String(key.dropFirst(2))
     }
 
-    private mutating func rebuild() {
-        pages = ReviewPagesBuilder.build(ledger, removed: removed, current: Self.photoId(of: currentKey), activeSummaryDay: activeSummaryDay)
+    private func photoId(at index: Int) -> String? {
+        guard pages.indices.contains(index), case .photo(let id) = pages[index] else { return nil }
+        return id
     }
 
-    /// 左右翻页落定（或点「下一天」）。
+    private func page(forKey key: String) -> LedgerPage? {
+        if let id = Self.photoId(of: key) { return .photo(id) }
+        if let d = Self.summaryDay(of: key) { return .summary(d) }
+        return nil
+    }
+
+    private func locatePageIndex(_ target: LedgerPage, near hint: Int?) -> Int? {
+        if let hint {
+            for idx in [hint, hint + 1, hint - 1] where pages.indices.contains(idx) {
+                if pages[idx] == target { return idx }
+            }
+        }
+        return pages.firstIndex(of: target)
+    }
+
+    private func locatePageIndex(forKey key: String, near hint: Int?) -> Int? {
+        guard let target = page(forKey: key) else {
+            return pages.firstIndex { $0.key == key }
+        }
+        return locatePageIndex(target, near: hint)
+    }
+
+    @discardableResult
+    private mutating func removeSummarySlot() -> (Int, LedgerPage)? {
+        guard let s = summaryIndex, pages.indices.contains(s) else {
+            summaryIndex = nil
+            return nil
+        }
+        let removedPage = pages.remove(at: s)
+        summaryIndex = nil
+        if let c = cachedCurrentIndex {
+            if c == s { cachedCurrentIndex = nil }
+            else if c > s { cachedCurrentIndex = c - 1 }
+        }
+        return (s, removedPage)
+    }
+
+    private mutating func syncSummarySlot(countRevision: Bool = true) {
+        let oldSummary = removeSummarySlot()
+
+        var desired: (Int, String)? = nil
+        if let day = activeSummaryDay {
+            let lastOfDay = ledger.ordered.lastIndex { $0.day == day } ?? -1
+            var lo = 0
+            var hi = pages.count
+            while lo < hi {
+                let mid = (lo + hi) >> 1
+                let order = photoId(at: mid).flatMap { ledger.indexOf($0) } ?? Int.max
+                if order <= lastOfDay {
+                    lo = mid + 1
+                } else {
+                    hi = mid
+                }
+            }
+            desired = (lo, day)
+        } else if let current = Self.photoId(of: currentKey), !removed.contains(current),
+                  let at = locatePageIndex(.photo(current), near: cachedCurrentIndex) {
+            let next = at + 1 < pages.count ? photoId(at: at + 1) : nil
+            if DaySummaryRule.shouldInsert(ledger, from: current, to: next, assumingViewed: current),
+               let day = ledger.photo(current)?.day {
+                desired = (at + 1, day)
+            }
+        }
+
+        if let desired {
+            let summaryPage = LedgerPage.summary(desired.1)
+            pages.insert(summaryPage, at: desired.0)
+            summaryIndex = desired.0
+            if currentKey == summaryPage.key {
+                cachedCurrentIndex = desired.0
+            } else if let c = cachedCurrentIndex, c >= desired.0 {
+                cachedCurrentIndex = c + 1
+            }
+        }
+
+        let changed = (oldSummary?.0 != desired?.0) || (oldSummary?.1 != desired.map { LedgerPage.summary($0.1) })
+        if countRevision && changed {
+            pagesRevision += 1
+        }
+    }
+
+    /// 左右翻页落定（或点「下一天」）。同天内 O(1) 完成。
     mutating func settle(on key: String) {
         guard key != currentKey else { return }
         if let prev = Self.photoId(of: currentKey), !removed.contains(prev) { ledger.markViewed(prev) }
@@ -206,21 +291,41 @@ struct ReviewSessionCore {
         if let day { ledger.markSummarized(day) }
         currentKey = key
         activeSummaryDay = day
-        rebuild()
+        cachedCurrentIndex = locatePageIndex(forKey: key, near: cachedCurrentIndex)
+        syncSummarySlot()
     }
 
     /// 上下滑处理当前照片。返回切到的页 key（下一页，没有则上一页；都没有 → nil，会话结束）。
     @discardableResult
     mutating func act(_ id: String, _ outcome: ReviewOutcome) -> String? {
-        guard !removed.contains(id), let i = pages.firstIndex(of: .photo(id)) else { return currentKey }
+        guard !removed.contains(id), let i = locatePageIndex(.photo(id), near: cachedCurrentIndex) else {
+            return currentKey
+        }
         let next = i + 1 < pages.count ? pages[i + 1] : (i > 0 ? pages[i - 1] : nil)
         ledger.record(id, outcome)
         var summaryDay: String? = nil
         if case .summary(let d)? = next { summaryDay = d; ledger.markSummarized(d) }
         removed.insert(id)
+        pages.remove(at: i)
+        if let s = summaryIndex {
+            if s == i { summaryIndex = nil }
+            else if s > i { summaryIndex = s - 1 }
+        }
         currentKey = next?.key
         activeSummaryDay = summaryDay
-        rebuild()
+        if let next {
+            if i < pages.count, pages[i] == next {
+                cachedCurrentIndex = i
+            } else if i > 0, pages[i - 1] == next {
+                cachedCurrentIndex = i - 1
+            } else {
+                cachedCurrentIndex = pages.firstIndex(of: next)
+            }
+        } else {
+            cachedCurrentIndex = nil
+        }
+        pagesRevision += 1
+        syncSummarySlot()
         return currentKey
     }
 
@@ -228,21 +333,46 @@ struct ReviewSessionCore {
     mutating func replace(_ id: String, with photo: LedgerPhoto) {
         guard ledger.photo(id) != nil, !removed.contains(id) else { return }
         let wasCurrent = Self.photoId(of: currentKey) == id
+        let prevIdx = locatePageIndex(.photo(id), near: cachedCurrentIndex)
         ledger = ledger.replacing(id, with: photo)
-        if wasCurrent { currentKey = LedgerPage.photo(photo.id).key }
-        rebuild()
+        if let prevIdx {
+            pages[prevIdx] = .photo(photo.id)
+        }
+        if wasCurrent {
+            currentKey = LedgerPage.photo(photo.id).key
+            cachedCurrentIndex = prevIdx
+        } else {
+            cachedCurrentIndex = currentKey.flatMap { locatePageIndex(forKey: $0, near: cachedCurrentIndex) }
+        }
+        pagesRevision += 1
+        syncSummarySlot()
     }
 
-    /// 撤回：照片插回原位（序列按初始顺序生成）并切回它；若当前正停在它那天的小结上，小结一起撤掉。
+    /// 撤回：照片插回原位（二分 O(log N)）并切回它；若当前正停在它那天的小结上，小结一起撤掉。
     @discardableResult
     mutating func undo(_ id: String) -> String? {
-        guard removed.contains(id), let p = ledger.photo(id) else { return nil }
+        guard removed.contains(id), let p = ledger.photo(id), let targetOrder = ledger.indexOf(id) else { return nil }
         ledger.undoOutcome(id)
         if activeSummaryDay == p.day { ledger.summarized.remove(p.day) }
         removed.remove(id)
+        _ = removeSummarySlot()
+        var lo = 0
+        var hi = pages.count
+        while lo < hi {
+            let mid = (lo + hi) >> 1
+            let midOrder = photoId(at: mid).flatMap { ledger.indexOf($0) } ?? Int.max
+            if midOrder < targetOrder {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        pages.insert(.photo(id), at: lo)
         currentKey = LedgerPage.photo(id).key
+        cachedCurrentIndex = lo
         activeSummaryDay = nil
-        rebuild()
+        pagesRevision += 1
+        syncSummarySlot()
         return currentKey
     }
 }

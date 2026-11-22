@@ -501,7 +501,11 @@ struct TrashPreview: View {
     @State private var dx: CGFloat = 0
     @State private var zoom: CGFloat = 1
     @State private var images: [String: UIImage] = [:]
-    @State private var requests: [String: PHImageRequestID] = [:]
+    @State private var zoomed: [String: UIImage] = [:]
+    @State private var tokens: [String: ThumbnailToken] = [:]
+    @State private var zoomTokens: [String: ThumbnailToken] = [:]
+    @State private var loadedMetaInfo: AssetSizeCache.Info?
+    @State private var loadedMetaId = ""
     @State private var didInit = false
     @State private var transportShown = false
     @State private var playbackPinnedId: String?
@@ -623,11 +627,19 @@ struct TrashPreview: View {
             tapTask?.cancel()
             playbackHoldToken += 1
             playback.release()
+            cancelLoads()
         }
         .onChange(of: index) { _, _ in
             transportShown = false
             load()
             if playbackSettled { loadCurrentPlayback() }
+        }
+        .onChange(of: zoom > 1.01) { _, z in
+            guard z, let item = currentItem else { return }
+            loadZoom(for: item)
+        }
+        .task(id: currentItem?.id ?? "") {
+            await loadCurrentMeta()
         }
         .onChange(of: muted) { _, value in playback.applyMute(remembered: value) }
         .onChange(of: scenePhase) { _, phase in
@@ -677,8 +689,9 @@ struct TrashPreview: View {
 
     /// 整页里 aspect fit，保持原色。黑边来自背后的全屏黑底，不另套方框。
     private func photo(_ item: PhotoItem, width: CGFloat, height: CGFloat) -> some View {
-        ZStack {
-            if let img = images[item.id] {
+        let shown = zoom > 1.01 ? (zoomed[item.id] ?? images[item.id]) : images[item.id]
+        return ZStack {
+            if let img = shown {
                 Image(uiImage: img).resizable().scaledToFit()
                     .accessibilityHidden(true)
             }
@@ -695,10 +708,11 @@ struct TrashPreview: View {
     }
 
     private func meta(_ item: PhotoItem) -> some View {
-        // 文件名 / 大小走 AssetSizeCache（load() 已在后台预取前后几张），不在每次 body 里同步查 PHAssetResource
-        let name = AssetSizeCache.shared.name(for: item.asset) ?? ""
+        // 文件名 / 大小只读内存缓存，未命中由 `.task` 在后台加载，绝不在 body 同步查 PHAssetResource
+        let cached = AssetSizeCache.shared.cachedInfo(item.id) ?? (loadedMetaId == item.id ? loadedMetaInfo : nil)
+        let name = cached?.name ?? ""
         let bytes = library.trash.entry(item.id)?.byteSize ?? 0
-        let sz = bytes > 0 ? bytes : (AssetSizeCache.shared.cachedBytes(item.id) ?? 0)
+        let sz = bytes > 0 ? bytes : (cached?.bytes ?? 0)
         let size = sz > 0 ? " · " + FileSizeFormatter.format(sz) : ""
         var second: [String] = [L10n.format("trash_taken", locale: loc, cleanDate(item.creationDate))]
         if let e = library.trash.entry(item.id) {
@@ -757,28 +771,92 @@ struct TrashPreview: View {
         onClose()
     }
 
+    private func loadCurrentMeta() async {
+        guard let item = currentItem else { return }
+        if AssetSizeCache.shared.cachedInfo(item.id) != nil {
+            if loadedMetaId != item.id {
+                loadedMetaInfo = nil
+                loadedMetaId = ""
+            }
+            return
+        }
+        let info = await AssetSizeCache.shared.loadInfo(for: item.asset)
+        guard !Task.isCancelled, currentItem?.id == item.id else { return }
+        loadedMetaId = item.id
+        loadedMetaInfo = info
+    }
+
     private func load() {
         let prefetch = TrashPreviewWindow.span(index: index, count: items.count, radius: 2)
         AssetSizeCache.shared.prefetch(prefetch.map { items[$0].asset })
-        // 只留当前和前后各一张（每张全屏图 ~9MB，之前翻过的都一直留着）；窗口外还没回来的请求取消
+        // 只留当前和前后各一张；窗口外还没回来的请求与高清缓存统一离主线程取消并回收
         let near = TrashPreviewWindow.span(index: index, count: items.count, radius: 1)
         let keep = Set(near.map { items[$0].id })
-        for (id, req) in requests where !keep.contains(id) { library.cancelThumbnail(req); requests[id] = nil }
-        for id in images.keys where !keep.contains(id) { images[id] = nil }
+        for (id, tok) in tokens where !keep.contains(id) {
+            tok.cancel()
+            tokens[id] = nil
+        }
+        for (id, tok) in zoomTokens where !keep.contains(id) {
+            tok.cancel()
+            zoomTokens[id] = nil
+        }
+        for id in Array(images.keys) where !keep.contains(id) { images[id] = nil }
+        for id in Array(zoomed.keys) where !keep.contains(id) { zoomed[id] = nil }
+
+        let screen = UIScreen.main.bounds.size
+        let scale = UIScreen.main.scale
+        let shownIndex = TrashPreviewWindow.clampedIndex(index, count: items.count) ?? index
         for i in near {
             let item = items[i]
-            if images[item.id] != nil || requests[item.id] != nil { continue }
-            // 全屏 fit，双击放到 2 倍：按屏幕长边的 2 倍取图，原色，不按方框去裁。
-            let screen = UIScreen.main.bounds
-            let side = max(screen.width, screen.height) * 2
             let id = item.id
-            requests[id] = library.requestFullImage(for: item.asset, maxSide: side) { img in
-                Task { @MainActor in
-                    guard requests[id] != nil else { return }
-                    if let img, (images[id].map { $0.size.width * $0.scale < img.size.width * img.scale } ?? true) { images[id] = img }
-                }
+            if tokens[id] != nil { continue }
+            let fit = ReviewMath.fitSize(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, in: screen)
+            let px = CGSize(width: (fit.width * scale).rounded(.up), height: (fit.height * scale).rounded(.up))
+            let priority: Operation.QueuePriority = (i == shownIndex) ? .veryHigh : .normal
+            tokens[id] = library.thumbnails.requestFitImage(
+                asset: item.asset,
+                maxSidePoints: max(fit.width, fit.height),
+                fitPixels: px,
+                priority: priority
+            ) { img, _ in
+                guard tokens[id] != nil else { return }
+                let canReplace = images[id].map {
+                    img.size.width * img.scale >= $0.size.width * $0.scale
+                } ?? true
+                if canReplace { images[id] = img }
             }
         }
+        if zoom > 1.01, let cur = currentItem {
+            loadZoom(for: cur)
+        }
+    }
+
+    private func loadZoom(for item: PhotoItem) {
+        let id = item.id
+        guard zoomTokens[id] == nil else { return }
+        let side = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height) * 2
+        zoomTokens[id] = library.thumbnails.requestFitImage(
+            asset: item.asset,
+            maxSidePoints: side,
+            fitPixels: nil,
+            priority: .veryHigh
+        ) { img, _ in
+            guard zoomTokens[id] != nil else { return }
+            if let cur = zoomed[id], img.size.width * img.scale <= cur.size.width * cur.scale { return }
+            if let base = images[id], img.size.width * img.scale + 0.5 < base.size.width * base.scale { return }
+            zoomed[id] = img
+        }
+    }
+
+    private func cancelLoads() {
+        for tok in tokens.values { tok.cancel() }
+        for tok in zoomTokens.values { tok.cancel() }
+        tokens.removeAll()
+        zoomTokens.removeAll()
+        images.removeAll()
+        zoomed.removeAll()
+        EmbeddedMotionCache.cancelPrefetch()
+        LiveVideoCache.cancelPrefetch()
     }
 
     /// 动画事务里 dx 立刻归零，弹簧还在走。停稳看 token，不看 dx。
@@ -837,6 +915,8 @@ struct TrashPreview: View {
         playbackUnsettled = true
         if playbackPinnedId == nil { playbackPinnedId = currentItem?.id }
         playback.pauseForGesture()
+        EmbeddedMotionCache.cancelPrefetch()
+        LiveVideoCache.cancelPrefetch()
         transportShown = false
     }
 

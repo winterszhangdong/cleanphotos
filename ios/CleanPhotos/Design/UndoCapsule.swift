@@ -10,6 +10,7 @@ struct UndoCapsule: View {
     var onUndo: () -> Void
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var thumb: UIImage?
+    @State private var thumbToken: ThumbnailToken?
     @State private var countdown: CGFloat = 1
 
     private var fav: Bool { banner.isAmber }
@@ -50,18 +51,30 @@ struct UndoCapsule: View {
         .frame(height: 56)
         .frame(maxWidth: .infinity)
         .overlay(alignment: .bottom) { timer }
-        .background {
-            Capsule()
-                .fill(Self.glass)
-                .background(.ultraThinMaterial, in: Capsule())
-        }
         .clipShape(Capsule())
+        .background {
+            ZStack {
+                Capsule()
+                    .fill(Self.glass)
+                    .shadow(color: .black.opacity(0.5), radius: 20, y: 16)
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                Capsule()
+                    .fill(Self.glass)
+            }
+        }
         .overlay(Capsule().strokeBorder(DarkroomColors.menuRim, lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 16)
         .environment(\.locale, locale)
         .task(id: banner.sampleId) { loadThumb() }
         .onAppear { startCountdown() }
-        .onChange(of: banner.id) { _, _ in startCountdown() }
+        .onChange(of: banner.id) { _, _ in
+            startCountdown()
+            loadThumb()
+        }
+        .onDisappear {
+            thumbToken?.cancel()
+            thumbToken = nil
+        }
     }
 
     private var thumbView: some View {
@@ -73,9 +86,6 @@ struct UndoCapsule: View {
                     .accessibilityHidden(true)
                     .scaledToFill()
                     .frame(width: 40, height: 40)
-                    // .undo .thumb img：grayscale(0.6) brightness(0.7)
-                    .saturation(fav ? 1 : 0.4)
-                    .brightness(fav ? 0 : -0.3)
             }
         }
         .frame(width: 40, height: 40)
@@ -134,9 +144,19 @@ struct UndoCapsule: View {
     }
 
     private func loadThumb() {
-        guard let id = banner.sampleId, let asset = library.allById[id]?.asset else { return }
-        _ = library.requestThumbnail(for: asset, side: 40) { img in
-            Task { @MainActor in self.thumb = img }
+        thumbToken?.cancel()
+        thumbToken = nil
+        guard let id = banner.sampleId, let asset = library.allById[id]?.asset else {
+            thumb = nil
+            return
+        }
+        let style: ThumbnailStyle = fav ? .normal : .trashed
+        if let hit = library.thumbnails.cached(id: id, side: 40, style: style) {
+            thumb = hit
+            return
+        }
+        thumbToken = library.thumbnails.request(asset: asset, side: 40, style: style) { img, _ in
+            self.thumb = img
         }
     }
 

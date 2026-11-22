@@ -235,17 +235,28 @@ final class ReviewImageStore: ObservableObject {
     @Published private(set) var images: [String: UIImage] = [:]
     /// 预渲染好的环境光位图（放大 1.2、模糊 36、饱和 1.3、亮度 40%），翻页时只平移贴图、不再每帧实时模糊。
     @Published private(set) var glows: [String: UIImage] = [:]
+    /// 后台预先生成的单通道灰度位图，下滑去色时直接叠透明灰度层，零 CAFilter 离屏 pass。
+    @Published private(set) var grays: [String: UIImage] = [:]
     /// 放大超过 1× 才解码的高清图。JPEG/HEIC 长边与以前一样；RAW/PNG 约 3 倍。缩回 1× 不丢。
     @Published private(set) var zoomed: [String: UIImage] = [:]
-    private var requests: [String: PHImageRequestID] = [:]
-    private var zoomRequests: [String: PHImageRequestID] = [:]
+    private var tokens: [String: ThumbnailToken] = [:]
+    private var zoomTokens: [String: ThumbnailToken] = [:]
+    private var legacyRequests: [String: PHImageRequestID] = [:]
+    private var effectsScheduled: Set<String> = []
     private var revs: [String: Int] = [:]
-    nonisolated private static let work = DispatchQueue(label: "review.decode", qos: .userInitiated)
+    nonisolated private static let glowQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "review.glow"
+        q.maxConcurrentOperationCount = 1
+        q.qualityOfService = .utility
+        return q
+    }()
     /// 调试 / 像素对比：-cpLiveGlow YES 退回实时模糊
     nonisolated static let liveGlow = UserDefaults.standard.bool(forKey: "cpLiveGlow") || PerfLegacy.on
 
     func image(_ id: String) -> UIImage? { images[id] }
     func glow(_ id: String) -> UIImage? { glows[id] }
+    func gray(_ id: String) -> UIImage? { grays[id] }
     func zoomImage(_ id: String) -> UIImage? { zoomed[id] }
     /// 页内容的版本号：图 / 环境光 / 高清图任一更新都 +1（页视图按它判断要不要重画）。
     func rev(_ id: String) -> Int { revs[id, default: 0] }
@@ -257,103 +268,166 @@ final class ReviewImageStore: ObservableObject {
         revs[id, default: 0] += 1
     }
 
-    /// 预取当前页前后几张：按「在屏幕上实际显示的像素尺寸」请求，后台解码成位图（preparingThumbnail），
-    /// 没铺满的再在后台算好环境光，主线程只做一次字典替换 —— 拖动 / 翻页过程中不再有解码和模糊。
-    func ensure(_ items: [PhotoItem], keep: Set<String>, library: PhotoLibraryService, page: CGSize, box: CGSize) {
+    /// 预取当前页前后几张：按「在屏幕上实际显示的像素尺寸」离主线程请求与解码（preparingThumbnail），
+    /// 立即交付主图，环境光单独低优先级生成；窗口外请求与排队操作立即取消。
+    func ensure(
+        _ items: [PhotoItem],
+        keep: Set<String>,
+        library: PhotoLibraryService,
+        page: CGSize,
+        box: CGSize,
+        priorityId: String? = nil
+    ) {
         let want = Set(items.map(\.id)).union(keep)
         let scale = UIScreen.main.scale
-        for item in items where requests[item.id] == nil {
-            let id = item.id
-            let fit = ReviewMath.fitSize(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, in: box)
-            let letterboxed = fit.width < box.width - 1 || fit.height < box.height - 1
-            let px = CGSize(width: (fit.width * scale).rounded(.up), height: (fit.height * scale).rounded(.up))
-            if PerfLegacy.on {
-                // 改之前：按屏幕长边请求、主线程直接用（不预解码）
-                requests[id] = library.requestFullImage(for: item.asset, maxSide: max(page.width, page.height)) { [weak self] img in
+        if PerfLegacy.on {
+            for item in items where legacyRequests[item.id] == nil {
+                let id = item.id
+                legacyRequests[id] = library.requestFullImage(for: item.asset, maxSide: max(page.width, page.height)) { [weak self] img in
                     Task { @MainActor in
-                        guard let self, let img, self.requests[id] != nil else { return }
+                        guard let self, let img, self.legacyRequests[id] != nil else { return }
                         if let cur = self.images[id], img.size.width * img.scale < cur.size.width * cur.scale { return }
                         self.images[id] = img
                         self.revs[id, default: 0] += 1
                     }
                 }
-                continue
             }
-            requests[id] = library.requestFullImage(for: item.asset, maxSide: max(fit.width, fit.height)) { [weak self] img in
-                guard let img else { return }
-                Self.work.async {
-                    let shown: UIImage
-                    if img.size.width * img.scale > px.width * 1.05 || img.size.height * img.scale > px.height * 1.05 {
-                        shown = img.preparingThumbnail(of: px) ?? img
-                    } else {
-                        shown = img.preparingForDisplay() ?? img
-                    }
-                    let glow = (letterboxed && !Self.liveGlow) ? Self.makeGlow(shown, page: page) : nil
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard let self, self.requests[id] != nil else { return }
-                            // opportunistic 先给低清：不拿它覆盖已经垫上的缩略图里更清楚的那张
-                            if let cur = self.images[id], shown.size.width * shown.scale < cur.size.width * cur.scale {
-                                if glow != nil, self.glows[id] == nil { self.glows[id] = glow; self.revs[id, default: 0] += 1 }
-                                return
+            for (id, req) in legacyRequests where !want.contains(id) {
+                library.cancelThumbnail(req)
+                legacyRequests[id] = nil
+                images[id] = nil
+                glows[id] = nil
+                grays[id] = nil
+                revs[id] = nil
+            }
+            for (id, tok) in zoomTokens where !want.contains(id) {
+                tok.cancel()
+                zoomTokens[id] = nil
+                zoomed[id] = nil
+            }
+            return
+        }
+
+        for item in items where tokens[item.id] == nil {
+            let id = item.id
+            let fit = ReviewMath.fitSize(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, in: box)
+            let letterboxed = fit.width < box.width - 1 || fit.height < box.height - 1
+            let px = CGSize(width: (fit.width * scale).rounded(.up), height: (fit.height * scale).rounded(.up))
+            let priority: Operation.QueuePriority = (id == priorityId) ? .veryHigh : .normal
+            let tok = library.thumbnails.requestFitImage(
+                asset: item.asset,
+                maxSidePoints: max(fit.width, fit.height),
+                fitPixels: px,
+                priority: priority
+            ) { [weak self] shown, degraded in
+                guard let self, let activeTok = self.tokens[id] else { return }
+                let canReplace = self.images[id].map {
+                    shown.size.width * shown.scale >= $0.size.width * $0.scale
+                } ?? true
+                if canReplace {
+                    self.images[id] = shown
+                    self.revs[id, default: 0] += 1
+                }
+                let needGlow = letterboxed && !Self.liveGlow && self.glows[id] == nil
+                let needGray = !degraded || self.grays[id] == nil
+                if (needGlow || needGray) && !self.effectsScheduled.contains(id) {
+                    if !degraded { self.effectsScheduled.insert(id) }
+                    let effectsOp = BlockOperation { [weak self] in
+                        guard !activeTok.isCancelled else { return }
+                        let glow = needGlow ? Self.makeGlow(shown, page: page) : nil
+                        guard !activeTok.isCancelled else { return }
+                        let gray = needGray ? Self.makeGray(shown) : nil
+                        guard !activeTok.isCancelled, (glow != nil || gray != nil) else { return }
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard let self, !activeTok.isCancelled, self.tokens[id] === activeTok else { return }
+                                var touched = false
+                                if let glow, self.glows[id] == nil {
+                                    self.glows[id] = glow
+                                    touched = true
+                                }
+                                if let gray, (!degraded || self.grays[id] == nil) {
+                                    self.grays[id] = gray
+                                    touched = true
+                                }
+                                if touched { self.revs[id, default: 0] += 1 }
                             }
-                            self.images[id] = shown
-                            if let glow { self.glows[id] = glow }
-                            self.revs[id, default: 0] += 1
                         }
                     }
+                    effectsOp.queuePriority = (id == priorityId) ? .normal : .low
+                    activeTok.attachOperation(effectsOp)
+                    Self.glowQueue.addOperation(effectsOp)
                 }
             }
+            tokens[id] = tok
         }
-        for (id, req) in requests where !want.contains(id) {
-            library.cancelThumbnail(req)
-            requests[id] = nil
+
+        for (id, tok) in tokens where !want.contains(id) {
+            tok.cancel()
+            tokens[id] = nil
             images[id] = nil
             glows[id] = nil
+            grays[id] = nil
+            effectsScheduled.remove(id)
             revs[id] = nil
         }
-        for (id, req) in zoomRequests where !want.contains(id) {
-            library.cancelThumbnail(req)
-            zoomRequests[id] = nil
+        for (id, tok) in zoomTokens where !want.contains(id) {
+            tok.cancel()
+            zoomTokens[id] = nil
             zoomed[id] = nil
         }
     }
 
-    /// 放大当前这一张时补高清。`side` 仍是屏幕长边（点，requestFullImage 再乘屏幕 scale）；
+    /// 放大当前这一张时补高清。`side` 仍是屏幕长边（点，requestFitImage 再乘屏幕 scale）；
     /// `sharpScale` 为 1（JPEG/HEIC）或约 3（RAW/PNG）。失败、或解出来比屏幕上这张更小：保持原图。
     /// 缩回 1× 后位图留着；翻出预取窗口才回收。不在这里预取邻页。
     func ensureZoom(_ item: PhotoItem, library: PhotoLibraryService, side: CGFloat, sharpScale: CGFloat = 1) {
         let id = item.id
-        guard zoomRequests[id] == nil else { return }
+        guard zoomTokens[id] == nil else { return }
         let maxSide = side * max(sharpScale, 1)
-        zoomRequests[id] = library.requestFullImage(for: item.asset, maxSide: maxSide) { [weak self] img in
-            guard let img else { return }
-            Self.work.async {
-                let ready = img.preparingForDisplay() ?? img
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let self, self.zoomRequests[id] != nil else { return }
-                        if let cur = self.zoomed[id], Self.pixelLongEdge(ready) <= Self.pixelLongEdge(cur) { return }
-                        if let screen = self.images[id], Self.pixelLongEdge(ready) + 0.5 < Self.pixelLongEdge(screen) { return }
-                        self.zoomed[id] = ready
-                        self.revs[id, default: 0] += 1
-                    }
-                }
-            }
+        let tok = library.thumbnails.requestFitImage(
+            asset: item.asset,
+            maxSidePoints: maxSide,
+            fitPixels: nil,
+            priority: .veryHigh
+        ) { [weak self] ready, _ in
+            guard let self, self.zoomTokens[id] != nil else { return }
+            if let cur = self.zoomed[id], Self.pixelLongEdge(ready) <= Self.pixelLongEdge(cur) { return }
+            if let screen = self.images[id], Self.pixelLongEdge(ready) + 0.5 < Self.pixelLongEdge(screen) { return }
+            self.zoomed[id] = ready
+            self.revs[id, default: 0] += 1
         }
+        zoomTokens[id] = tok
+    }
+
+    func cancelAll(library: PhotoLibraryService? = nil) {
+        for tok in tokens.values { tok.cancel() }
+        for tok in zoomTokens.values { tok.cancel() }
+        if let library {
+            for req in legacyRequests.values { library.cancelThumbnail(req) }
+        }
+        tokens.removeAll()
+        zoomTokens.removeAll()
+        legacyRequests.removeAll()
+        effectsScheduled.removeAll()
+        images.removeAll()
+        glows.removeAll()
+        grays.removeAll()
+        zoomed.removeAll()
+        revs.removeAll()
     }
 
     private static func pixelLongEdge(_ img: UIImage) -> CGFloat {
         max(img.size.width, img.size.height) * img.scale
     }
 
-    nonisolated(unsafe) private static let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+    nonisolated private static let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                                                        .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
     /// 环境光的像素密度（相对 pt）：模糊半径 36pt，1/4 密度下 9px，放大回去肉眼与实时模糊一致。
     nonisolated static let glowDensity: CGFloat = 0.25
 
     /// 复刻原来的 SwiftUI 链：scaledToFill 到整页 → scaleEffect(1.2) → blur(36) → saturation(1.3) → colorMultiply(0.4) → 裁到整页。
-    nonisolated static func makeGlow(_ img: UIImage, page: CGSize) -> UIImage? {
+    nonisolated static func makeGlow(_ img: UIImage, page: CGSize, saturation: Double = 1.3, brightness: Double = 0.4) -> UIImage? {
         let k = glowDensity
         let radius = 36 * k
         let pad = (radius * 3).rounded(.up)
@@ -370,17 +444,36 @@ final class ReviewImageStore: ObservableObject {
             img.draw(in: CGRect(x: pad + (w - dw) / 2, y: pad + (h - dh) / 2, width: dw, height: dh))
         }
         guard let cg = src.cgImage else { return nil }
+        let b = CGFloat(brightness)
         let out = CIImage(cgImage: cg)
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
-            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.3, kCIInputBrightnessKey: 0, kCIInputContrastKey: 1])
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: saturation, kCIInputBrightnessKey: 0, kCIInputContrastKey: 1])
             .applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 0.4, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: 0.4, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: 0.4, w: 0),
+                "inputRVector": CIVector(x: b, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: b, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: b, w: 0),
             ])
             .cropped(to: CGRect(x: pad, y: pad, width: w, height: h))
         guard let res = ciContext.createCGImage(out, from: out.extent) else { return nil }
         return UIImage(cgImage: res, scale: 1, orientation: .up)
+    }
+
+    nonisolated static func makeGray(_ img: UIImage) -> UIImage? {
+        guard let cg = img.cgImage else { return nil }
+        let w = cg.width, h = cg.height
+        guard w > 0, h > 0 else { return nil }
+        guard let ctx = CGContext(
+            data: nil,
+            width: w,
+            height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let out = ctx.makeImage() else { return nil }
+        return UIImage(cgImage: out, scale: img.scale, orientation: img.imageOrientation)
     }
 }
 

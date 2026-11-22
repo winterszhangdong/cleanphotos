@@ -335,7 +335,7 @@ private struct PeekOverlay: View {
     let item: PhotoItem
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var image: UIImage?
-    @State private var requestID: PHImageRequestID?
+    @State private var token: ThumbnailToken?
 
     var body: some View {
         ZStack {
@@ -351,13 +351,30 @@ private struct PeekOverlay: View {
         }
         .allowsHitTesting(false)
         .onAppear {
-            let side = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height) * UIScreen.main.scale
-            requestID = library.requestFullImage(for: item.asset, maxSide: side) { img in
-                Task { @MainActor in image = img }
+            token?.cancel()
+            let screenW = UIScreen.main.bounds.width
+            let stripSide = max(1, (screenW - DarkroomDimens.gridGap * 2) / 3)
+            if let seed = library.thumbnails.cached(id: item.id, side: stripSide, style: .normal) {
+                image = seed
+            }
+            let bounds = UIScreen.main.bounds.size
+            let box = CGSize(width: max(1, bounds.width - 48), height: max(1, bounds.height - 48))
+            let fit = ReviewMath.fitSize(pixelWidth: item.asset.pixelWidth, pixelHeight: item.asset.pixelHeight, in: box)
+            let scale = UIScreen.main.scale
+            let px = CGSize(width: (fit.width * scale).rounded(.up), height: (fit.height * scale).rounded(.up))
+            token = library.thumbnails.requestFitImage(
+                asset: item.asset,
+                maxSidePoints: max(fit.width, fit.height),
+                fitPixels: px,
+                priority: .veryHigh
+            ) { img, _ in
+                if let cur = image, img.size.width * img.scale < cur.size.width * cur.scale { return }
+                image = img
             }
         }
         .onDisappear {
-            if let requestID { library.cancelThumbnail(requestID) }
+            token?.cancel()
+            token = nil
         }
     }
 }
@@ -369,6 +386,7 @@ private struct FilingUndoBar: View {
     let onUndo: () -> Void
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var thumb: UIImage?
+    @State private var thumbToken: ThumbnailToken?
     @State private var countdown: CGFloat = 1
 
     var body: some View {
@@ -434,7 +452,11 @@ private struct FilingUndoBar: View {
         .shadow(color: .black.opacity(0.5), radius: 20, y: 16)
         .task(id: banner.sampleId) { loadThumb() }
         .onAppear { startCountdown() }
-        .onChange(of: banner.id) { _, _ in startCountdown() }
+        .onChange(of: banner.id) { _, _ in startCountdown(); loadThumb() }
+        .onDisappear {
+            thumbToken?.cancel()
+            thumbToken = nil
+        }
     }
 
     private func startCountdown() {
@@ -449,9 +471,18 @@ private struct FilingUndoBar: View {
     }
 
     private func loadThumb() {
-        guard let id = banner.sampleId, let asset = library.item(id: id)?.asset else { return }
-        _ = library.requestThumbnail(for: asset, side: 40) { img in
-            Task { @MainActor in thumb = img }
+        thumbToken?.cancel()
+        thumbToken = nil
+        guard let id = banner.sampleId, let asset = library.item(id: id)?.asset else {
+            thumb = nil
+            return
+        }
+        if let hit = library.thumbnails.cached(id: id, side: 40, style: .normal) {
+            thumb = hit
+            return
+        }
+        thumbToken = library.thumbnails.request(asset: asset, side: 40, style: .normal) { img, _ in
+            thumb = img
         }
     }
 }

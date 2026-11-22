@@ -1,6 +1,6 @@
 import Accelerate
 import Foundation
-import Photos
+@preconcurrency import Photos
 import UIKit
 
 /// 缩略图异步请求的取消令牌。线程安全，可在后台队列与主线程之间共享状态，避免任何主线程同步 PhotoKit 调用。
@@ -112,6 +112,8 @@ final class ThumbnailPipeline {
     nonisolated let photoKitQueue: OperationQueue
     nonisolated let prefetchQueue: OperationQueue
     nonisolated let decodeQueue: OperationQueue
+    nonisolated let fullImageQueue: OperationQueue
+    nonisolated let fullDecodeQueue: OperationQueue
 
     nonisolated private let prefetchLock = NSLock()
     nonisolated(unsafe) private var inflightPrefetch: [String: ThumbnailToken] = [:]
@@ -160,6 +162,18 @@ final class ThumbnailPipeline {
         decQ.maxConcurrentOperationCount = 3
         decQ.qualityOfService = .userInitiated
         self.decodeQueue = decQ
+
+        let fkQ = OperationQueue()
+        fkQ.name = "cleanphotos.full.photokit"
+        fkQ.maxConcurrentOperationCount = 2
+        fkQ.qualityOfService = .userInitiated
+        self.fullImageQueue = fkQ
+
+        let fdQ = OperationQueue()
+        fdQ.name = "cleanphotos.full.decode"
+        fdQ.maxConcurrentOperationCount = 2
+        fdQ.qualityOfService = .userInitiated
+        self.fullDecodeQueue = fdQ
 
         self.cache.countLimit = 800
         self.cache.totalCostLimit = 160 * 1024 * 1024
@@ -255,6 +269,74 @@ final class ThumbnailPipeline {
         fetchOp.queuePriority = .veryHigh
         token.attachOperation(fetchOp)
         photoKitQueue.addOperation(fetchOp)
+        return token
+    }
+
+    /// 离主线程按 `aspectFit` 请求与预解码全屏/预览大图，支持优先级与完整取消传播。
+    func requestFitImage(
+        asset: PHAsset,
+        maxSidePoints: CGFloat,
+        fitPixels: CGSize? = nil,
+        priority: Operation.QueuePriority = .normal,
+        completion: @escaping @MainActor (_ image: UIImage, _ degraded: Bool) -> Void
+    ) -> ThumbnailToken {
+        let scale = displayScale
+        let safeSide = max(1, maxSidePoints)
+        let target = CGSize(width: (safeSide * scale).rounded(.up), height: (safeSide * scale).rounded(.up))
+        let token = ThumbnailToken()
+        let mgr = imageManager
+        let opts = visibleOptions
+        let fkQueue = fullImageQueue
+        let decQueue = fullDecodeQueue
+
+        let fetchOp = BlockOperation {
+            guard !token.isCancelled else { return }
+            let reqID = mgr.requestImage(
+                for: asset,
+                targetSize: target,
+                contentMode: .aspectFit,
+                options: opts
+            ) { image, info in
+                guard !token.isCancelled, let image else { return }
+                if let phCancelled = info?[PHImageCancelledKey] as? Bool, phCancelled { return }
+                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if degraded && token.hasDeliveredFinal { return }
+
+                let decodeOp = BlockOperation {
+                    guard !token.isCancelled else { return }
+                    if degraded && token.hasDeliveredFinal { return }
+                    let shown: UIImage
+                    if let fitPixels,
+                       fitPixels.width > 0,
+                       fitPixels.height > 0,
+                       (image.size.width * image.scale > fitPixels.width * 1.05 ||
+                        image.size.height * image.scale > fitPixels.height * 1.05) {
+                        shown = image.preparingThumbnail(of: fitPixels) ?? image.preparingForDisplay() ?? image
+                    } else {
+                        shown = image.preparingForDisplay() ?? image
+                    }
+                    guard !token.isCancelled else { return }
+                    if !degraded {
+                        token.markFinalDelivered()
+                    } else if token.hasDeliveredFinal {
+                        return
+                    }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            guard !token.isCancelled else { return }
+                            completion(shown, degraded)
+                        }
+                    }
+                }
+                decodeOp.queuePriority = priority
+                token.attachOperation(decodeOp)
+                decQueue.addOperation(decodeOp)
+            }
+            token.attachRequest(reqID, manager: mgr, cancelQueue: fkQueue)
+        }
+        fetchOp.queuePriority = priority
+        token.attachOperation(fetchOp)
+        fullImageQueue.addOperation(fetchOp)
         return token
     }
 

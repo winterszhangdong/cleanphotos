@@ -117,6 +117,9 @@ struct ReviewMetaRow: View {
     /// 进度行没出来时，视频把时长接在文件信息后面。
     var duration: String? = nil
 
+    @State private var loadedInfo: AssetSizeCache.Info?
+    @State private var loadedId = ""
+
     var body: some View {
         Text(fileLine)
             .font(DarkroomFonts.plexMono(size: 10.5))
@@ -124,12 +127,26 @@ struct ReviewMetaRow: View {
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .transaction { if !PerfLegacy.on { $0.animation = nil } } // 翻页时直接换字，不做隐式文字插值
+            .task(id: photo.id) {
+                if AssetSizeCache.shared.cachedInfo(photo.id) != nil {
+                    if loadedId != photo.id {
+                        loadedInfo = nil
+                        loadedId = ""
+                    }
+                    return
+                }
+                let info = await AssetSizeCache.shared.loadInfo(for: photo.asset)
+                guard !Task.isCancelled else { return }
+                loadedId = photo.id
+                loadedInfo = info
+            }
     }
 
     private var fileLine: String {
-        // 文件名 + 大小走 AssetSizeCache（翻页前 prepare() 已在后台预取前后几张），不在主线程查 PHAssetResource
-        let name = AssetSizeCache.shared.name(for: photo.asset) ?? "—"
-        let size = photo.byteSize > 0 ? " · " + FileSizeFormatter.format(photo.byteSize) : ""
+        let info = AssetSizeCache.shared.cachedInfo(photo.id) ?? (loadedId == photo.id ? loadedInfo : nil)
+        let name = info?.name ?? "—"
+        let bytes = info?.bytes ?? 0
+        let size = bytes > 0 ? " · " + FileSizeFormatter.format(bytes) : ""
         let length = duration.map { " · " + $0 } ?? ""
         return name + size + length
     }

@@ -267,6 +267,7 @@ private struct HangingPrint: View {
     let id: String
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var image: UIImage?
+    @State private var token: ThumbnailToken?
     var body: some View {
         ZStack(alignment: .top) {
             ZStack {
@@ -285,9 +286,19 @@ private struct HangingPrint: View {
         }
         .frame(width: 60)
         .onAppear {
-            if image == nil, let a = library.allById[id]?.asset {
-                _ = library.requestThumbnail(for: a, side: 64) { img in Task { @MainActor in image = img } }
+            guard image == nil, let a = library.allById[id]?.asset else { return }
+            if let hit = library.thumbnails.cached(id: id, side: 64, style: .normal) {
+                image = hit
+                return
             }
+            token?.cancel()
+            token = library.thumbnails.request(asset: a, side: 64, style: .normal) { img, _ in
+                image = img
+            }
+        }
+        .onDisappear {
+            token?.cancel()
+            token = nil
         }
     }
 }
@@ -313,10 +324,11 @@ struct SkeletonBlock: View {
     var width: CGFloat
     var height: CGFloat
     var delay: Double = 0
+    var active: Bool = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var epoch = Date()
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { tl in
+        TimelineView(.animation(paused: reduceMotion || !active)) { tl in
             RoundedRectangle(cornerRadius: 4)
                 .fill(SkeletonBreath.color(delay: delay, now: tl.date, epoch: epoch))
                 .frame(width: width, height: height)
@@ -326,6 +338,7 @@ struct SkeletonBlock: View {
 
 /// 照片页加载骨架：三组 8 / 6 / 4 格，天标题 24×20 + 64×12，各格错开 200ms（Android LoadingSkeleton）。
 struct LoadingSkeletonGrid: View {
+    var active: Bool = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var epoch = Date()
     private static let groups: [[Double]] = [
@@ -337,7 +350,7 @@ struct LoadingSkeletonGrid: View {
         let cols = DarkroomDimens.gridColumns
         let w = UIScreen.main.bounds.width
         let side = (w - DarkroomDimens.gridGap * CGFloat(cols - 1)) / CGFloat(cols)
-        TimelineView(.animation(paused: reduceMotion)) { tl in
+        TimelineView(.animation(paused: reduceMotion || !active)) { tl in
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Self.groups.indices, id: \.self) { g in
                     HStack(spacing: 8) {

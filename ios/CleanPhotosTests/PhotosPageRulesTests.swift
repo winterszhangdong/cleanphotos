@@ -177,4 +177,50 @@ final class PhotosPageRulesTests: XCTestCase {
         let range = PhotosGridGeometry.sliceRange(in: built.slices, minY: built.slices[3].yStart + 5, maxY: built.slices[4].yStart + 10)
         XCTAssertEqual(range, 3..<5)
     }
+
+    func testSpringStepCriticallyDampedSnappyConvergesWithoutOvershoot() {
+        // SpringToken.snappy: dampingRatio = 1.0, stiffness = 1500
+        let k = 1500.0
+        let start: CGFloat = 240
+        var prevAbs = abs(start)
+        var t = 0.0083
+        while t <= 0.45 {
+            let step = ScopePagerMath.springStep(
+                from: start,
+                to: 0,
+                initialVelocity: -400,
+                elapsed: t,
+                dampingRatio: 1.0,
+                stiffness: k
+            )
+            XCTAssertGreaterThanOrEqual(step.x, 0, "临界阻尼朝目标方向释放不应过冲 (t=\(t))")
+            XCTAssertLessThanOrEqual(abs(step.x), prevAbs + 0.01)
+            prevAbs = abs(step.x)
+            if step.settled { break }
+            t += 0.0083
+        }
+        let settled = ScopePagerMath.springStep(
+            from: start,
+            to: 0,
+            initialVelocity: -400,
+            elapsed: 0.45,
+            dampingRatio: 1.0,
+            stiffness: k
+        )
+        XCTAssertTrue(settled.settled)
+        XCTAssertEqual(settled.x, 0)
+        XCTAssertEqual(settled.v, 0)
+
+        // 高速反向回拽仍单调向目标 0 收敛且最终落定
+        let fastReverse = ScopePagerMath.springStep(
+            from: -180,
+            to: 0,
+            initialVelocity: -900,
+            elapsed: 0.5,
+            dampingRatio: 1.0,
+            stiffness: k
+        )
+        XCTAssertTrue(fastReverse.settled)
+        XCTAssertEqual(fastReverse.x, 0)
+    }
 }

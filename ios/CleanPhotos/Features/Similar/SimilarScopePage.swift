@@ -64,6 +64,7 @@ struct KeptUndoCapsule: View {
     @EnvironmentObject private var library: PhotoLibraryService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var thumb: UIImage?
+    @State private var thumbToken: ThumbnailToken?
     @State private var countdown: CGFloat = 1
 
     var body: some View {
@@ -123,6 +124,10 @@ struct KeptUndoCapsule: View {
         .overlay(Capsule().strokeBorder(DarkroomColors.menuRim, lineWidth: 1))
         .task(id: undo.sampleId) { loadThumb() }
         .onAppear { startCountdown() }
+        .onDisappear {
+            thumbToken?.cancel()
+            thumbToken = nil
+        }
     }
 
     private func startCountdown() {
@@ -137,9 +142,19 @@ struct KeptUndoCapsule: View {
     }
 
     private func loadThumb() {
-        guard let asset = library.item(id: undo.sampleId)?.asset else { return }
-        _ = library.requestThumbnail(for: asset, side: 40) { img in
-            Task { @MainActor in self.thumb = img }
+        thumbToken?.cancel()
+        thumbToken = nil
+        let id = undo.sampleId
+        guard let asset = library.item(id: id)?.asset else {
+            thumb = nil
+            return
+        }
+        if let hit = library.thumbnails.cached(id: id, side: 40, style: .normal) {
+            thumb = hit
+            return
+        }
+        thumbToken = library.thumbnails.request(asset: asset, side: 40, style: .normal) { img, _ in
+            self.thumb = img
         }
     }
 }

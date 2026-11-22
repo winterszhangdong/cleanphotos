@@ -1,6 +1,6 @@
 import AVFoundation
 import Foundation
-import Photos
+@preconcurrency import Photos
 
 struct PlaybackLoaded: Equatable {
     var id: String
@@ -18,35 +18,58 @@ enum PlaybackAsset {
 
 /// 实况照片的配套视频。只在要播的那一张（以及下一张预取）上写临时文件。
 enum LiveVideoCache {
-    private final class Slot {
+    private final class Slot: @unchecked Sendable {
         let task: Task<URL, Error>
         init(_ task: Task<URL, Error>) { self.task = task }
     }
 
     private static let lock = NSLock()
     private static var inflight: [String: Slot] = [:]
+    private static var prefetchTask: Task<Void, Never>?
+    private static var prefetchKey: String?
 
     static func prefetch(_ asset: PHAsset) {
         guard PlaybackAsset.kind(of: asset) == .motion else { return }
-        Task { _ = try? await file(for: asset) }
+        let key = asset.localIdentifier
+        let task = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else { return }
+            _ = try? await file(for: asset)
+        }
+        lock.withLock {
+            if prefetchKey != key {
+                prefetchTask?.cancel()
+            } else {
+                prefetchTask?.cancel()
+            }
+            prefetchKey = key
+            prefetchTask = task
+        }
+    }
+
+    static func cancelPrefetch() {
+        let existing: Task<Void, Never>? = lock.withLock {
+            let t = prefetchTask
+            prefetchTask = nil
+            prefetchKey = nil
+            return t
+        }
+        existing?.cancel()
     }
 
     static func file(for asset: PHAsset) async throws -> URL {
         let key = asset.localIdentifier
         let slot = lock.withLock { () -> Slot in
             if let existing = inflight[key] { return existing }
-            let created = Slot(Task { try await produce(asset) })
+            let created = Slot(Task.detached(priority: .userInitiated) { try await produce(asset) })
             inflight[key] = created
             return created
         }
-        do {
-            return try await slot.task.value
-        } catch {
+        defer {
             lock.withLock {
                 if inflight[key] === slot { inflight[key] = nil }
             }
-            throw error
         }
+        return try await slot.task.value
     }
 
     private static func produce(_ asset: PHAsset) async throws -> URL {
@@ -111,8 +134,10 @@ final class PlaybackEngine: ObservableObject {
     let player = AVPlayer()
     private var asset: PHAsset?
     private var token = 0
-    private var videoRequest: PHImageRequestID = PHInvalidImageRequestID
+    private var videoHandle: VideoRequestHandle?
+    private var motionTask: Task<Void, Never>?
     private var endObserver: NSObjectProtocol?
+    nonisolated private static let videoQueue = DispatchQueue(label: "cleanphotos.playback.video", qos: .userInitiated)
     private var statusObs: NSKeyValueObservation?
     private var rememberedMute = true
     private var appliedMuted: Bool?
@@ -374,31 +399,42 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func loadVideo(_ asset: PHAsset, token: Int) {
+        let handle = VideoRequestHandle()
+        videoHandle = handle
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = false
         options.deliveryMode = .automatic
-        videoRequest = PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { [weak self] item, info in
-            Task { @MainActor in
-                guard let self, token == self.token else { return }
-                if (info?[PHImageCancelledKey] as? Bool) == true { return }
-                let inCloud = (info?[PHImageResultIsInCloudKey] as? Bool) == true
-                guard let item, !inCloud else {
-                    self.loadFailed = true
-                    return
+        Self.videoQueue.async { [weak self] in
+            guard !handle.isCancelled else { return }
+            let reqID = PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { [weak self] item, info in
+                guard !handle.isCancelled else { return }
+                Task { @MainActor in
+                    guard let self, token == self.token else { return }
+                    if (info?[PHImageCancelledKey] as? Bool) == true { return }
+                    let inCloud = (info?[PHImageResultIsInCloudKey] as? Bool) == true
+                    guard let item, !inCloud else {
+                        self.loadFailed = true
+                        return
+                    }
+                    self.attach(item)
                 }
-                self.attach(item)
             }
+            handle.attach(reqID, queue: Self.videoQueue)
         }
     }
 
     private func loadMotion(_ asset: PHAsset, token: Int) {
-        Task { [weak self] in
+        motionTask?.cancel()
+        motionTask = Task { [weak self] in
             do {
                 let url = try await LiveVideoCache.file(for: asset)
+                try Task.checkCancellation()
                 await MainActor.run {
                     guard let self, token == self.token else { return }
                     self.attach(AVPlayerItem(url: url))
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 await MainActor.run {
                     guard let self, token == self.token else { return }
@@ -443,10 +479,10 @@ final class PlaybackEngine: ObservableObject {
     }
 
     private func cancelRequest() {
-        if videoRequest != PHInvalidImageRequestID {
-            PHImageManager.default().cancelImageRequest(videoRequest)
-            videoRequest = PHInvalidImageRequestID
-        }
+        motionTask?.cancel()
+        motionTask = nil
+        videoHandle?.cancel()
+        videoHandle = nil
     }
 
     private func tearDownItem() {
@@ -456,5 +492,47 @@ final class PlaybackEngine: ObservableObject {
         }
         statusObs?.invalidate()
         statusObs = nil
+    }
+}
+
+private final class VideoRequestHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var requestID: PHImageRequestID = PHInvalidImageRequestID
+    private weak var queue: DispatchQueue?
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func attach(_ id: PHImageRequestID, queue: DispatchQueue) {
+        guard id != PHInvalidImageRequestID else { return }
+        lock.lock()
+        if cancelled {
+            lock.unlock()
+            queue.async { PHImageManager.default().cancelImageRequest(id) }
+            return
+        }
+        requestID = id
+        self.queue = queue
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let id = requestID
+        let q = queue
+        requestID = PHInvalidImageRequestID
+        queue = nil
+        lock.unlock()
+        guard id != PHInvalidImageRequestID else { return }
+        if let q {
+            q.async { PHImageManager.default().cancelImageRequest(id) }
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async { PHImageManager.default().cancelImageRequest(id) }
+        }
     }
 }

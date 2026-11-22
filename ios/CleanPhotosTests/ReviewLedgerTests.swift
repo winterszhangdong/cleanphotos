@@ -127,4 +127,69 @@ final class ReviewLedgerTests: XCTestCase {
         XCTAssertEqual(r.days[29], .empty, "晚于今天 = Empty")
         XCTAssertEqual(r.done, 2); XCTAssertEqual(r.withPhotos, 3)
     }
+
+    func testIncrementalCoreMatchesFullBuilderAcrossMixedOperations() {
+        let all = (0..<7).map { LedgerPhoto(id: "d1_\($0)", day: "2026-09-21", size: 100) }
+            + (0..<3).map { LedgerPhoto(id: "d2_\($0)", day: "2026-09-20", size: 200) }
+            + (0..<6).map { LedgerPhoto(id: "d3_\($0)", day: "2026-09-19", size: 300) }
+
+        var core = ReviewSessionCore(photos: all, startId: "d1_0")
+
+        func assertMatches(_ step: String, file: StaticString = #filePath, line: UInt = #line) {
+            let expected = ReviewPagesBuilder.build(
+                core.ledger,
+                removed: core.removed,
+                current: ReviewSessionCore.photoId(of: core.currentKey),
+                activeSummaryDay: core.activeSummaryDay
+            )
+            XCTAssertEqual(core.pages, expected, "pages mismatch at \(step)", file: file, line: line)
+            let expectedIdx = core.currentKey.flatMap { key in core.pages.firstIndex { $0.key == key } }
+            XCTAssertEqual(core.currentIndex, expectedIdx, "index mismatch at \(step)", file: file, line: line)
+        }
+
+        assertMatches("init")
+        // 同天横滑跳过若干张 + 处理至触发小结
+        next(&core); assertMatches("settle d1_1")
+        core.act("d1_1", .favorited); assertMatches("act d1_1")
+        core.act("d1_2", .trashed); assertMatches("act d1_2")
+        core.act("d1_3", .favorited); assertMatches("act d1_3")
+        next(&core); assertMatches("settle d1_5")
+        core.act("d1_5", .trashed); assertMatches("act d1_5")
+        // 回退再往前到最后一张触发预判小结
+        core.settle(on: "p-d1_4"); assertMatches("back to d1_4")
+        core.settle(on: "p-d1_6"); assertMatches("predict summary on d1_6")
+        XCTAssertEqual(core.summaryDayInPages, "2026-09-21")
+        // 撤回刚删掉的 d1_5 后删 d1_6（直接落到小结），再从小结撤回 d1_6，接着删 d1_5 并重新滑入小结
+        core.undo("d1_5"); assertMatches("undo d1_5")
+        next(&core); assertMatches("settle d1_6 again")
+        let s1 = core.act("d1_6", .trashed); assertMatches("act d1_6 -> summary")
+        XCTAssertEqual(s1, "s-2026-09-21")
+        // 从小结撤回 d1_6（撤销已小结标记）
+        XCTAssertEqual(core.undo("d1_6"), "p-d1_6"); assertMatches("undo d1_6 from summary")
+        // 滑回 d1_5 并收藏，再删 d1_6 再次进小结
+        core.settle(on: "p-d1_5"); assertMatches("settle d1_5")
+        core.act("d1_5", .favorited); assertMatches("act d1_5 -> d1_6")
+        XCTAssertEqual(core.currentKey, "p-d1_6")
+        let s2 = core.act("d1_6", .trashed); assertMatches("act d1_6 -> summary again")
+        XCTAssertEqual(s2, "s-2026-09-21")
+        // 从小结撤回 d1_6 后通过左右横滑进入再离开小结
+        core.undo("d1_6"); assertMatches("undo d1_6 again")
+        next(&core); assertMatches("enter summary")
+        XCTAssertEqual(core.currentKey, "s-2026-09-21")
+        next(&core); assertMatches("leave summary -> d2_0")
+        XCTAssertEqual(core.currentKey, "p-d2_0")
+        XCTAssertNil(core.summaryDayInPages)
+        // 压缩替换 d2_1 并往后翻到 d3 并删光所有照片直至结束
+        core.replace("d2_1", with: LedgerPhoto(id: "d2_1_comp", day: "2026-09-20", size: 50))
+        assertMatches("replace d2_1")
+        next(&core); assertMatches("settle d2_1_comp")
+        next(&core); assertMatches("settle d2_2")
+        next(&core); assertMatches("settle d3_0")
+        for i in 0..<5 {
+            core.act("d3_\(i)", .trashed)
+            assertMatches("trash d3_\(i)")
+        }
+        core.act("d3_5", .trashed); assertMatches("trash last d3_5 -> d3 summary")
+        XCTAssertEqual(core.currentKey, "s-2026-09-19")
+    }
 }

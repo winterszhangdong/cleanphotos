@@ -38,7 +38,7 @@ struct MainTabView: View {
                 reviewLaunch: launchBinding,
                 hideTabBar: $hideTabBar,
                 dimTabBar: $dimTabBar,
-                photosVisible: tab == .photos,
+                photosVisible: tab == .photos && (reviewLaunch == nil || clock != nil),
                 onOpenTrash: { tab = .trash }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

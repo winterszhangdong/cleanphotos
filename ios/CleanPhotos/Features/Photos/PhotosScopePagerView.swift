@@ -145,6 +145,8 @@ final class PhotosPagerController: NSObject, UIScrollViewDelegate {
     private var dragSelectActive = false
     private var currentStuckDayId: String?
     private var scrubHideTask: Task<Void, Never>?
+    private var lastVisibleScope: LibraryScope?
+    private var needsSyncWhenVisible = false
 
     override init() {
         super.init()
@@ -198,6 +200,18 @@ final class PhotosPagerController: NSObject, UIScrollViewDelegate {
         props = next
         bindOverlayIfNeeded(next.overlay)
 
+        guard next.photosVisible else {
+            needsSyncWhenVisible = true
+            for slot in slots.values {
+                slot.setInactive()
+            }
+            return
+        }
+        let resuming = needsSyncWhenVisible
+        needsSyncWhenVisible = false
+        let prevVisibleScope = lastVisibleScope
+        lastVisibleScope = next.currentScope
+
         pagerScrollView.pageCount = next.scopes.count
         let dragAllowed = !next.selecting && !next.menuOpen && !next.showLanguageSheet && !dragSelectActive && !next.scrubActive
         pagerScrollView.scopeDragEnabled = dragAllowed
@@ -214,12 +228,12 @@ final class PhotosPagerController: NSObject, UIScrollViewDelegate {
             if abs(pagerScrollView.contentSize.width - contentW) > 0.5 || abs(pagerScrollView.contentSize.height - pagerScrollView.bounds.height) > 0.5 {
                 pagerScrollView.contentSize = CGSize(width: contentW, height: pagerScrollView.bounds.height)
             }
-            if scopesChanged || prev == nil {
+            if scopesChanged || prev == nil || resuming {
                 if !pagerScrollView.isDragging && !dialDragging && animatingToIndex == nil {
                     pagerScrollView.contentOffset.x = CGFloat(targetIdx) * width
                     dialView?.setProgress(CGFloat(targetIdx))
                 }
-            } else if let prev, prev.currentScope != next.currentScope {
+            } else if prevVisibleScope != next.currentScope {
                 if animatingToIndex != targetIdx && !pagerScrollView.isDragging && !dialDragging {
                     stopSnap()
                     pagerScrollView.contentOffset.x = CGFloat(targetIdx) * width
@@ -239,16 +253,14 @@ final class PhotosPagerController: NSObject, UIScrollViewDelegate {
             applyProps(next, to: slot, scope: scope)
         }
 
-        if prev?.currentScope != next.currentScope {
+        if prevVisibleScope != next.currentScope {
             syncActiveChromeState(scope: next.currentScope, resetOffset: true)
         } else {
             syncActiveChromeState(scope: next.currentScope, resetOffset: false)
         }
 
         refreshStickyHeaderContent()
-        if next.photosVisible {
-            flushPendingOffset(for: next.currentScope)
-        }
+        flushPendingOffset(for: next.currentScope)
     }
 
     // MARK: External Navigation & Operations
@@ -1007,6 +1019,11 @@ private final class ScopePageSlot: UIView {
         return false
     }
 
+    func setInactive() {
+        emptyModel.active = false
+        gridView?.setActiveScope(false)
+    }
+
     func setScrollOffset(_ y: CGFloat, programmatic: Bool) {
         if currentBody == .grid { gridView?.setScrollOffset(y, programmatic: programmatic) }
         else if currentBody == .similar { similarView?.setScrollOffset(y, programmatic: programmatic) }
@@ -1036,7 +1053,10 @@ private final class ScopePageSlot: UIView {
         switch body {
         case .grid:
             similarView?.isHidden = true
-            emptyHost?.view.isHidden = true
+            emptyModel.active = false
+            emptyModel.body = body
+            emptyHost?.view.removeFromSuperview()
+            emptyHost = nil
             let gridConfig = PhotosGridView.Config(
                 scope: scope,
                 page: page,
@@ -1078,7 +1098,10 @@ private final class ScopePageSlot: UIView {
 
         case .similar:
             gridView?.isHidden = true
-            emptyHost?.view.isHidden = true
+            emptyModel.active = false
+            emptyModel.body = body
+            emptyHost?.view.removeFromSuperview()
+            emptyHost = nil
             if let similarView {
                 similarView.isHidden = false
                 similarView.update(
@@ -1108,6 +1131,7 @@ private final class ScopePageSlot: UIView {
         default:
             gridView?.isHidden = true
             similarView?.isHidden = true
+            emptyModel.active = photosVisible && isActiveScope
             emptyModel.body = body
             emptyModel.scope = scope
             emptyModel.chromeHeight = chromeHeight
@@ -1134,6 +1158,7 @@ private final class ScopePageSlot: UIView {
 }
 
 private final class PhotosEmptyHostModel: ObservableObject {
+    @Published var active = true
     @Published var body: PhotosBody = .loading
     @Published var scope: LibraryScope = .all
     @Published var chromeHeight: CGFloat = 96
@@ -1153,7 +1178,7 @@ private struct PhotosEmptyHostView: View {
                 Color.clear.frame(height: model.chromeHeight)
                 switch model.body {
                 case .loading:
-                    LoadingSkeletonGrid()
+                    LoadingSkeletonGrid(active: model.active)
                 case .allSeen:
                     AllSeenView(locale: model.locale, onTrash: onOpenTrash, onShowAll: onShowAllSeen)
                 case .scopeSeen:

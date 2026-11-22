@@ -22,6 +22,22 @@ final class AssetSizeCache: @unchecked Sendable {
         return map[id]?.originalFilename
     }
 
+    /// 已经查过的文件信息（含文件名与字节数）。没查过返回 nil，不触发 PHAssetResource 查询。
+    func cachedInfo(_ id: String) -> Info? {
+        lock.lock(); defer { lock.unlock() }
+        return map[id]
+    }
+
+    /// 异步查询文件信息，避免在主线程视图求值期间同步调用 PHAssetResource。
+    func loadInfo(for asset: PHAsset) async -> Info {
+        if let cached = cachedInfo(asset.localIdentifier) {
+            return cached
+        }
+        return await Task.detached(priority: .userInitiated) {
+            self.info(for: asset)
+        }.value
+    }
+
     /// 原始文件名（不含扩展名）；清理页元信息行用，和大小一次查出（PHAssetResource 在主线程上每张几毫秒）。
     func name(for asset: PHAsset) -> String? { info(for: asset).name }
 

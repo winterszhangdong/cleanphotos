@@ -4,6 +4,11 @@ import PhotosUI
 import UIKit
 import Combine
 
+/// 清理页撤回条的刷新信号。不挂在 `PhotoLibraryService` 的 `@Published` 上，网格就不会跟着重算。
+final class UndoPulse: ObservableObject {
+    @Published var tick: UInt = 0
+}
+
 @MainActor
 final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     @Published private(set) var authorization: PHAuthorizationStatus
@@ -17,6 +22,10 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
     @Published private(set) var trashBytes: Int64 = 0
     @Published private(set) var isLoading = false
     @Published var undoBanner: UndoBanner?
+    /// 清理页正在显示的撤回条。不发布：`undoBanner` 一变，MainTab 和被盖住的照片页会整棵重算，正好落在离场第一帧。
+    private(set) var reviewUndo: UndoBanner?
+    /// 只给清理页：撤回条在清理页里变了（出现、改副文案、4 秒到期）时敲一下，不惊动网格。
+    let undoPulse = UndoPulse()
     /// 清理页在前台时为 true：照片 / 收藏 / 垃圾桶页不显示撤回条（Android 的单张撤回属于 ReviewViewModel，离开清理页即消失）。
     @Published var reviewActive = false
     /// 排序不写 UserDefaults。每次启动都是最新优先；这次进程里换过的选择留着。
@@ -841,10 +850,24 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
         return "fail_generic"
     }
 
+    /// 清理页读这一份。网格继续读 `undoBanner`（清理页期间它不动）。
+    var activeUndo: UndoBanner? { reviewActive && !PerfLegacy.on ? reviewUndo : undoBanner }
+
+    /// 清理页打开时只改 `reviewUndo` 并敲 `undoPulse`。网格那份 `@Published` 留到离开清理页。
+    private func storeUndo(_ banner: UndoBanner?) {
+        if reviewActive && !PerfLegacy.on {
+            reviewUndo = banner
+            undoPulse.tick &+= 1
+            return
+        }
+        reviewUndo = nil
+        if undoBanner != banner { undoBanner = banner }
+    }
+
     func undoLast() {
-        guard let banner = undoBanner else { return }
+        guard let banner = activeUndo else { return }
         undoTask?.cancel()
-        undoBanner = nil
+        storeUndo(nil)
         switch banner.kind {
         case .favorited(let ids):
             favorites.remove(ids)
@@ -865,30 +888,37 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
 
     func presentUndo(_ kind: UndoKind, sample: String?, burst: Bool = false) {
         undoTask?.cancel()
-        undoBanner = UndoBanner(kind: kind, sampleId: sample, burst: burst)
+        storeUndo(UndoBanner(kind: kind, sampleId: sample, burst: burst))
         restartUndoTimer()
     }
 
     /// 清理页把刚出现的撤回条改成单张文案 + 副文案，并重启 4 秒倒计时。
     func decorateUndo(subtitle: String?) {
-        guard var b = undoBanner else { return }
+        guard var b = activeUndo else { return }
         b.subtitle = subtitle
         b.single = true
-        undoBanner = b
+        storeUndo(b)
     }
 
     private func restartUndoTimer() {
         undoTask = Task {
             try? await Task.sleep(nanoseconds: UInt64(UndoBanner.lifetime * 1_000_000_000))
-            if !Task.isCancelled { undoBanner = nil }
+            if !Task.isCancelled { storeUndo(nil) }
         }
     }
 
     /// 离开清理页：单张撤回条随清理页一起消失（Android ReviewViewModel 作用域）。
     func endReview() {
+        if activeUndo?.single == true {
+            undoTask?.cancel()
+            reviewUndo = nil
+            if undoBanner != nil { undoBanner = nil }
+        } else if let pending = reviewUndo {
+            reviewUndo = nil
+            undoBanner = pending
+        }
         reviewActive = false
         flushDeferredSeen()
-        if undoBanner?.single == true { clearUndo() }
         if libraryDirty {
             libraryDirty = false
             Task { await reload(fresh: true) }
@@ -897,7 +927,7 @@ final class PhotoLibraryService: NSObject, ObservableObject, PHPhotoLibraryChang
 
     func clearUndo() {
         undoTask?.cancel()
-        undoBanner = nil
+        storeUndo(nil)
     }
 
     func reviewQueue(scope: ReviewScope, startingAt id: String? = nil, dayId: String? = nil) -> (items: [PhotoItem], startIndex: Int) {

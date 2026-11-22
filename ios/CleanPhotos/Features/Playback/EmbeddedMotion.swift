@@ -20,17 +20,70 @@ enum EmbeddedMotionCache {
         }
     }
 
+    private final class FileSlot: @unchecked Sendable {
+        let task: Task<URL?, Error>
+        var waiters = 0
+        init(_ task: Task<URL?, Error>) { self.task = task }
+    }
+
+    private final class LocateSlot: @unchecked Sendable {
+        let task: Task<MotionPhotoVideo?, Error>
+        var waiters = 0
+        init(_ task: Task<MotionPhotoVideo?, Error>) { self.task = task }
+    }
+
+    private final class LeaveFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if done { return false }
+            done = true
+            return true
+        }
+    }
+
     private static let lock = NSLock()
     private static var memo: [String: Memo] = [:]
     private static var order: [String] = []
+    private static var inflightFile: [String: FileSlot] = [:]
+    private static var inflightLocate: [String: LocateSlot] = [:]
+    private static var prefetchTask: Task<Void, Never>?
+    private static var prefetchKey: String?
+    private static let streamGate = MotionStreamGate()
     private static let cap = 256
     private static let embeddable = ["jpg", "jpeg", "heic", "heif", "avif"]
 
     static func prefetch(_ asset: PHAsset) {
         guard asset.mediaType == .image, !asset.mediaSubtypes.contains(.photoLive) else { return }
-        Task.detached(priority: .utility) {
+        let key = asset.localIdentifier
+        lock.lock()
+        if let cached = memo[key], cached.located {
+            let needsMaterialize = cached.video != nil && cached.file.map { !FileManager.default.fileExists(atPath: $0.path) } ?? true
+            if !needsMaterialize {
+                lock.unlock()
+                return
+            }
+        }
+        prefetchTask?.cancel()
+        prefetchKey = key
+        let task = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
             _ = try? await file(for: asset)
         }
+        prefetchTask = task
+        lock.unlock()
+    }
+
+    static func cancelPrefetch() {
+        lock.lock()
+        let task = prefetchTask
+        prefetchTask = nil
+        prefetchKey = nil
+        lock.unlock()
+        task?.cancel()
     }
 
     /// 只定位，不拷视频。相似对比用来决定要不要写「动态」。
@@ -38,6 +91,41 @@ enum EmbeddedMotionCache {
         guard asset.mediaType == .image else { return nil }
         let key = asset.localIdentifier
         if let cached = cached(key), cached.located { return cached.video }
+        let slot: LocateSlot = lock.withLock {
+            if let existing = inflightLocate[key] {
+                existing.waiters += 1
+                return existing
+            }
+            let task = Task.detached(priority: .userInitiated) {
+                try await performLocate(asset, key: key)
+            }
+            let created = LocateSlot(task)
+            created.waiters = 1
+            inflightLocate[key] = created
+            return created
+        }
+        let leave = LeaveFlag()
+        let release = {
+            guard leave.claim() else { return }
+            let cancelTask: Task<MotionPhotoVideo?, Error>? = lock.withLock {
+                slot.waiters = max(0, slot.waiters - 1)
+                if slot.waiters == 0 {
+                    if inflightLocate[key] === slot { inflightLocate[key] = nil }
+                    return slot.task
+                }
+                return nil
+            }
+            cancelTask?.cancel()
+        }
+        defer { release() }
+        return try await withTaskCancellationHandler {
+            try await slot.task.value
+        } onCancel: {
+            release()
+        }
+    }
+
+    private static func performLocate(_ asset: PHAsset, key: String) async throws -> MotionPhotoVideo? {
         guard let source = try await open(asset) else {
             store(key, Memo(video: nil, file: nil, located: true))
             return nil
@@ -54,6 +142,45 @@ enum EmbeddedMotionCache {
     static func file(for asset: PHAsset) async throws -> URL? {
         guard asset.mediaType == .image else { return nil }
         let key = asset.localIdentifier
+        if let cached = cached(key) {
+            if cached.located, cached.video == nil { return nil }
+            if let file = cached.file, FileManager.default.fileExists(atPath: file.path) { return file }
+        }
+        let slot: FileSlot = lock.withLock {
+            if let existing = inflightFile[key] {
+                existing.waiters += 1
+                return existing
+            }
+            let task = Task.detached(priority: .userInitiated) {
+                try await performFile(asset, key: key)
+            }
+            let created = FileSlot(task)
+            created.waiters = 1
+            inflightFile[key] = created
+            return created
+        }
+        let leave = LeaveFlag()
+        let release = {
+            guard leave.claim() else { return }
+            let cancelTask: Task<URL?, Error>? = lock.withLock {
+                slot.waiters = max(0, slot.waiters - 1)
+                if slot.waiters == 0 {
+                    if inflightFile[key] === slot { inflightFile[key] = nil }
+                    return slot.task
+                }
+                return nil
+            }
+            cancelTask?.cancel()
+        }
+        defer { release() }
+        return try await withTaskCancellationHandler {
+            try await slot.task.value
+        } onCancel: {
+            release()
+        }
+    }
+
+    private static func performFile(_ asset: PHAsset, key: String) async throws -> URL? {
         if let cached = cached(key) {
             if cached.located, cached.video == nil { return nil }
             if let file = cached.file, FileManager.default.fileExists(atPath: file.path) { return file }
@@ -116,18 +243,29 @@ enum EmbeddedMotionCache {
 
     /// 有本地路径就随机读。没有路径时，只有看起来像 JPEG / HEIC 的原文件才整段拷出来再读。
     private static func open(_ asset: PHAsset) async throws -> Source? {
+        try Task.checkCancellation()
         let resources = PHAssetResource.assetResources(for: asset)
         guard let resource = resources.first(where: { $0.type == .photo })
                 ?? resources.first(where: { $0.type == .fullSizePhoto }) else {
             return nil
         }
+        try Task.checkCancellation()
         if let url = directFileURL(resource) {
             let scoped = url.startAccessingSecurityScopedResource()
             return Source(url: url, temporary: false, scoped: scoped)
         }
         let ext = (resource.originalFilename as NSString).pathExtension.lowercased()
         guard embeddable.contains(ext) else { return nil }
-        let url = try await stream(resource)
+        try await streamGate.acquire()
+        let url: URL
+        do {
+            try Task.checkCancellation()
+            url = try await stream(resource)
+        } catch {
+            await streamGate.release()
+            throw error
+        }
+        await streamGate.release()
         return Source(url: url, temporary: true, scoped: false)
     }
 
@@ -287,5 +425,42 @@ private final class StreamGate: @unchecked Sendable {
         self.continuation = nil
         lock.unlock()
         body(continuation)
+    }
+}
+
+private actor MotionStreamGate {
+    private var busy = false
+    private var waiters: [(id: UUID, cont: CheckedContinuation<Void, Error>)] = []
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        if !busy {
+            busy = true
+            return
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                waiters.append((id, cont))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        if let idx = waiters.firstIndex(where: { $0.id == id }) {
+            let waiter = waiters.remove(at: idx)
+            waiter.cont.resume(throwing: CancellationError())
+        }
+    }
+
+    func release() {
+        if !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            next.cont.resume()
+            return
+        }
+        busy = false
     }
 }

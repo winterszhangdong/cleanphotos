@@ -52,6 +52,9 @@ final class ReviewSessionModel: ObservableObject {
     private var core: ReviewSessionCore
     private var photosById: [String: PhotoItem]
     private weak var library: PhotoLibraryService?
+    private var lastPublishedRevision = -1
+    private var monthIndex: [String: [String: [String]]]?
+    private var monthIndexTask: Task<Void, Never>?
 
     init(scope: ReviewScope, items: [PhotoItem], startIndex: Int, library: PhotoLibraryService? = nil) {
         self.scope = scope
@@ -63,6 +66,33 @@ final class ReviewSessionModel: ObservableObject {
         let start = items.indices.contains(startIndex) ? items[startIndex].id : items.first?.id
         core = ReviewSessionCore(photos: ledgerPhotos, startId: start)
         publish()
+
+        if let library, !library.allById.isEmpty {
+            let entries = library.allById.map { ($0.key, $0.value.creationDate) }
+            monthIndexTask = Task.detached(priority: .utility) { [weak self] in
+                var built: [String: [String: [String]]] = [:]
+                for (id, date) in entries {
+                    if Task.isCancelled { return }
+                    let day = ReviewSessionModel.dayKey(date)
+                    let month = String(day.prefix(7))
+                    built[month, default: [:]][day, default: []].append(id)
+                }
+                if Task.isCancelled { return }
+                let result = built
+                await self?.applyMonthIndex(result)
+            }
+        }
+    }
+
+    private func applyMonthIndex(_ index: [String: [String: [String]]]) {
+        self.monthIndex = index
+        if core.summaryDayInPages != nil {
+            publish(forceSummaryRefresh: true)
+        }
+    }
+
+    deinit {
+        monthIndexTask?.cancel()
     }
 
     typealias CellState = DayCellState
@@ -79,9 +109,8 @@ final class ReviewSessionModel: ObservableObject {
 
     var isCompleted: Bool { core.isCompleted }
 
-    /// 「yyyy-MM-dd」（本地时区）。清理页每帧要算好几次（进度条 / 小结 / 月历），Calendar + String(format:) 不便宜，按时间戳缓存；
-    /// 系统时区变了清空。
-    static func dayKey(_ date: Date) -> String {
+    /// 「yyyy-MM-dd」（本地时区）。纯整数拼接，避免 String(format:) 走 snprintf_l。
+    nonisolated static func dayKey(_ date: Date) -> String {
         // 没有拍摄时间：「未知日期」（不生成小结，与 Android DayKey.UNKNOWN 一致）
         if DayKeyRule.isUnknown(date) { return ReviewRules.unknownDay }
         let t = date.timeIntervalSinceReferenceDate
@@ -90,7 +119,13 @@ final class ReviewSessionModel: ObservableObject {
         if !PerfLegacy.on, let v = DayKeyCache.map[t] { DayKeyCache.lock.unlock(); return v }
         DayKeyCache.lock.unlock()
         let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        let v = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+        let y = max(0, c.year ?? 0)
+        let m = max(0, c.month ?? 0)
+        let d = max(0, c.day ?? 0)
+        let yStr = y >= 1000 ? "\(y)" : (y >= 100 ? "0\(y)" : (y >= 10 ? "00\(y)" : "000\(y)"))
+        let mStr = m < 10 ? "0\(m)" : "\(m)"
+        let dStr = d < 10 ? "0\(d)" : "\(d)"
+        let v = "\(yStr)-\(mStr)-\(dStr)"
         DayKeyCache.lock.lock()
         if DayKeyCache.map.count > 50_000 { DayKeyCache.map.removeAll(keepingCapacity: true) }
         DayKeyCache.map[t] = v
@@ -149,23 +184,28 @@ final class ReviewSessionModel: ObservableObject {
 
     /// 页序只交出 ledger 的 key 列表，照片页按下标取时才映射（见 ReviewPageList）；小结页（最多一两张）在这里算好。
     /// 之前每次收藏 / 翻页都把整个会话（几千张）重新映射、拷贝一遍，正好落在松手那一帧。
-    private func publish() {
-        let lib = library
-        var monthCache: [String: (days: [MonthDayState], done: Int, withPhotos: Int)] = [:]
+    private func publish(forceSummaryRefresh: Bool = false) {
+        let summaryDay = core.summaryDayInPages
+        if !forceSummaryRefresh && summaryDay == nil && core.pagesRevision == lastPublishedRevision {
+            index = core.currentIndex ?? 0
+            return
+        }
         var summaries: [String: DaySummary] = [:]
-        for page in core.pages {
-            if case .summary(let day) = page { summaries[day] = buildSummary(day, library: lib, monthCache: &monthCache) }
+        if let summaryDay {
+            var monthCache: [String: (days: [MonthDayState], done: Int, withPhotos: Int)] = [:]
+            summaries[summaryDay] = buildSummary(summaryDay, library: library, monthCache: &monthCache)
         }
         pages = ReviewPageList(keys: core.pages, photos: photosById, summaries: summaries)
+        lastPublishedRevision = core.pagesRevision
         index = core.currentIndex ?? 0
     }
 
     private func buildSummary(_ day: String, library: PhotoLibraryService?, monthCache: inout [String: (days: [MonthDayState], done: Int, withPhotos: Int)]) -> DaySummary {
         let ledger = core.ledger
         var tally = DayTally.of(ledger, day: day)
-        // 大小在会话里懒取（AssetSizeCache），小结时补齐「释放」。
+        // 只读内存已缓存的大小，不在翻页/处理时阻塞主线程查 PHAssetResource
         tally.freedBytes = ledger.photosOfDay(day).filter { ledger.outcomes[$0.id] == .trashed }
-            .reduce(Int64(0)) { $0 + (photosById[$1.id]?.byteSize ?? 0) }
+            .reduce(Int64(0)) { $0 + (AssetSizeCache.shared.cachedBytes($1.id) ?? 0) }
         let days = ledger.daysInOrder
         let nextDay = days.firstIndex(of: day).flatMap { $0 + 1 < days.count ? days[$0 + 1] : nil }
         let nextPhotos = nextDay.map { ledger.photosOfDay($0) } ?? []
@@ -176,12 +216,29 @@ final class ReviewSessionModel: ObservableObject {
         if let m = monthCache[monthKey] { month = m } else {
             var byDay: [String: [String]] = [:]
             var processed = Set<String>()
-            if let library {
-                for (id, p) in library.allById {
-                    let k = Self.dayKey(p.creationDate)
-                    guard k.hasPrefix(monthKey) else { continue }
-                    byDay[k, default: []].append(id)
-                    if library.favorites.contains(id) || library.trash.contains(id) { processed.insert(id) }
+            if let monthBucket = monthIndex?[monthKey] {
+                for (dayKey, ids) in monthBucket {
+                    var validIds: [String] = []
+                    for id in ids {
+                        if let library, library.allById[id] == nil { continue }
+                        validIds.append(id)
+                        if let library, library.favorites.contains(id) || library.trash.contains(id) {
+                            processed.insert(id)
+                        }
+                    }
+                    if !validIds.isEmpty { byDay[dayKey] = validIds }
+                }
+            } else {
+                for dayKey in days where dayKey.hasPrefix(monthKey) {
+                    let ids = ledger.photosOfDay(dayKey).map(\.id)
+                    if !ids.isEmpty { byDay[dayKey] = ids }
+                    for id in ids {
+                        if (library?.favorites.contains(id) ?? false)
+                            || (library?.trash.contains(id) ?? false)
+                            || ledger.outcomes[id] != nil {
+                            processed.insert(id)
+                        }
+                    }
                 }
             }
             month = MonthProgressBuilder.build(monthOf: day, photosByDay: byDay, processed: processed,

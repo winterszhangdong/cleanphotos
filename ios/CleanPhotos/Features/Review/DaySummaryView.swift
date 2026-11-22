@@ -118,9 +118,8 @@ struct DaySummaryView: View {
             .background {
                 ZStack {
                     DarkroomColors.room
-                    SummaryBackdrop(id: summary.tally.previewIds.first)
+                    SummaryBackdrop(id: summary.tally.previewIds.first, pageSize: geo.size)
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .scaleEffect(1.2)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()
@@ -301,24 +300,50 @@ private struct MonthTick: View {
     }
 }
 
-/// .sum-bg：当天照片 blur 36 · brightness 0.32 · saturate 1.2，四边外扩 40。
+/// .sum-bg：当天照片 1.2× · blur 36 · saturate 1.2 · brightness 0.32（后台一次生成位图，零实时模糊）。
 private struct SummaryBackdrop: View {
     let id: String?
+    let pageSize: CGSize
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var image: UIImage?
+    @State private var token: ThumbnailToken?
+
     var body: some View {
         ZStack {
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.medium)
                     .accessibilityHidden(true)
-                    .blur(radius: 36)
-                    .saturation(1.2)
-                    .colorMultiply(Color(white: 0.32))
             }
         }
-        .onAppear {
-            if let id, let asset = library.allById[id]?.asset {
-                _ = library.requestThumbnail(for: asset, side: 120) { img in Task { @MainActor in image = img } }
+        .onAppear { load() }
+        .onDisappear {
+            token?.cancel()
+            token = nil
+        }
+    }
+
+    private func load() {
+        guard image == nil, let id, let asset = library.allById[id]?.asset else { return }
+        if let thumb = library.thumbnails.cached(id: id, side: 120, style: .normal) {
+            renderGlow(from: thumb, id: id)
+            return
+        }
+        token?.cancel()
+        token = library.thumbnails.request(asset: asset, side: 120, style: .normal) { img, degraded in
+            guard !degraded || image == nil else { return }
+            renderGlow(from: img, id: id)
+        }
+    }
+
+    private func renderGlow(from thumb: UIImage, id: String) {
+        let targetSize = CGSize(width: max(1, pageSize.width), height: max(1, pageSize.height))
+        DispatchQueue.global(qos: .utility).async {
+            let rendered = ReviewImageStore.makeGlow(thumb, page: targetSize, saturation: 1.2, brightness: 0.32) ?? thumb
+            DispatchQueue.main.async {
+                guard self.id == id else { return }
+                self.image = rendered
             }
         }
     }
@@ -333,6 +358,7 @@ private struct SummaryThumb: View {
     var corner: CGFloat = 4
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var image: UIImage?
+    @State private var token: ThumbnailToken?
 
     var body: some View {
         ZStack {
@@ -342,8 +368,7 @@ private struct SummaryThumb: View {
                     .resizable()
                     .scaledToFill()
                     .accessibilityHidden(true)
-                    .saturation(trashed ? 0 : 1)
-                    .colorMultiply(Color(white: trashed ? 0.3 : 1))
+                    .opacity(trashed ? 0.55 : 1)
             }
         }
         .frame(width: side, height: side)
@@ -355,11 +380,20 @@ private struct SummaryThumb: View {
             }
         }
         .onAppear {
-            if let asset = library.allById[id]?.asset {
-                _ = library.requestThumbnail(for: asset, side: side * 2) { img in
-                    Task { @MainActor in image = img }
-                }
+            guard image == nil, let asset = library.allById[id]?.asset else { return }
+            let style: ThumbnailStyle = trashed ? .trashed : .normal
+            if let hit = library.thumbnails.cached(id: id, side: side, style: style) {
+                image = hit
+                return
             }
+            token?.cancel()
+            token = library.thumbnails.request(asset: asset, side: side, style: style) { img, _ in
+                image = img
+            }
+        }
+        .onDisappear {
+            token?.cancel()
+            token = nil
         }
     }
 }

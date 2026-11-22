@@ -8,7 +8,7 @@ struct PlaybackSurface: UIViewRepresentable {
     let animateFade: Bool
 
     func makeUIView(context: Context) -> PlayerHost {
-        let view = PlayerHost()
+        let view = PlayerHostPool.dequeue()
         view.attach(player)
         return view
     }
@@ -16,6 +16,32 @@ struct PlaybackSurface: UIViewRepresentable {
     func updateUIView(_ view: PlayerHost, context: Context) {
         view.attach(player)
         view.setFadeOut(fadeOut, animated: animateFade)
+    }
+
+    static func dismantleUIView(_ view: PlayerHost, coordinator: ()) {
+        PlayerHostPool.recycle(view)
+    }
+}
+
+@MainActor
+enum PlayerHostPool {
+    private static var spare: [PlayerHost] = []
+    private static let cap = 2
+
+    static func warm() {
+        guard spare.isEmpty else { return }
+        recycle(PlayerHost(frame: .zero))
+    }
+
+    static func dequeue() -> PlayerHost {
+        if let reused = spare.popLast() { return reused }
+        return PlayerHost(frame: .zero)
+    }
+
+    static func recycle(_ view: PlayerHost) {
+        view.prepareForReuse()
+        guard spare.count < cap else { return }
+        spare.append(view)
     }
 }
 
@@ -38,6 +64,15 @@ final class PlayerHost: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func prepareForReuse() {
+        readyObs?.invalidate()
+        readyObs = nil
+        playerLayer.player = nil
+        ready = false
+        fading = false
+        alpha = 0
+    }
 
     func attach(_ player: AVPlayer) {
         guard playerLayer.player !== player else { return }
